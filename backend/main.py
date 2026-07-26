@@ -1,7 +1,8 @@
 from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
-import uuid # Add this at the very top with your other imports
+from fastapi.middleware.cors import CORSMiddleware 
+import uuid 
 from sqlalchemy.future import select
 from typing import List
 
@@ -13,6 +14,20 @@ import security
 app = FastAPI(title="Municipal Complaint Management API")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
 
+origins = [
+    "http://localhost:3000",  
+    "http://localhost:5173", 
+    "http://localhost:8080", 
+    "*"                      
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,       
+    allow_credentials=True,      
+    allow_methods=["*"],         
+    allow_headers=["*"],
+)
 
 async def get_db():
     async with AsyncSessionLocal() as session:
