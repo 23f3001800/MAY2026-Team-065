@@ -75,7 +75,12 @@ git commit -m "clear message about what changed"
 **3. Before pushing, pull develop in again** (someone may have merged while you worked):
 
 ```bash
-git fetch origin
+git fetch origin ##### if we are fetching from the main
+git fetch origin develop  ### we mostly fetch the changes from the develop branch
+###### To view the commit logs and messages that are in develop but not in your current branch, run: 
+git log HEAD..FETCH_HEAD --oneline
+####### If you look at the differences and decide you want to sync your current branch with develop, run:
+git merge FETCH_HEAD
 git merge origin/develop
 git push
 ```
