@@ -1,0 +1,119 @@
+/* ─── Google Font Import (must precede @tailwind directives) ── */
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Outfit:wght@400;600;700;800&display=swap');
+
+/* ─── Tailwind Directives ─────────────────────────────────── */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ─── Global Base Styles ──────────────────────────────────── */
+@layer base {
+
+  /* Tailwind Preflight already resets box-sizing, margin, and padding. */
+  body {
+    background-color: #090d16;
+    color: #f8fafc;
+    font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar {
+    width: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: #090d16;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 4px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(16, 185, 129, 0.4);
+  }
+}
+
+/* ─── Custom Utilities (complex values Tailwind can't express inline) ── */
+@layer utilities {
+
+  /* Blob background container */
+  .bg-blob-container {
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    overflow: hidden;
+    background: radial-gradient(circle at 10% 20%, rgba(9, 13, 22, 1) 0%, rgba(13, 20, 35, 1) 90%);
+  }
+
+  /* Shared blob base style */
+  .bg-blob {
+    position: absolute;
+    border-radius: 50%;
+    filter: blur(100px);
+    opacity: 0.18;
+    mix-blend-mode: screen;
+    pointer-events: none;
+  }
+
+  /* Submit button shimmer sweep */
+  .submit-btn-shimmer::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    left: -100%;
+    width: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.15), transparent);
+    transition: 0.5s;
+  }
+
+  .submit-btn-shimmer:hover::before {
+    left: 100%;
+  }
+
+  /* Illustration left-pane gradient */
+  .illustration-gradient {
+    background: linear-gradient(135deg, rgba(16, 185, 129, 0.12) 0%, rgba(59, 130, 246, 0.12) 100%);
+  }
+
+  /* App-title gradient text */
+  .gradient-text-title {
+    background: linear-gradient(to right, #ffffff, #cbd5e1);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  /* Logo icon gradient */
+  .logo-gradient {
+    background: linear-gradient(135deg, #10b981 0%, #3b82f6 100%);
+  }
+
+  /* Active role-tab gradient */
+  .role-tab-active-bg {
+    background: linear-gradient(135deg, rgba(16, 185, 129, 0.2) 0%, rgba(59, 130, 246, 0.2) 100%);
+  }
+
+  /* Submit button gradient */
+  .submit-gradient {
+    background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  }
+
+  /* Transition helpers */
+  .transition-smooth {
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .transition-fast {
+    transition: all 0.15s ease;
+  }
+
+  .auth-input::placeholder {
+    color: #64748b;
+  }
+}
