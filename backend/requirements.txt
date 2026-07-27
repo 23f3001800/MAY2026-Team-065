@@ -1,0 +1,12 @@
+fastapi
+uvicorn[standard]
+sqlalchemy>=2.0
+asyncpg
+pydantic
+python-jose[cryptography]
+PyJWT
+passlib[bcrypt]==1.7.4
+bcrypt==4.0.1
+python-multipart
+email-validator
+python-dotenv
