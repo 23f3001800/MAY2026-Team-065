@@ -2,6 +2,7 @@ from pydantic import BaseModel
 from datetime import datetime
 from typing import List, Optional
 from database import StatusEnum, SeverityEnum
+from pydantic import BaseModel, EmailStr, Field
 
 # --- User & Auth Schemas --
 class UserRegister(BaseModel):
@@ -61,3 +62,6 @@ class ComplaintResponse(BaseModel):
     category: CategoryResponse
     class Config: 
         from_attributes = True
+
+class ComplaintAssign(BaseModel):
+    fieldWorkerId: str
