@@ -21,3 +21,7 @@
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# Windows alternate-data-stream stubs created when files are copied into WSL.
+# Not `*:Zone.Identifier` — WSL stores that colon as U+F03A, not an ASCII colon.
+*Zone.Identifier
