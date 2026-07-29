@@ -65,3 +65,23 @@ class ComplaintResponse(BaseModel):
 
 class ComplaintAssign(BaseModel):
     fieldWorkerId: str
+
+class FieldWorkerCreate(BaseModel):
+    name: str
+    email: str
+    phone: str
+    password: str
+    skillSet: str  # E.g., "Plumbing, Sanitation"
+
+class FieldWorkerResponse(BaseModel):
+    userId: str    
+    name: str
+    phone: str
+    skillSet: str  
+    availabilityStatus: str
+
+    class Config:
+        from_attributes = True
+
+class PasswordReset(BaseModel):
+    newPassword: str
