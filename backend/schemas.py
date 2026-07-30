@@ -85,3 +85,7 @@ class FieldWorkerResponse(BaseModel):
 
 class PasswordReset(BaseModel):
     newPassword: str
+
+# available
+class AvailabilityUpdate(BaseModel):
+    status: str = Field(..., pattern="^(AVAILABLE|UNAVAILABLE)$", description="Must be AVAILABLE or UNAVAILABLE")

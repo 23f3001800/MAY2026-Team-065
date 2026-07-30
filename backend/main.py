@@ -462,3 +462,77 @@ async def reset_user_password(
         "email": user.email,
         "role": user.role
     }
+
+# Uploads images by worker/citizen
+# Allows the Citizen (creator) or Field Worker (assigned) to upload photos. 
+@app.post("/complaints/{complaintId}/image", status_code=status.HTTP_201_CREATED)
+async def upload_complaint_image(
+    complaintId: str,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: models.UserModel = Depends(get_current_user)
+):
+    
+    stmt = select(models.ComplaintModel).where(models.ComplaintModel.complaintId == complaintId)
+    result = await db.execute(stmt)
+    complaint = result.scalar_one_or_none()
+
+    if not complaint:
+        raise HTTPException(status_code=404, detail="Complaint not found.")
+        
+    is_owner = (current_user.role.lower() == "citizen" and complaint.citizenId == current_user.userId)
+    is_assigned_worker = (current_user.role.lower() == "field_worker" and complaint.fieldWorkerId == current_user.userId)
+
+    if not (is_owner or is_assigned_worker):
+        raise HTTPException(status_code=403, detail="You do not have permission to upload images to this complaint.")
+
+    file_extension = file.filename.split(".")[-1]
+    safe_filename = f"{complaintId}_{str(uuid.uuid4())[:8]}.{file_extension}"
+    file_path = os.path.join("uploads", safe_filename)
+
+    with open(file_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+
+    media_id = f"MED-{str(uuid.uuid4())[:6].upper()}"
+    new_media = models.MediaAttachmentModel(
+        mediaId=media_id,
+        complaintId=complaintId,
+        fileUrl=f"/uploads/{safe_filename}",
+        type=file.content_type, 
+        uploadedBy=current_user.userId 
+    )
+    db.add(new_media)
+    await db.commit()
+
+    return {
+        "message": "Image uploaded successfully", 
+        "mediaId": media_id,
+        "fileUrl": new_media.fileUrl
+    }
+
+
+#  Allows a logged-in Field Worker to toggle their availability ON or OFF. 
+@app.patch("/workers/me/availability")
+async def update_worker_availability(
+    update_data: schemas.AvailabilityUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: models.UserModel = Depends(get_current_user)
+):
+    if current_user.role.lower() != "field_worker":
+        raise HTTPException(status_code=403, detail="Only field workers can update availability.")
+    stmt = select(models.FieldWorkerModel).where(models.FieldWorkerModel.userId == current_user.userId)
+    result = await db.execute(stmt)
+    worker = result.scalar_one_or_none()
+
+    if not worker:
+        raise HTTPException(status_code=404, detail="Worker profile not found in the database.")
+
+    worker.availabilityStatus = update_data.status
+    await db.commit()
+    await db.refresh(worker)
+
+    return {
+        "message": "Availability updated successfully.",
+        "worker": current_user.name,
+        "availabilityStatus": worker.availabilityStatus
+    }
