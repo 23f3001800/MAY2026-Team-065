@@ -536,3 +536,123 @@ async def update_worker_availability(
         "worker": current_user.name,
         "availabilityStatus": worker.availabilityStatus
     }
+
+##### Admin to Create officer & Search Functionality also Edit User Accounts
+## new adding for admin to create officer    
+@app.post("/admin/users/official", status_code=201)
+async def create_system_official(
+    user_in: schemas.SystemOfficialCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: models.UserModel = Depends(get_current_user)
+):
+    
+    if current_user.role.lower() != "administrator":
+        raise HTTPException(status_code=403, detail="Only administrators can create official accounts.")
+
+    result = await db.execute(select(models.UserModel).where(models.UserModel.email == user_in.email))
+    if result.scalar_one_or_none():
+        raise HTTPException(status_code=400, detail="Email already registered.")
+
+    hashed_password = get_password_hash(user_in.password)
+    new_user_id = str(uuid.uuid4())
+    
+    new_user = None
+    if user_in.role == "municipal_officer":
+        new_user = models.MunicipalOfficerModel(
+            userId=new_user_id,          
+            name=user_in.name,
+            email=user_in.email,
+            phone=getattr(user_in, 'phone', 'Not Provided'),        
+            passwordHash=hashed_password,
+            department=getattr(user_in, 'department', 'Unassigned'),
+            # Safely fetch designation, defaulting to "General Officer"
+            designation=getattr(user_in, 'designation', 'General Officer')
+        )
+        
+    db.add(new_user)
+    await db.commit()
+    await db.refresh(new_user)
+    
+    return {"message": f"{user_in.role} created successfully", "userId": new_user.userId}
+
+#Search Functionality
+@app.get("/admin/users")
+async def list_users(
+    query: Optional[str] = None,
+    role: Optional[str] = None,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, le=100),
+    db: AsyncSession = Depends(get_db),
+    current_user: models.UserModel = Depends(get_current_user)
+):
+    
+    if current_user.role.lower() != "administrator":
+        raise HTTPException(status_code=403, detail="Not authorized.")
+
+    stmt = select(models.UserModel).options(
+        selectin_polymorphic(
+            models.UserModel, 
+            [models.FieldWorkerModel, models.MunicipalOfficerModel]
+        )
+    )
+    if role:
+        stmt = stmt.where(models.UserModel.role == role)
+        
+    if query:
+        stmt = stmt.where(
+            or_(
+                models.UserModel.name.ilike(f"%{query}%"),
+                models.UserModel.email.ilike(f"%{query}%")
+            )
+        )
+
+    stmt = stmt.offset(skip).limit(limit)
+    result = await db.execute(stmt)
+    users = result.scalars().all()
+
+    return users
+
+# Edit user accounts (Suspend users, update skills, change roles). This is for admin
+@app.patch("/admin/users/{user_id}")
+async def update_user(
+    user_id: str,
+    update_data: schemas.UserUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: models.UserModel = Depends(get_current_user)
+):
+  
+    if current_user.role.lower() != "administrator":
+        raise HTTPException(status_code=403, detail="Not authorized.")
+
+    result = await db.execute(select(models.UserModel).where(models.UserModel.userId == user_id))
+    target_user = result.scalar_one_or_none()
+
+    if not target_user:
+        raise HTTPException(status_code=404, detail="User not found.")
+
+    if update_data.isActive is not None:
+        target_user.isActive = update_data.isActive
+        
+    if update_data.role is not None and update_data.role != target_user.role:
+         raise HTTPException(
+             status_code=400, 
+             detail="Cannot change base user role directly. Create a new account instead."
+         )
+
+    if target_user.role == "field_worker":
+        fw_result = await db.execute(select(models.FieldWorkerModel).where(models.FieldWorkerModel.userId == user_id))
+        field_worker = fw_result.scalar_one()
+        
+        if update_data.skills is not None:
+            field_worker.skills = update_data.skills
+        if update_data.department is not None:
+            field_worker.department = update_data.department
+
+    elif target_user.role == "municipal_officer" and update_data.department is not None:
+        mo_result = await db.execute(select(models.MunicipalOfficerModel).where(models.MunicipalOfficerModel.userId == user_id))
+        officer = mo_result.scalar_one()
+        officer.department = update_data.department
+
+    await db.commit()
+    
+    return {"message": "User updated successfully"}
