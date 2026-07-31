@@ -1,4 +1,4 @@
-# 🏙️ Municipal Complaint Management System — Backend
+# 🏙️ Smart Civic Connect — Backend
 
 A **FastAPI**-powered REST API for managing municipal complaints across citizens, field workers, municipal officers, and administrators.
 
