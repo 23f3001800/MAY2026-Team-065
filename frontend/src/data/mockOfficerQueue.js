@@ -1,0 +1,182 @@
+// TEMPORARY complaint queue for the municipal grievance officer.
+// TODO(raja-api): replace with
+//   GET  /api/officer/complaints?status=&category=&severity=&q=
+//   PATCH /api/complaints/:id { categoryId }        (override AI category)
+//   POST /api/complaints/:id/assign { fieldWorkerId }
+//   POST /api/complaints/:id/merge  { duplicateOf }
+//   POST /api/complaints/:id/close                  (after verifying evidence)
+//
+// `aiCategory`/`aiSeverity` are what the classifier proposed; `category` is
+// what the record currently says. When they differ, an officer has overridden.
+
+export const CATEGORIES = ['Pothole', 'Garbage', 'Water Leakage', 'Streetlight', 'Other'];
+export const SEVERITIES = ['Low', 'Medium', 'High', 'Critical'];
+export const QUEUE_STATUSES = ['New', 'Assigned', 'In Progress', 'Resolved', 'Closed'];
+
+// Field workers this officer can assign to.
+export const workers = [
+  { id: 'FW-01', name: 'Ramesh Kumar', skill: 'Road Repair', availability: 'Busy', openTasks: 4 },
+  { id: 'FW-02', name: 'Sunita Devi', skill: 'Sanitation', availability: 'Available', openTasks: 1 },
+  { id: 'FW-03', name: 'Amit Verma', skill: 'Plumbing', availability: 'Busy', openTasks: 3 },
+  { id: 'FW-04', name: 'Priya Nair', skill: 'Electrical', availability: 'Available', openTasks: 0 },
+  { id: 'FW-05', name: 'Vikram Singh', skill: 'General', availability: 'Off Duty', openTasks: 0 },
+];
+
+// `duplicateCandidates` holds ids the AI flagged as probably the same issue,
+// with the similarity score that triggered the flag.
+export const queue = [
+  {
+    id: 'CC-2024-001245',
+    issue: 'Pothole on Main Street',
+    description: 'Large pothole in the northbound lane, roughly two feet across and deep enough to jolt a two-wheeler.',
+    category: 'Pothole',
+    aiCategory: 'Pothole',
+    aiConfidence: 0.94,
+    severity: 'High',
+    aiSeverity: 'High',
+    location: 'MG Road, City',
+    reportedAt: '2024-05-25T09:15:00',
+    status: 'In Progress',
+    worker: 'Ramesh Kumar',
+    duplicateCandidates: [{ id: 'CC-2024-001251', similarity: 0.91, issue: 'Big hole on MG Road' }],
+  },
+  {
+    id: 'CC-2024-001251',
+    issue: 'Big hole on MG Road',
+    description: 'There is a large hole on MG Road near the bus stop. Two bikes have skidded this week.',
+    category: 'Pothole',
+    aiCategory: 'Pothole',
+    aiConfidence: 0.89,
+    severity: 'High',
+    aiSeverity: 'High',
+    location: 'MG Road, City',
+    reportedAt: '2024-05-27T08:40:00',
+    status: 'New',
+    worker: null,
+    duplicateCandidates: [{ id: 'CC-2024-001245', similarity: 0.91, issue: 'Pothole on Main Street' }],
+  },
+  {
+    id: 'CC-2024-001243',
+    issue: 'Water Leakage on footpath',
+    description: 'Continuous leak from a burst pipe under the footpath. Paving has started to sink.',
+    category: 'Water Leakage',
+    aiCategory: 'Water Leakage',
+    aiConfidence: 0.87,
+    severity: 'High',
+    aiSeverity: 'High',
+    location: 'Sector 5, City',
+    reportedAt: '2024-05-24T11:05:00',
+    status: 'New',
+    worker: null,
+    duplicateCandidates: [],
+  },
+  {
+    id: 'CC-2024-001239',
+    issue: 'Garbage not collected',
+    description: 'Community bin has not been cleared in four days. Waste spilling onto the footpath.',
+    category: 'Garbage',
+    aiCategory: 'Garbage',
+    aiConfidence: 0.96,
+    severity: 'Medium',
+    aiSeverity: 'Medium',
+    location: 'Sector 12, City',
+    reportedAt: '2024-05-23T15:30:00',
+    status: 'Assigned',
+    worker: 'Sunita Devi',
+    duplicateCandidates: [],
+  },
+  {
+    id: 'CC-2024-001236',
+    issue: 'Broken Streetlight',
+    description: 'Streetlight outside house 42 has been dark for a week.',
+    category: 'Streetlight',
+    // The classifier guessed wrong here — useful for exercising the override.
+    aiCategory: 'Other',
+    aiConfidence: 0.41,
+    severity: 'Low',
+    aiSeverity: 'Low',
+    location: 'Park Road, City',
+    reportedAt: '2024-05-23T19:50:00',
+    status: 'New',
+    worker: null,
+    duplicateCandidates: [],
+  },
+  {
+    id: 'CC-2024-001233',
+    issue: 'Blocked storm drain',
+    description: 'Storm drain blocked with silt and plastic; road floods after moderate rain.',
+    category: 'Water Leakage',
+    aiCategory: 'Water Leakage',
+    aiConfidence: 0.78,
+    severity: 'Medium',
+    aiSeverity: 'Medium',
+    location: 'Sector 9, City',
+    reportedAt: '2024-05-22T10:10:00',
+    status: 'In Progress',
+    worker: 'Amit Verma',
+    duplicateCandidates: [],
+  },
+  {
+    id: 'CC-2024-001238',
+    issue: 'Deep pothole near school',
+    description: 'Deep pothole directly outside the school gate. Children walk around it into traffic.',
+    category: 'Pothole',
+    aiCategory: 'Pothole',
+    aiConfidence: 0.93,
+    severity: 'Critical',
+    aiSeverity: 'High',
+    location: 'School Lane, City',
+    reportedAt: '2024-05-18T08:25:00',
+    status: 'Resolved',
+    worker: 'Ramesh Kumar',
+    duplicateCandidates: [],
+    resolution: {
+      remarks: 'Pothole cut back to a clean edge, filled with hot mix and compacted. Surface is level and open to traffic.',
+      resolvedBy: 'Ramesh Kumar',
+      resolvedAt: '2024-05-21T16:40:00',
+      photoCaptions: ['Repaired surface', 'Compaction in progress'],
+    },
+  },
+  {
+    id: 'CC-2024-001240',
+    issue: 'Illegal dumping in park',
+    description: 'Construction debris and household waste dumped along the park boundary wall.',
+    category: 'Garbage',
+    aiCategory: 'Garbage',
+    aiConfidence: 0.91,
+    severity: 'Medium',
+    aiSeverity: 'Medium',
+    location: 'Green Park, City',
+    reportedAt: '2024-05-20T07:55:00',
+    status: 'Resolved',
+    worker: 'Sunita Devi',
+    duplicateCandidates: [],
+    resolution: {
+      remarks: 'Debris cleared and hauled away. Area added to the twice-weekly collection round.',
+      resolvedBy: 'Sunita Devi',
+      resolvedAt: '2024-05-22T10:05:00',
+      photoCaptions: ['Area after clearing'],
+    },
+  },
+  {
+    id: 'CC-2024-001231',
+    issue: 'Flickering street lamp',
+    description: 'Street lamp flickers through the night and buzzes audibly.',
+    category: 'Streetlight',
+    aiCategory: 'Streetlight',
+    aiConfidence: 0.88,
+    severity: 'Low',
+    aiSeverity: 'Low',
+    location: 'Market Road, City',
+    reportedAt: '2024-05-12T20:15:00',
+    status: 'Closed',
+    worker: 'Priya Nair',
+    duplicateCandidates: [],
+    resolution: {
+      remarks: 'Faulty ballast replaced and the fitting resealed. Tested after dark and steady.',
+      resolvedBy: 'Priya Nair',
+      resolvedAt: '2024-05-15T18:20:00',
+      photoCaptions: ['Replaced fitting'],
+    },
+  },
+];
