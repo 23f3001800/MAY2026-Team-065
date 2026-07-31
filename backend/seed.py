@@ -8,7 +8,7 @@ async def seed_data():
     async with AsyncSessionLocal() as db:
         print("Starting database seeding...")
 
-        # Seed Categories
+        # Categories
         categories = [
             {"categoryId": "CAT-WAT-01", "name": "Water Leak / Pipe Burst", "department": "Water & Plumbing"},
             {"categoryId": "CAT-SAN-01", "name": "Garbage Collection / Debris", "department": "Sanitation"},
@@ -27,9 +27,9 @@ async def seed_data():
                 db.add(db_category)
             print(f"Added {len(categories)} municipal categories.")
         else:
-            print("⚠️ Categories already exist. Skipping category insertion.")
+            print(" Categories already exist. Skipping category insertion.")
 
-        # Super Administrator
+        # Super Admin
         admin_email = "admin@city.gov"
         stmt = select(models.UserModel).where(models.UserModel.email == admin_email)
         result = await db.execute(stmt)
@@ -55,7 +55,7 @@ async def seed_data():
              print(" Admin account already exists. Skipping admin creation.")
 
         await db.commit()
-        print("🏁 Seeding complete!")
+        print("Seeding complete!")
 
 if __name__ == "__main__":
     asyncio.run(seed_data())
