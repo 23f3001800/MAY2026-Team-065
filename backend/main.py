@@ -14,6 +14,7 @@ import jwt
 from sqlalchemy.orm import selectinload
 import os
 import shutil
+import math
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import selectin_polymorphic  
@@ -198,78 +199,6 @@ async def get_complaints(
     stmt = stmt.order_by(models.ComplaintModel.createdAt.desc())
     result = await db.execute(stmt)
     return result.scalars().all()
-
- ### Allows an Administrator,Officer and Field Worker to update the status of a complaint and logs the history.
- #  """ Allows an Admin, Officer, or the Assigned Field Worker to update the status. """
-@app.patch("/complaints/{complaintId}/status", response_model=schemas.ComplaintResponse)
-async def update_complaint_status(
-    complaintId: str,
-    status_update: schemas.StatusUpdate,
-    db: AsyncSession = Depends(get_db),
-    current_user: models.UserModel = Depends(get_current_user)
-):
-    
-    stmt = (
-        select(models.ComplaintModel)
-        .where(models.ComplaintModel.complaintId == complaintId)
-        .options(selectinload(models.ComplaintModel.location), selectinload(models.ComplaintModel.category))
-    )
-    result = await db.execute(stmt)
-    complaint = result.scalar_one_or_none()
-
-    if not complaint:
-        raise HTTPException(status_code=404, detail="Complaint not found.")
-
-    is_admin_or_officer = current_user.role.lower() in ["administrator", "officer"]
-    is_assigned_worker = (current_user.role.lower() == "field_worker" and complaint.fieldWorkerId == current_user.userId)
-
-    if not (is_admin_or_officer or is_assigned_worker):
-        raise HTTPException(status_code=403, detail="You are not authorized to update this complaint.")
-
-    complaint.status = status_update.status
-    complaint.updatedAt = datetime.now(timezone.utc).replace(tzinfo=None)
-    history_id = f"HIST-{str(uuid.uuid4())[:8].upper()}"
-    new_history = models.StatusHistoryModel(
-        historyId=history_id,
-        complaintId=complaintId,
-        status=status_update.status,
-        remarks=status_update.remarks,
-        timestamp=datetime.now(timezone.utc).replace(tzinfo=None)
-    )
-    db.add(new_history)
-    
-    await db.commit()
-    await db.refresh(complaint)
-    
-    return complaint
-
-### if a citizen or admin clicks on one specific issue to view its dedicated page
-### Fetch the full details of a single specific complaint.
-@app.get("/complaints/{complaintId}", response_model=schemas.ComplaintResponse)
-async def get_complaint_by_id(
-    complaintId: str,
-    db: AsyncSession = Depends(get_db),
-    current_user: models.UserModel = Depends(get_current_user)
-):
-     
-    stmt = (
-        select(models.ComplaintModel)
-        .where(models.ComplaintModel.complaintId == complaintId)
-        .options(
-            selectinload(models.ComplaintModel.location), 
-            selectinload(models.ComplaintModel.category)
-        )
-    )
-    result = await db.execute(stmt)
-    complaint = result.scalar_one_or_none()
-
-    if not complaint:
-        raise HTTPException(status_code=404, detail="Complaint not found.")
-
-    if current_user.role.lower() == "citizen" and complaint.citizenId != current_user.userId:
-        raise HTTPException(status_code=403, detail="You do not have permission to view this complaint.")
-
-    return complaint
 
 ### Returns a high-level dashboard of city-wide complaint statistics.
 @app.get("/admin/analytics")
@@ -656,3 +585,234 @@ async def update_user(
     await db.commit()
     
     return {"message": "User updated successfully"}
+
+##### Feedback System and Location
+### GEOSPATIAL: Nearby Complaints Map
+@app.get("/complaints/nearby", response_model=List[schemas.ComplaintResponse])
+async def get_nearby_complaints(
+    latitude: float = Query(..., description="Citizen's current latitude"),
+    longitude: float = Query(..., description="Citizen's current longitude"),
+    radius_km: float = Query(5.0, description="Search radius in kilometers"),
+    db: AsyncSession = Depends(get_db),
+    current_user: models.UserModel = Depends(get_current_user)
+):
+    lat_delta = radius_km / 111.0
+    lon_delta = radius_km / (111.0 * math.cos(math.radians(latitude)))
+
+    stmt = (
+        select(models.ComplaintModel)
+        .join(models.LocationModel)
+        .where(
+            models.LocationModel.latitude.between(latitude - lat_delta, latitude + lat_delta),
+            models.LocationModel.longitude.between(longitude - lon_delta, longitude + lon_delta)
+        )
+        .options(
+            selectinload(models.ComplaintModel.location), 
+            selectinload(models.ComplaintModel.category)
+        )
+        .order_by(models.ComplaintModel.createdAt.desc())
+    )
+    
+    result = await db.execute(stmt)
+    return result.scalars().all()
+
+
+### if a citizen or admin clicks on one specific issue to view its dedicated page
+### Fetch the full details of a single specific complaint.
+# Retrieves the feedback. This is open to the citizen who wrote it, but it is primarily used by the MunicipalOfficer or Administrator roles on their dashboard to track worker performance and citizen satisfaction.
+@app.get("/complaints/{complaintId}", response_model=schemas.ComplaintResponse)
+async def get_complaint_by_id(
+    complaintId: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: models.UserModel = Depends(get_current_user)
+):
+     
+    stmt = (
+        select(models.ComplaintModel)
+        .where(models.ComplaintModel.complaintId == complaintId)
+        .options(
+            selectinload(models.ComplaintModel.location), 
+            selectinload(models.ComplaintModel.category)
+        )
+    )
+    result = await db.execute(stmt)
+    complaint = result.scalar_one_or_none()
+
+    if not complaint:
+        raise HTTPException(status_code=404, detail="Complaint not found.")
+
+    if current_user.role.lower() == "citizen" and complaint.citizenId != current_user.userId:
+        raise HTTPException(status_code=403, detail="You do not have permission to view this complaint.")
+
+    return complaint
+
+
+###  FEEDBACK: Submit feedback for a resolved complaint by citizen. Rating should be from 1 to 5
+@app.post("/complaints/{complaintId}/feedback", response_model=schemas.FeedbackResponse, status_code=status.HTTP_201_CREATED)
+async def submit_feedback(
+    complaintId: str,
+    feedback_data: schemas.FeedbackCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: models.UserModel = Depends(get_current_user)
+):
+    if current_user.role.lower() != "citizen":
+        raise HTTPException(status_code=403, detail="Only citizens can submit feedback.")
+
+    stmt = select(models.ComplaintModel).where(models.ComplaintModel.complaintId == complaintId)
+    result = await db.execute(stmt)
+    complaint = result.scalar_one_or_none()
+
+    if not complaint:
+        raise HTTPException(status_code=404, detail="Complaint not found.")
+    
+    if complaint.citizenId != current_user.userId:
+        raise HTTPException(status_code=403, detail="You can only leave feedback on your own complaints.")
+    
+    if complaint.status.name != "RESOLVED":
+        raise HTTPException(status_code=400, detail="Feedback can only be submitted for RESOLVED complaints.")
+
+    feedback_id = f"FBK-{str(uuid.uuid4())[:8].upper()}"
+    new_feedback = models.FeedbackModel(
+        feedbackId=feedback_id,
+        rating=feedback_data.rating,
+        comments=feedback_data.comments,
+        complaintId=complaintId,
+        submittedAt=datetime.now(timezone.utc).replace(tzinfo=None)
+    )
+    
+    db.add(new_feedback)
+    await db.commit()
+    await db.refresh(new_feedback)
+    return new_feedback
+
+### NOTIFICATIONS: Get inbox for the citizen
+@app.get("/notifications/me", response_model=List[schemas.NotificationResponse])
+async def get_my_notifications(
+    db: AsyncSession = Depends(get_db),
+    current_user: models.UserModel = Depends(get_current_user)
+):
+    if current_user.role.lower() != "citizen":
+        raise HTTPException(status_code=403, detail="Only citizens can view this inbox.")
+
+    # Join Notification and Complaint to find alerts belonging to this specific citizen
+    stmt = (
+        select(models.NotificationModel)
+        .join(models.ComplaintModel)
+        .where(models.ComplaintModel.citizenId == current_user.userId)
+        .order_by(models.NotificationModel.sentAt.desc())
+    )
+    
+    result = await db.execute(stmt)
+    return result.scalars().all()
+
+### Allows an Administrator,Officer and Field Worker to update the status of a complaint and logs the history.
+ #  Allows an Admin, Officer, or the Assigned Field Worker to update the status.
+@app.patch("/complaints/{complaintId}/status", response_model=schemas.ComplaintResponse)
+async def update_complaint_status(
+    complaintId: str,
+    status_update: schemas.StatusUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: models.UserModel = Depends(get_current_user)
+):
+    
+    stmt = (
+        select(models.ComplaintModel)
+        .where(models.ComplaintModel.complaintId == complaintId)
+        .options(selectinload(models.ComplaintModel.location), selectinload(models.ComplaintModel.category))
+    )
+    result = await db.execute(stmt)
+    complaint = result.scalar_one_or_none()
+
+    if not complaint:
+        raise HTTPException(status_code=404, detail="Complaint not found.")
+
+    is_admin_or_officer = current_user.role.lower() in ["administrator", "officer"]
+    is_assigned_worker = (current_user.role.lower() == "field_worker" and complaint.fieldWorkerId == current_user.userId)
+
+    if not (is_admin_or_officer or is_assigned_worker):
+        raise HTTPException(status_code=403, detail="You are not authorized to update this complaint.")
+
+    previous_status = complaint.status
+    complaint.status = status_update.status
+    complaint.updatedAt = datetime.now(timezone.utc).replace(tzinfo=None)
+
+    history_id = f"HIST-{str(uuid.uuid4())[:8].upper()}"
+    new_history = models.StatusHistoryModel(
+        historyId=history_id,
+        complaintId=complaintId,
+        status=status_update.status,
+        remarks=status_update.remarks,
+        timestamp=datetime.now(timezone.utc).replace(tzinfo=None)
+    )
+    db.add(new_history)
+    if previous_status != status_update.status:
+        status_name = status_update.status.name if hasattr(status_update.status, 'name') else str(status_update.status)
+        
+        notif_id = f"NOTIF-{str(uuid.uuid4())[:6].upper()}"
+        new_notification = models.NotificationModel(
+            notificationId=notif_id,
+            message=f"Your complaint ({complaintId}) is now marked as {status_name}.",
+            type="STATUS_UPDATE",
+            sentAt=datetime.now(timezone.utc).replace(tzinfo=None),
+            isRead=False,
+            complaintId=complaintId
+        )
+        db.add(new_notification)
+    await db.commit()
+    await db.refresh(complaint)
+    
+    return complaint
+
+
+# to recategorize complaints by officer or admin
+@app.patch("/complaints/{complaintId}/category", response_model=schemas.ComplaintResponse)
+async def recategorize_complaint(
+    complaintId: str,
+    recategorize_data: schemas.ComplaintRecategorize,
+    db: AsyncSession = Depends(get_db),
+    current_user: models.UserModel = Depends(get_current_user)
+):
+    if current_user.role.lower() not in ["officer", "administrator"]:
+        raise HTTPException(status_code=403, detail="Only authorized officials can recategorize complaints.")
+
+    stmt = (
+        select(models.ComplaintModel)
+        .where(models.ComplaintModel.complaintId == complaintId)
+        .options(selectinload(models.ComplaintModel.location), selectinload(models.ComplaintModel.category))
+    )
+    result = await db.execute(stmt)
+    complaint = result.scalar_one_or_none()
+
+    if not complaint:
+        raise HTTPException(status_code=404, detail="Complaint not found.")
+
+    cat_stmt = select(models.CategoryModel).where(models.CategoryModel.categoryId == recategorize_data.categoryId)
+    cat_result = await db.execute(cat_stmt)
+    new_category = cat_result.scalar_one_or_none()
+
+    if not new_category:
+        raise HTTPException(status_code=404, detail="The specified category ID does not exist.")
+
+    if complaint.categoryId == recategorize_data.categoryId:
+        raise HTTPException(status_code=400, detail="Complaint is already assigned to this category.")
+
+    old_category_name = complaint.category.name
+
+    complaint.categoryId = recategorize_data.categoryId
+    complaint.updatedAt = datetime.now(timezone.utc).replace(tzinfo=None)
+
+    history_id = f"HIST-{str(uuid.uuid4())[:8].upper()}"
+    new_history = models.StatusHistoryModel(
+        historyId=history_id,
+        complaintId=complaintId,
+        status=complaint.status,  # Keep the current status
+        remarks=f"Recategorized from '{old_category_name}' to '{new_category.name}'",
+        timestamp=datetime.now(timezone.utc).replace(tzinfo=None)
+    )
+    db.add(new_history)
+    
+    await db.commit()
+    await db.refresh(complaint)
+    
+    return complaint
+

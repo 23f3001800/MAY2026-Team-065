@@ -41,10 +41,8 @@ class CategoryResponse(BaseModel):
 
 # --- Complaint Schemas ---
 class ComplaintCreate(BaseModel):
-    complaintId: str
     description: str
     categoryId: str
-    citizenId: str
     location: LocationCreate
 
 class StatusUpdate(BaseModel):
@@ -66,6 +64,7 @@ class ComplaintResponse(BaseModel):
 class ComplaintAssign(BaseModel):
     fieldWorkerId: str
 
+# Field Worker Schemas
 class FieldWorkerCreate(BaseModel):
     name: str
     email: str
@@ -89,3 +88,60 @@ class PasswordReset(BaseModel):
 # available
 class AvailabilityUpdate(BaseModel):
     status: str = Field(..., pattern="^(AVAILABLE|UNAVAILABLE)$", description="Must be AVAILABLE or UNAVAILABLE")
+
+
+# officer 
+class SystemOfficialCreate(BaseModel):
+    name: str
+    email: str
+    password: str
+    role: str = Field(..., pattern="^(municipal_officer|field_worker)$")
+    department: Optional[str] = None 
+    skills: Optional[List[str]] = None
+
+class UserUpdate(BaseModel):
+    isActive: Optional[bool] = None  # To suspend/activate accounts
+    role: Optional[str] = None
+    department: Optional[str] = None
+    skills: Optional[List[str]] = None
+
+class SystemOfficialCreate(BaseModel):
+    name: str
+    email: str
+    phone: str   
+    password: str
+    role: str    
+    department: str = "Unassigned" 
+    designation: str = "General Officer" 
+    skills: Optional[List[str]] = None
+
+# --- FEEDBACK SCHEMAS ---
+class FeedbackCreate(BaseModel):
+    rating: int = Field(..., ge=1, le=5, description="Rating from 1 to 5")
+    comments: Optional[str] = None
+
+class FeedbackResponse(BaseModel):
+    feedbackId: str
+    rating: int
+    comments: Optional[str]
+    submittedAt: datetime
+    complaintId: str
+
+    class Config:
+        from_attributes = True
+
+# --- NOTIFICATION SCHEMAS should be implemented later---
+class NotificationResponse(BaseModel):
+    notificationId: str
+    message: str
+    type: str
+    sentAt: datetime
+    isRead: bool
+    complaintId: str
+
+    class Config:
+        from_attributes = True
+
+# Complaint Recategorize
+class ComplaintRecategorize(BaseModel):
+    categoryId: str
