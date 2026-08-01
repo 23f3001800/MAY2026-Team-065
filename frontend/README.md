@@ -70,7 +70,13 @@ fabricates a session and drops you straight into that role's dashboard.
 
 This lives in [src/api/devPreview.js](src/api/devPreview.js) and is gated on
 `process.env.NODE_ENV === 'development'`, so the buttons never render in a
-production build. **Delete that file once real login works.**
+production build.
+
+**It only gets you as far as the layout now.** The fabricated token is not a
+real JWT, so every data call behind it returns 401 and the client will bounce
+you back to `/login`. Use it to look at chrome and navigation; use a real
+seeded account (`admin@city.gov` / `admin123`, see `backend/seed.py`) to
+exercise anything that loads data.
 
 ---
 
@@ -83,9 +89,17 @@ src/
 ├── index.css               # Tailwind directives + custom utilities
 │
 ├── api/
-│   ├── auth.js             # login / register + localStorage session helpers
-│   ├── complaints.js       # POST /complaints (multipart, provisional)
+│   ├── client.js           # authenticated fetch, error + 401 handling
+│   ├── session.js          # localStorage token/user helpers
+│   ├── mappers.js          # wire format <-> UI shapes, category table
+│   ├── auth.js             # login / register
+│   ├── complaints.js       # create, list, detail, assign, status, feedback
+│   ├── workers.js          # field worker list + availability
+│   ├── notifications.js    # citizen inbox
 │   └── devPreview.js       # DEV ONLY — fake login per role
+│
+├── hooks/
+│   └── useAsync.js         # load / error / refetch for page data
 │
 ├── layouts/                # one shell per role (sidebar + topbar + <Outlet/>)
 │   ├── CitizenLayout.jsx
@@ -107,10 +121,10 @@ src/
 │   ├── officer/            # officerNav.js + ComplaintDrawer.jsx
 │   ├── admin/  worker/     # role-specific nav configs + widgets
 │
-└── data/                   # mock data — swap for real API calls
-    ├── mockDashboard.js  mockComplaints.js  mockComplaintDetails.js
-    ├── mockNotifications.js  mockNearby.js
-    ├── mockAdmin.js  mockOfficer.js  mockOfficerQueue.js  mockWorker.js
+└── data/
+    ├── filters.js          # filter vocabulary for the list screens
+    └── mockDashboard.js  mockAdmin.js  mockOfficer.js  mockWorker.js
+                            # only the three dashboards are still mocked
 ```
 
 ### Conventions
@@ -142,6 +156,9 @@ your role's home (or `/login` if signed out).
 `/nearby`, `/notifications`, `/track`*, `/ai-assistant`*, `/feedback`*,
 `/profile`*, `/settings`*
 
+All of the built citizen routes read live data. `/dashboard` is the exception —
+it still renders mock figures.
+
 **Officer** — `/officer/dashboard`, `/officer/complaints`, `/officer/workers`*,
 `/officer/analytics`*, `/officer/notifications`*, `/officer/profile`*,
 `/officer/settings`*
@@ -162,75 +179,94 @@ your role's home (or `/login` if signed out).
 
 ### Wired up
 
-| Call | Endpoint | Notes |
-|---|---|---|
-| `login()` | `POST /auth/login` | **form-urlencoded**, not JSON — `username` (the email) + `password` |
-| `registerCitizen()` | `POST /auth/register` | JSON: `userId, name, email, password, role:'citizen', phone, address` |
-| `createComplaint()` | `POST /complaints` | `multipart/form-data`, `Authorization: Bearer <token>` — **endpoint does not exist yet** |
+Every call goes through [src/api/client.js](src/api/client.js), which attaches
+the bearer token, normalises errors, and turns a 401 into a session clear plus a
+redirect to `/login?expired=1`.
 
-Errors: a non-2xx response uses `data.detail` as the message. FastAPI returns
-that as a string for `HTTPException` but as an array of per-field objects for
-422 validation errors, so `readError()` handles both. A `fetch` rejection is
-reported as "Cannot reach the server."
+| UI | Endpoint |
+|---|---|
+| Login | `POST /auth/login` — **form-urlencoded**, `username` is the email |
+| Register | `POST /auth/register` |
+| Report Issue | `POST /complaints/` then `POST /complaints/{id}/image` |
+| My Complaints | `GET /complaints/` |
+| Complaint Details | `GET /complaints/{id}` |
+| Rate a resolution | `POST /complaints/{id}/feedback` |
+| Notifications | `GET /notifications/me` |
+| Nearby Issues | `GET /complaints/nearby?latitude&longitude&radius_km` |
+| Officer queue | `GET /complaints/`, `GET /workers/` |
+| Officer actions | `PATCH /complaints/{id}/assign`, `/status`, `/category` |
+
+Wire-format translation lives in [src/api/mappers.js](src/api/mappers.js) — no
+page ever sees a `SCREAMING_CASE` enum or a raw `categoryId`.
 
 Session is stored in `localStorage` under `token` and `user`. No refresh-token
-handling and no 401 auto-logout yet.
+handling.
 
 #### Contract quirks worth knowing
 
-These bit us once already — see [src/api/auth.js](src/api/auth.js):
-
-- Routes are at the **root**, not under `/api`.
+- Routes are at the **root**, not under `/api`. Collection endpoints need the
+  **trailing slash** (`/complaints/`, `/workers/`).
 - Login returns only `{ access_token, token_type }` — **no user object**. The
   signed-in user's identity is decoded from the JWT payload (`sub`, `userId`,
-  `role`) client-side. That is display/routing data only; the backend
-  re-verifies the signature on every request.
+  `role`). That is display/routing data only; the backend re-verifies the
+  signature on every request.
 - `UserRegister` requires a `userId` even though the endpoint generates its own
   UUID and discards what you send. Omitting it is a 422.
 - Backend roles are SQLAlchemy polymorphic identities — `citizen`, `officer`,
-  `field_worker`, `administrator`. Two of those differ from the UI slugs
-  (`municipal_officer`, `admin`), so `normalizeRole()` in
-  [src/config.js](src/config.js) translates at the API boundary. Keep that
-  translation there; the rest of the app should only ever see UI slugs.
+  `field_worker`, `administrator`. Two differ from the UI slugs, so
+  `normalizeRole()` in [src/config.js](src/config.js) translates at the boundary.
+- **Creating a complaint needs real GPS coordinates.** `location.latitude` and
+  `.longitude` are required floats, so Report Issue asks for browser location on
+  mount and blocks submit without it.
+- **The photo is a second request.** `POST /complaints/` is JSON only. The image
+  goes to `/complaints/{id}/image` afterwards, as a field named `file`. They are
+  not in one transaction, so the form reports a partial success when the
+  complaint saves but the photo does not.
+- **Assignment can fail on a string match.** The backend rejects an assignment
+  unless the complaint category's `department` is a substring of the worker's
+  `skillSet`. A worker skilled in `"Plumbing"` cannot take a
+  `"Water & Plumbing"` complaint. The drawer pre-checks this so the officer sees
+  a reason rather than a 400.
+
+### Gaps the UI has to work around
+
+These are missing backend capability, not translation problems:
+
+| Missing | Consequence in the UI |
+|---|---|
+| No `IN_PROGRESS` / `CLOSED` in `StatusEnum` | `toApiStatus()` returns null for them; they are display-only and can never be sent |
+| No `GET /categories` | `CATEGORIES` in `mappers.js` is a hardcoded mirror of `backend/seed.py` — **edit both together** |
+| No status-history endpoint | Complaint details shows only reported/updated, with a note saying so |
+| No media read endpoint | Uploaded photos cannot be displayed back |
+| No feedback read endpoint | A rating cannot be shown after reload, and submitting twice creates two rows |
+| No mark-notification-read endpoint | Read state is client-side and resets on reload |
+| No AI classification or duplicate detection | Those panels say "not available" instead of showing invented confidence scores |
+| No title field on a complaint | List views derive one from the first sentence of the description |
+| `/complaints/nearby` returns no distance | Distance is computed client-side with a haversine from the returned coordinates |
 
 ### Still mocked
 
-Everything except login and register reads from `src/data/mock*.js`. Each mock
-file carries a `TODO(raja-api)` comment naming the endpoint it should become.
+Only the three dashboards, which read from `src/data/mock*.js`:
 
 - Citizen dashboard stats, recent complaints, category donut
-- My Complaints list (filters/search run client-side over the mock array)
-- Complaint details — timeline, resolution evidence, feedback
-- Notifications feed; read state is local-only and resets on reload
-- Nearby issues (the geo-query for duplicate avoidance)
-- Officer queue — AI classification, duplicate candidates, worker assignment
 - Worker tasks, availability, rating
 - Admin stats, complaints-over-time chart, top categories, recent users
 
-Two things are mocked in a way that is easy to mistake for real:
+`GET /admin/analytics` and `GET /complaints/worker/tasks` exist and would cover
+much of this — they are simply not wired yet.
 
-- The **AI Prediction** block on Report Issue. Category and severity come from a
-  hardcoded map in `ReportIssue.jsx` and "Confidence: 92%" is a literal string —
-  there is no classifier call.
-- **Photos.** `PhotoTile` renders a styled placeholder, never an `<img>`. This is
-  deliberate: no remote image URLs, so the UI works offline and in a build. Swap
-  its body for `<img src={url}>` when the backend serves media.
-
-Officer actions (override, merge, assign, close) mutate local component state
-and raise a confirmation banner. Nothing persists across a reload.
+**Photos** stay mocked too: `PhotoTile` renders a styled placeholder, never an
+`<img>`, because there is no endpoint to read attachments back.
 
 ### Open questions for the backend
 
-- `POST /complaints` does not exist yet. Once it does: the exact multipart field
-  name for the image, and whether `category` is a slug (`pothole`) or a
-  `categoryId`.
-- `StatusEnum` is currently `PENDING | ASSIGNED | RESOLVED | REJECTED`. The UI
-  lifecycle also needs **In Progress** and **Closed** — the officer queue relies
-  on `Resolved` → `Closed` to model "evidence verified".
-- Endpoints for the list/detail/stats data currently served from `src/data/`.
-- Whether AI category/severity prediction is a separate endpoint or comes back
-  on the create response, and whether duplicate detection is exposed as a list
-  of candidate ids with similarity scores (which is what the UI renders).
+- `StatusEnum` needs `IN_PROGRESS` and `CLOSED` for the lifecycle in the spec.
+- Read endpoints for status history, media attachments and feedback — all three
+  are stored but none can be fetched.
+- `GET /categories`, so the frontend stops mirroring the seed file.
+- `UserRegister.userId` is required but discarded; worth removing.
+- Whether `skillSet` should become a structured list rather than a free-text
+  string that assignment does a substring match against.
 
 ---
 
@@ -245,10 +281,14 @@ and raise a confirmation banner. Nothing persists across a reload.
   an admin on the backend.
 - The officer complaint drawer closes on `Escape` or an overlay click and is
   marked `role="dialog"` / `aria-modal`, but focus is not trapped inside it yet.
-- `npm test` is available (CRA + Testing Library are installed) but **no tests
-  have been written yet**, and none of the screens have been verified in a
-  browser — they are compile-checked only (`CI=true npm run build`, which
-  promotes lint warnings to errors).
+- `npm test` is available (CRA + Testing Library are installed) but no component
+  tests have been written yet.
+- **Verification status:** compile-checked (`CI=true npm run build`, which
+  promotes lint warnings to errors) and the wire-format translation in
+  `mappers.js` is covered by 41 assertions run against payloads shaped from
+  `backend/schemas.py`. **No screen has been exercised against a live backend**
+  — Postgres was unreachable locally, so no end-to-end request has actually been
+  made.
 
 ### If you are running this on Windows + WSL
 

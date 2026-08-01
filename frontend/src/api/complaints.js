@@ -1,44 +1,119 @@
-// Complaint endpoints. Backend isn't up yet, so treat the request/response
-// shapes here as PROVISIONAL.
-// TODO(raja-api): confirm the exact contract for POST /api/complaints —
-//   especially how the image is uploaded (multipart field name) and whether
-//   category is sent as a name or a categoryId.
-import { API_BASE_URL } from '../config';
+// Complaint endpoints. Every function returns UI-shaped data (see mappers.js);
+// callers never see the wire format.
+import { apiRequest } from './client';
+import {
+  fromApiComplaint, fromApiFeedback, toApiStatus, UI_ONLY_STATUSES,
+} from './mappers';
 
-function authHeaders() {
-  const token = localStorage.getItem('token');
-  return token ? { Authorization: `Bearer ${token}` } : {};
+/**
+ * Files a complaint, then uploads the photo if there is one.
+ *
+ * The backend takes these as two calls -- POST /complaints/ is JSON only, and
+ * the image goes to a separate endpoint keyed by the new complaint id. They are
+ * not in one transaction, so the photo can fail after the complaint is safely
+ * filed. Rather than hide that, the image error comes back alongside the
+ * complaint and the caller decides how to word it.
+ *
+ * @returns {{ complaint: object, imageError: string|null }}
+ */
+export async function createComplaint({ description, categoryId, latitude, longitude, address, image }) {
+  const created = await apiRequest('/complaints/', {
+    method: 'POST',
+    body: {
+      description,
+      categoryId,
+      location: { latitude, longitude, address },
+    },
+  });
+
+  const complaint = fromApiComplaint(created);
+  if (!image) return { complaint, imageError: null };
+
+  try {
+    await uploadComplaintImage(complaint.id, image);
+    return { complaint, imageError: null };
+  } catch (err) {
+    return { complaint, imageError: err.message };
+  }
 }
 
-// Create a complaint. `payload` = { category, description, location, severity, image (File|null) }.
-// Sent as multipart/form-data so the image can ride along in one request.
-export async function createComplaint({ category, description, location, severity, image }) {
-  const body = new FormData();
-  body.append('category', category);
-  body.append('description', description);
-  body.append('location', location);
-  body.append('severity', severity);
-  if (image) body.append('image', image);
+// The backend reads the upload from a field literally named "file".
+export function uploadComplaintImage(complaintId, file) {
+  const form = new FormData();
+  form.append('file', file);
+  return apiRequest(`/complaints/${encodeURIComponent(complaintId)}/image`, {
+    method: 'POST',
+    body: form,
+  });
+}
 
-  let response;
-  try {
-    response = await fetch(`${API_BASE_URL}/complaints`, {
-      method: 'POST',
-      headers: { ...authHeaders() }, // no Content-Type: browser sets multipart boundary
-      body,
-    });
-  } catch {
-    throw new Error('Cannot reach the server. Is the backend running?');
-  }
+// Scoped server-side by role: citizens get their own, officers and admins get
+// everything. Field workers must use listMyTasks instead.
+export async function listComplaints() {
+  const data = await apiRequest('/complaints/');
+  return (data || []).map(fromApiComplaint);
+}
 
-  let data = {};
-  try {
-    data = await response.json();
-  } catch {
-    /* non-JSON response */
+export async function getComplaint(complaintId) {
+  const data = await apiRequest(`/complaints/${encodeURIComponent(complaintId)}`);
+  return fromApiComplaint(data);
+}
+
+export async function listMyTasks() {
+  const data = await apiRequest('/complaints/worker/tasks');
+  return (data || []).map(fromApiComplaint);
+}
+
+/**
+ * Complaints near a point. The backend runs a bounding-box query and returns no
+ * distance, so callers that need one compute it client-side.
+ */
+export async function listNearbyComplaints({ latitude, longitude, radiusKm = 5 }) {
+  const data = await apiRequest('/complaints/nearby', {
+    params: { latitude, longitude, radius_km: radiusKm },
+  });
+  return (data || []).map(fromApiComplaint);
+}
+
+export async function assignFieldWorker(complaintId, fieldWorkerId) {
+  const data = await apiRequest(`/complaints/${encodeURIComponent(complaintId)}/assign`, {
+    method: 'PATCH',
+    body: { fieldWorkerId },
+  });
+  return fromApiComplaint(data);
+}
+
+/**
+ * Moves a complaint to a new status. Rejects UI-only statuses up front rather
+ * than letting the backend 422 on an enum value it does not have.
+ */
+export async function updateComplaintStatus(complaintId, status, remarks) {
+  const apiStatus = toApiStatus(status);
+  if (!apiStatus) {
+    throw new Error(
+      `"${status}" is not a status the backend can store yet — it supports PENDING, ASSIGNED, `
+      + `RESOLVED and REJECTED. ${UI_ONLY_STATUSES.join(' and ')} are display-only for now.`,
+    );
   }
-  if (!response.ok) {
-    throw new Error(data.detail || `Could not submit complaint (${response.status})`);
-  }
-  return data;
+  const data = await apiRequest(`/complaints/${encodeURIComponent(complaintId)}/status`, {
+    method: 'PATCH',
+    body: { status: apiStatus, remarks: remarks || null },
+  });
+  return fromApiComplaint(data);
+}
+
+export async function recategoriseComplaint(complaintId, categoryId) {
+  const data = await apiRequest(`/complaints/${encodeURIComponent(complaintId)}/category`, {
+    method: 'PATCH',
+    body: { categoryId },
+  });
+  return fromApiComplaint(data);
+}
+
+export async function submitFeedback(complaintId, { rating, comments }) {
+  const data = await apiRequest(`/complaints/${encodeURIComponent(complaintId)}/feedback`, {
+    method: 'POST',
+    body: { rating, comments: comments || null },
+  });
+  return fromApiFeedback(data);
 }
