@@ -1,11 +1,18 @@
 // My Complaints — the citizen's full complaint history with status tabs,
-// text search, and a category filter. Data is mocked for now.
+// text search, and a category filter.
+//
+// Backed by GET /complaints/, which the backend scopes to the signed-in citizen.
+// Filtering and search run client-side: the endpoint takes no query parameters,
+// and a citizen's own list is small enough that it does not matter.
 import React, { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import StatusBadge from '../components/dashboard/StatusBadge';
 import SeverityBadge from '../components/dashboard/SeverityBadge';
-import { IconSearch, IconChevronDown, IconEye, IconInbox, IconReport } from '../components/dashboard/icons';
-import { myComplaints, STATUS_FILTERS, CATEGORY_FILTERS } from '../data/mockComplaints';
+import { LoadingPanel, ErrorPanel, EmptyPanel } from '../components/dashboard/AsyncStates';
+import { IconSearch, IconChevronDown, IconEye, IconReport } from '../components/dashboard/icons';
+import { STATUS_FILTERS, CATEGORY_FILTERS } from '../data/filters';
+import { listComplaints } from '../api/complaints';
+import useAsync from '../hooks/useAsync';
 
 function formatDate(iso) {
   const d = new Date(iso);
@@ -20,22 +27,25 @@ export default function MyComplaints() {
   const [category, setCategory] = useState('All');
   const [query, setQuery] = useState('');
 
+  const { data, error, loading, refetch } = useAsync(() => listComplaints(), []);
+  const complaints = useMemo(() => data || [], [data]);
+
   // Counts per status for the tab badges.
   const counts = useMemo(() => {
-    const c = { All: myComplaints.length };
-    for (const item of myComplaints) c[item.status] = (c[item.status] || 0) + 1;
+    const c = { All: complaints.length };
+    for (const item of complaints) c[item.status] = (c[item.status] || 0) + 1;
     return c;
-  }, []);
+  }, [complaints]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return myComplaints.filter((c) => {
+    return complaints.filter((c) => {
       if (status !== 'All' && c.status !== status) return false;
       if (category !== 'All' && c.category !== category) return false;
       if (q && !(`${c.issue} ${c.id} ${c.location}`.toLowerCase().includes(q))) return false;
       return true;
     });
-  }, [status, category, query]);
+  }, [complaints, status, category, query]);
 
   return (
     <div className="max-w-[1200px] mx-auto space-y-5">
@@ -100,14 +110,19 @@ export default function MyComplaints() {
       </div>
 
       {/* Result set */}
-      {filtered.length === 0 ? (
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-12 flex flex-col items-center text-center">
-          <div className="w-14 h-14 rounded-2xl bg-slate-100 text-slate-400 flex items-center justify-center mb-4">
-            <IconInbox size={26} />
-          </div>
-          <h2 className="font-display font-bold text-slate-800 text-lg">No complaints found</h2>
-          <p className="text-[14px] text-slate-500 mt-1">Try changing the filters, or report a new issue.</p>
-        </div>
+      {loading ? (
+        <LoadingPanel label="Loading your complaints…" />
+      ) : error ? (
+        <ErrorPanel error={error} onRetry={refetch} />
+      ) : filtered.length === 0 ? (
+        <EmptyPanel
+          title={complaints.length === 0 ? 'No complaints yet' : 'No complaints found'}
+          message={
+            complaints.length === 0
+              ? "You haven't reported anything yet. When you do, it will show up here."
+              : 'Try changing the filters, or report a new issue.'
+          }
+        />
       ) : (
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
           {/* Desktop table */}
@@ -172,9 +187,11 @@ export default function MyComplaints() {
         </div>
       )}
 
-      <p className="text-[12px] text-slate-400">
-        Showing {filtered.length} of {myComplaints.length} complaints
-      </p>
+      {!loading && !error && complaints.length > 0 && (
+        <p className="text-[12px] text-slate-400">
+          Showing {filtered.length} of {complaints.length} complaints
+        </p>
+      )}
     </div>
   );
 }
