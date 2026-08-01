@@ -1,17 +1,20 @@
-// Complaint Details — the full record behind one complaint: what was reported,
-// every status transition with its timestamp and actor, the field worker's
-// resolution evidence, and the citizen's rating once it is resolved.
-// Data is mocked; submitting feedback updates local state only.
+// Complaint Details — the full record behind one complaint.
+//
+// Backed by GET /complaints/{id}. Note what that response does NOT include:
+// status history, media, assigned worker, or existing feedback. The backend
+// stores status history and media, but exposes no endpoint to read them, so
+// those sections are honestly marked unavailable rather than faked.
+// TODO(raja-api): GET /complaints/{id}/history, /media, /feedback.
 import React, { useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import StatusBadge from '../components/dashboard/StatusBadge';
 import SeverityBadge from '../components/dashboard/SeverityBadge';
-import PhotoTile from '../components/dashboard/PhotoTile';
+import { LoadingPanel, ErrorPanel } from '../components/dashboard/AsyncStates';
 import {
-  IconArrowLeft, IconMapPin, IconInbox, IconCheckCircle, IconStar,
-  IconUserCircle, IconBuilding, IconSend,
+  IconArrowLeft, IconMapPin, IconInbox, IconStar, IconBuilding, IconSend, IconClock,
 } from '../components/dashboard/icons';
-import { getComplaintDetail } from '../data/mockComplaintDetails';
+import { getComplaint, submitFeedback } from '../api/complaints';
+import useAsync from '../hooks/useAsync';
 
 function formatStamp(iso) {
   const d = new Date(iso);
@@ -21,21 +24,15 @@ function formatStamp(iso) {
   });
 }
 
-// Dot colour per lifecycle stage, matching StatusBadge's palette.
-const DOT = {
-  'New': 'bg-emerald-500',
-  'Assigned': 'bg-amber-500',
-  'In Progress': 'bg-blue-500',
-  'Resolved': 'bg-violet-500',
-  'Rejected': 'bg-red-500',
-};
-
 function StarRating({ value, onChange, readOnly = false }) {
   const [hover, setHover] = useState(0);
   const shown = hover || value;
   return (
-    <div className="flex items-center gap-1" role={readOnly ? 'img' : 'radiogroup'}
-         aria-label={readOnly ? `Rated ${value} out of 5` : 'Rating'}>
+    <div
+      className="flex items-center gap-1"
+      role={readOnly ? 'img' : 'radiogroup'}
+      aria-label={readOnly ? `Rated ${value} out of 5` : 'Rating'}
+    >
       {[1, 2, 3, 4, 5].map((n) => (
         <button
           key={n}
@@ -50,9 +47,7 @@ function StarRating({ value, onChange, readOnly = false }) {
             n <= shown ? 'text-amber-400' : 'text-slate-300'
           }`}
         >
-          <span className={n <= shown ? 'fill-current' : ''}>
-            <IconStar size={readOnly ? 18 : 26} />
-          </span>
+          <IconStar size={readOnly ? 18 : 26} />
         </button>
       ))}
     </div>
@@ -73,13 +68,39 @@ function SummaryRow({ icon: Icon, label, children }) {
 
 export default function ComplaintDetails() {
   const { id } = useParams();
-  const complaint = useMemo(() => getComplaintDetail(id), [id]);
+  const { data: complaint, error, loading, refetch } = useAsync(() => getComplaint(id), [id]);
 
-  // Local-only feedback state, seeded from the mock record.
-  const [feedback, setFeedback] = useState(complaint?.feedback || null);
+  const [feedback, setFeedback] = useState(null);
   const [rating, setRating] = useState(0);
   const [comments, setComments] = useState('');
-  const [error, setError] = useState('');
+  const [feedbackError, setFeedbackError] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  // What the response does tell us about timing, presented as a two-point
+  // timeline rather than a fabricated lifecycle.
+  const timeline = useMemo(() => {
+    if (!complaint) return [];
+    const entries = [{ label: 'Reported', at: complaint.reportedAt }];
+    if (complaint.updatedAt && complaint.updatedAt !== complaint.reportedAt) {
+      entries.push({ label: `Updated — now ${complaint.status}`, at: complaint.updatedAt });
+    }
+    return entries;
+  }, [complaint]);
+
+  if (loading) {
+    return <div className="max-w-[1200px] mx-auto"><LoadingPanel label="Loading complaint…" /></div>;
+  }
+
+  if (error) {
+    return (
+      <div className="max-w-[1200px] mx-auto space-y-4">
+        <Link to="/my-complaints" className="inline-flex items-center gap-2 text-[13px] font-medium text-slate-500 hover:text-primary">
+          <IconArrowLeft size={16} /> Back to My Complaints
+        </Link>
+        <ErrorPanel error={error} onRetry={refetch} />
+      </div>
+    );
+  }
 
   if (!complaint) {
     return (
@@ -100,14 +121,22 @@ export default function ComplaintDetails() {
     );
   }
 
-  const submitFeedback = (e) => {
+  const handleFeedback = async (e) => {
     e.preventDefault();
     if (!rating) {
-      setError('Please choose a star rating.');
+      setFeedbackError('Please choose a star rating.');
       return;
     }
-    setError('');
-    setFeedback({ rating, comments: comments.trim(), submittedAt: new Date().toISOString() });
+    setFeedbackError('');
+    setSaving(true);
+    try {
+      const saved = await submitFeedback(complaint.id, { rating, comments: comments.trim() });
+      setFeedback(saved);
+    } catch (err) {
+      if (err.name !== 'SessionExpiredError') setFeedbackError(err.message);
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -116,7 +145,6 @@ export default function ComplaintDetails() {
         <IconArrowLeft size={16} /> Back to My Complaints
       </Link>
 
-      {/* Header */}
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
           <h1 className="font-display text-2xl font-bold text-slate-900">{complaint.issue}</h1>
@@ -130,40 +158,13 @@ export default function ComplaintDetails() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 items-start">
-        {/* Main column */}
         <div className="lg:col-span-2 space-y-5">
           <section className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
             <h2 className="font-semibold text-slate-800 text-[15px] mb-2">Description</h2>
-            <p className="text-[14px] text-slate-600 leading-relaxed">{complaint.description}</p>
-
-            <h3 className="font-semibold text-slate-800 text-[15px] mt-6 mb-3">Photo Evidence</h3>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-              {complaint.photoCaptions.map((caption) => (
-                <PhotoTile key={caption} caption={caption} />
-              ))}
-            </div>
+            <p className="text-[14px] text-slate-600 leading-relaxed whitespace-pre-line">{complaint.description}</p>
           </section>
 
-          {/* Resolution evidence from the field worker */}
-          {complaint.resolution && (
-            <section className="bg-white rounded-2xl border border-emerald-200 shadow-sm p-6">
-              <div className="flex items-center gap-2 mb-3">
-                <span className="text-primary"><IconCheckCircle size={18} /></span>
-                <h2 className="font-semibold text-slate-800 text-[15px]">Resolution Evidence</h2>
-              </div>
-              <p className="text-[14px] text-slate-600 leading-relaxed">{complaint.resolution.remarks}</p>
-              <p className="text-[12px] text-slate-400 mt-2">
-                Resolved by {complaint.resolution.resolvedBy} · {formatStamp(complaint.resolution.resolvedAt)}
-              </p>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mt-4">
-                {complaint.resolution.photoCaptions.map((caption) => (
-                  <PhotoTile key={caption} caption={caption} tone="resolution" />
-                ))}
-              </div>
-            </section>
-          )}
-
-          {/* Feedback: show the submitted rating, or collect one. */}
+          {/* Feedback — the backend accepts it only for RESOLVED complaints. */}
           {complaint.status === 'Resolved' && (
             <section className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
               <h2 className="font-semibold text-slate-800 text-[15px] mb-3">
@@ -176,16 +177,12 @@ export default function ComplaintDetails() {
                   {feedback.comments && (
                     <p className="text-[14px] text-slate-600 leading-relaxed mt-3">“{feedback.comments}”</p>
                   )}
-                  <p className="text-[12px] text-slate-400 mt-2">
-                    Submitted {formatStamp(feedback.submittedAt)}
-                  </p>
+                  <p className="text-[12px] text-slate-400 mt-2">Submitted {formatStamp(feedback.submittedAt)}</p>
                 </div>
               ) : (
-                <form onSubmit={submitFeedback} className="space-y-4">
-                  <p className="text-[14px] text-slate-500">
-                    How satisfied are you with how this was handled?
-                  </p>
-                  <StarRating value={rating} onChange={(n) => { setRating(n); setError(''); }} />
+                <form onSubmit={handleFeedback} className="space-y-4">
+                  <p className="text-[14px] text-slate-500">How satisfied are you with how this was handled?</p>
+                  <StarRating value={rating} onChange={(n) => { setRating(n); setFeedbackError(''); }} />
                   <textarea
                     value={comments}
                     onChange={(e) => setComments(e.target.value)}
@@ -193,51 +190,62 @@ export default function ComplaintDetails() {
                     placeholder="Add a comment (optional)…"
                     className="w-full rounded-xl border border-slate-200 p-3.5 text-[14px] text-slate-800 outline-none resize-y focus:border-primary focus:ring-2 focus:ring-emerald-100 transition"
                   />
-                  {error && <p className="text-[13px] font-medium text-red-600">{error}</p>}
+                  {feedbackError && <p className="text-[13px] font-medium text-red-600">{feedbackError}</p>}
                   <button
                     type="submit"
-                    className="inline-flex items-center gap-2 bg-primary hover:bg-emerald-600 text-white font-semibold text-[14px] px-4 py-2.5 rounded-xl shadow-btn transition-colors"
+                    disabled={saving}
+                    className="inline-flex items-center gap-2 bg-primary hover:bg-emerald-600 disabled:opacity-60 text-white font-semibold text-[14px] px-4 py-2.5 rounded-xl shadow-btn transition-colors"
                   >
-                    <IconSend size={16} /> Submit Feedback
+                    <IconSend size={16} /> {saving ? 'Submitting…' : 'Submit Feedback'}
                   </button>
+                  <p className="text-[12px] text-slate-400">
+                    Existing feedback cannot be shown yet — the backend has no endpoint to read it
+                    back, so submitting twice will create a second entry.
+                  </p>
                 </form>
               )}
             </section>
           )}
         </div>
 
-        {/* Side column */}
         <div className="space-y-5">
           <section className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
             <h2 className="font-semibold text-slate-800 text-[15px] mb-2">Details</h2>
             <div className="divide-y divide-slate-100">
               <SummaryRow icon={IconInbox} label="Category">{complaint.category}</SummaryRow>
-              <SummaryRow icon={IconMapPin} label="Location">{complaint.location}</SummaryRow>
-              <SummaryRow icon={IconBuilding} label="Department">{complaint.department}</SummaryRow>
-              <SummaryRow icon={IconUserCircle} label="Assigned To">
-                {complaint.assignedTo || <span className="text-slate-400">Not yet assigned</span>}
+              <SummaryRow icon={IconMapPin} label="Location">
+                {complaint.location}
+                {complaint.coords && (
+                  <span className="block text-[11px] font-normal text-slate-400 mt-0.5">
+                    {complaint.coords.latitude.toFixed(5)}, {complaint.coords.longitude.toFixed(5)}
+                  </span>
+                )}
+              </SummaryRow>
+              <SummaryRow icon={IconBuilding} label="Department">
+                {complaint.department || <span className="text-slate-400">Unassigned</span>}
               </SummaryRow>
             </div>
           </section>
 
-          {/* Audit trail */}
           <section className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
-            <h2 className="font-semibold text-slate-800 text-[15px] mb-4">Status Timeline</h2>
+            <h2 className="font-semibold text-slate-800 text-[15px] mb-4">Timeline</h2>
             <ol className="relative">
-              {complaint.timeline.map((entry, i) => {
-                const last = i === complaint.timeline.length - 1;
-                return (
-                  <li key={entry.status} className="relative pl-7 pb-5 last:pb-0">
-                    {!last && <span className="absolute left-[7px] top-4 bottom-0 w-px bg-slate-200" aria-hidden="true" />}
-                    <span className={`absolute left-0 top-1 w-[15px] h-[15px] rounded-full border-2 border-white ring-2 ring-slate-100 ${DOT[entry.status] || 'bg-slate-400'}`} />
-                    <div className="text-[13px] font-semibold text-slate-800">{entry.status}</div>
-                    <div className="text-[12px] text-slate-400">{formatStamp(entry.at)}</div>
-                    <p className="text-[13px] text-slate-600 mt-1 leading-snug">{entry.remarks}</p>
-                    <div className="text-[12px] text-slate-400 mt-0.5">by {entry.actor}</div>
-                  </li>
-                );
-              })}
+              {timeline.map((entry, i) => (
+                <li key={entry.label} className="relative pl-7 pb-5 last:pb-0">
+                  {i < timeline.length - 1 && (
+                    <span className="absolute left-[7px] top-4 bottom-0 w-px bg-slate-200" aria-hidden="true" />
+                  )}
+                  <span className="absolute left-0 top-1 w-[15px] h-[15px] rounded-full border-2 border-white ring-2 ring-slate-100 bg-primary" />
+                  <div className="text-[13px] font-semibold text-slate-800">{entry.label}</div>
+                  <div className="text-[12px] text-slate-400">{formatStamp(entry.at)}</div>
+                </li>
+              ))}
             </ol>
+            <p className="flex items-start gap-2 text-[12px] text-slate-400 border-t border-slate-100 pt-3 mt-1">
+              <IconClock size={13} className="mt-0.5 shrink-0" />
+              The full transition history is recorded by the backend but not yet readable, so only
+              the first and last events are shown.
+            </p>
           </section>
         </div>
       </div>
