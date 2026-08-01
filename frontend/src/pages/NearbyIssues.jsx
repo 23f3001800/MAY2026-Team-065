@@ -1,15 +1,21 @@
 // Nearby Issues — what has already been reported around the citizen, so they
-// can check before filing a duplicate. Filterable by radius and category.
-import React, { useMemo, useState } from 'react';
+// can check before filing a duplicate.
+//
+// Backed by GET /complaints/nearby?latitude&longitude&radius_km, which needs
+// real coordinates, so the page asks for the browser's location first. The
+// endpoint runs a bounding-box query and returns no distance, so distance is
+// computed here from the coordinates it does return.
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import StatusBadge from '../components/dashboard/StatusBadge';
 import SeverityBadge from '../components/dashboard/SeverityBadge';
+import { LoadingPanel, ErrorPanel, EmptyPanel } from '../components/dashboard/AsyncStates';
 import {
-  IconMapPin, IconCrosshair, IconSearch, IconChevronDown,
-  IconUsers, IconReport, IconArrowRight,
+  IconMapPin, IconCrosshair, IconSearch, IconChevronDown, IconReport, IconArrowRight,
 } from '../components/dashboard/icons';
-import { nearbyIssues, RADIUS_OPTIONS } from '../data/mockNearby';
-import { CATEGORY_FILTERS } from '../data/mockComplaints';
+import { RADIUS_OPTIONS } from '../data/filters';
+import { CATEGORIES } from '../api/mappers';
+import { listNearbyComplaints } from '../api/complaints';
 
 function formatDate(iso) {
   const d = new Date(iso);
@@ -18,39 +24,88 @@ function formatDate(iso) {
     : d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
 }
 
+// Great-circle distance in km. The backend filters by a square bounding box, so
+// results can sit slightly outside the requested radius; this is what lets us
+// sort sensibly and drop the corners.
+function distanceKm(a, b) {
+  if (!a || !b) return null;
+  const R = 6371;
+  const toRad = (deg) => (deg * Math.PI) / 180;
+  const dLat = toRad(b.latitude - a.latitude);
+  const dLon = toRad(b.longitude - a.longitude);
+  const lat1 = toRad(a.latitude);
+  const lat2 = toRad(b.latitude);
+  const h = Math.sin(dLat / 2) ** 2 + Math.sin(dLon / 2) ** 2 * Math.cos(lat1) * Math.cos(lat2);
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+
+const CATEGORY_FILTER_OPTIONS = ['All', ...CATEGORIES.map((c) => c.label)];
+
 export default function NearbyIssues() {
-  const [area, setArea] = useState('MG Road, City');
+  const [origin, setOrigin] = useState(null);      // { latitude, longitude }
+  const [locating, setLocating] = useState(true);
+  const [locationError, setLocationError] = useState('');
+
   const [radius, setRadius] = useState(2);
   const [category, setCategory] = useState('All');
-  const [locating, setLocating] = useState(false);
-  const [notice, setNotice] = useState('');
 
-  const useCurrentLocation = () => {
+  const [results, setResults] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const requestLocation = useCallback(() => {
     if (!navigator.geolocation) {
-      setNotice('Geolocation is not supported by this browser.');
+      setLocationError('This browser cannot share your location, so nearby issues are unavailable.');
+      setLocating(false);
       return;
     }
     setLocating(true);
+    setLocationError('');
     navigator.geolocation.getCurrentPosition(
       (pos) => {
-        setArea(`${pos.coords.latitude.toFixed(5)}, ${pos.coords.longitude.toFixed(5)}`);
-        setNotice('');
+        setOrigin({ latitude: pos.coords.latitude, longitude: pos.coords.longitude });
         setLocating(false);
       },
-      () => {
-        setNotice('Could not get your location. Enter an area manually.');
+      (err) => {
+        setLocationError(
+          err.code === err.PERMISSION_DENIED
+            ? 'Location access was denied. Allow it in your browser to see what has been reported near you.'
+            : 'Could not determine your location. Try again in a moment.',
+        );
         setLocating(false);
       },
+      { timeout: 10000 },
     );
-  };
+  }, []);
 
-  const filtered = useMemo(
-    () =>
-      nearbyIssues
-        .filter((i) => i.distanceKm <= radius && (category === 'All' || i.category === category))
-        .sort((a, b) => a.distanceKm - b.distanceKm),
-    [radius, category],
-  );
+  useEffect(() => { requestLocation(); }, [requestLocation]);
+
+  // Refetch whenever the origin or radius changes. Category is filtered
+  // client-side since the endpoint takes no category parameter.
+  const load = useCallback(async () => {
+    if (!origin) return;
+    setLoading(true);
+    setError('');
+    try {
+      const data = await listNearbyComplaints({ ...origin, radiusKm: radius });
+      setResults(data);
+    } catch (err) {
+      if (err.name !== 'SessionExpiredError') setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }, [origin, radius]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const filtered = useMemo(() => {
+    return results
+      .map((c) => ({ ...c, distanceKm: distanceKm(origin, c.coords) }))
+      // Bounding box includes corners beyond the radius — drop them.
+      .filter((c) => c.distanceKm === null || c.distanceKm <= radius)
+      .filter((c) => category === 'All' || c.category === category)
+      .sort((a, b) => (a.distanceKm ?? Infinity) - (b.distanceKm ?? Infinity));
+  }, [results, origin, radius, category]);
 
   return (
     <div className="max-w-[1000px] mx-auto space-y-5">
@@ -61,28 +116,24 @@ export default function NearbyIssues() {
         </p>
       </div>
 
-      {/* Area + radius controls */}
+      {/* Location + radius controls */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 space-y-3">
-        <div className="flex items-center gap-2 rounded-xl border border-slate-200 px-3 focus-within:border-primary focus-within:ring-2 focus-within:ring-emerald-100 transition">
+        <div className="flex items-center gap-2 flex-wrap">
           <IconMapPin size={18} className="text-primary shrink-0" />
-          <input
-            value={area}
-            onChange={(e) => setArea(e.target.value)}
-            placeholder="Enter an area"
-            aria-label="Area"
-            className="flex-1 py-3 text-[14px] text-slate-800 outline-none bg-transparent"
-          />
+          <span className="text-[14px] text-slate-700">
+            {origin
+              ? `Searching around ${origin.latitude.toFixed(4)}, ${origin.longitude.toFixed(4)}`
+              : 'Location not set'}
+          </span>
           <button
             type="button"
-            onClick={useCurrentLocation}
+            onClick={requestLocation}
             disabled={locating}
-            className="shrink-0 inline-flex items-center gap-1 text-[12px] font-semibold text-primary hover:underline disabled:opacity-60"
+            className="ml-auto shrink-0 inline-flex items-center gap-1 text-[12px] font-semibold text-primary hover:underline disabled:opacity-60"
           >
-            <IconCrosshair size={14} /> {locating ? 'Locating…' : 'Use Current Location'}
+            <IconCrosshair size={14} /> {locating ? 'Locating…' : 'Update location'}
           </button>
         </div>
-
-        {notice && <p className="text-[13px] font-medium text-amber-700">{notice}</p>}
 
         <div className="flex items-center gap-3 flex-wrap">
           <div className="flex items-center gap-2">
@@ -106,7 +157,7 @@ export default function NearbyIssues() {
               aria-label="Category"
               className="appearance-none bg-white rounded-xl border border-slate-200 pl-3.5 pr-9 py-2 text-[14px] text-slate-700 outline-none focus:border-primary cursor-pointer"
             >
-              {CATEGORY_FILTERS.map((c) => (
+              {CATEGORY_FILTER_OPTIONS.map((c) => (
                 <option key={c} value={c}>{c === 'All' ? 'All Categories' : c}</option>
               ))}
             </select>
@@ -116,22 +167,27 @@ export default function NearbyIssues() {
       </div>
 
       {/* Results */}
-      {filtered.length === 0 ? (
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-12 flex flex-col items-center text-center">
-          <div className="w-14 h-14 rounded-2xl bg-slate-100 text-slate-400 flex items-center justify-center mb-4">
-            <IconSearch size={26} />
-          </div>
-          <h2 className="font-display font-bold text-slate-800 text-lg">Nothing reported here yet</h2>
-          <p className="text-[14px] text-slate-500 mt-1 max-w-sm">
-            No open complaints within {radius} km. If you have spotted something, be the first to report it.
-          </p>
+      {locating ? (
+        <LoadingPanel label="Finding your location…" />
+      ) : locationError ? (
+        <ErrorPanel error={locationError} onRetry={requestLocation} />
+      ) : loading ? (
+        <LoadingPanel label="Looking for nearby complaints…" />
+      ) : error ? (
+        <ErrorPanel error={error} onRetry={load} />
+      ) : filtered.length === 0 ? (
+        <EmptyPanel
+          icon={IconSearch}
+          title="Nothing reported here yet"
+          message={`No complaints within ${radius} km. If you have spotted something, be the first to report it.`}
+        >
           <Link
             to="/report"
-            className="mt-5 inline-flex items-center gap-2 bg-primary hover:bg-emerald-600 text-white font-semibold text-[14px] px-4 py-2.5 rounded-xl shadow-btn transition-colors"
+            className="inline-flex items-center gap-2 bg-primary hover:bg-emerald-600 text-white font-semibold text-[14px] px-4 py-2.5 rounded-xl shadow-btn transition-colors"
           >
             <IconReport size={16} /> Report Issue
           </Link>
-        </div>
+        </EmptyPanel>
       ) : (
         <>
           <ul className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -148,15 +204,20 @@ export default function NearbyIssues() {
                   <div className="flex items-center gap-1.5 text-[12px] text-slate-500 mt-2">
                     <IconMapPin size={13} className="text-slate-400 shrink-0" />
                     <span className="truncate">{i.location}</span>
-                    <span className="text-slate-300">·</span>
-                    <span className="font-medium text-primary whitespace-nowrap">{i.distanceKm} km</span>
+                    {i.distanceKm !== null && (
+                      <>
+                        <span className="text-slate-300">·</span>
+                        <span className="font-medium text-primary whitespace-nowrap">
+                          {i.distanceKm < 1
+                            ? `${Math.round(i.distanceKm * 1000)} m`
+                            : `${i.distanceKm.toFixed(1)} km`}
+                        </span>
+                      </>
+                    )}
                   </div>
                   <div className="flex items-center justify-between mt-3">
                     <SeverityBadge severity={i.severity} />
-                    <span className="inline-flex items-center gap-1.5 text-[12px] text-slate-500">
-                      <IconUsers size={13} className="text-slate-400" />
-                      {i.reportCount} report{i.reportCount > 1 ? 's' : ''}
-                    </span>
+                    <span className="text-[12px] text-slate-400">{i.category}</span>
                   </div>
                   <div className="text-[12px] text-slate-400 mt-2">Reported {formatDate(i.date)}</div>
                 </Link>
@@ -164,7 +225,6 @@ export default function NearbyIssues() {
             ))}
           </ul>
 
-          {/* Nudge toward reporting only if it is genuinely new. */}
           <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 flex items-center justify-between gap-3 flex-wrap">
             <p className="text-[13px] text-emerald-900">
               Don't see your issue in this list? Report it and we'll route it to the right team.
