@@ -1,12 +1,19 @@
 // Notifications — every status change on the citizen's complaints, newest
-// first, with unread filtering. Read state is local-only until the backend
-// exposes the notifications table.
-import React, { useMemo, useState } from 'react';
+// first, with unread filtering.
+//
+// Backed by GET /notifications/me. Read state is client-side only: the backend
+// stores isRead but exposes no endpoint to set it, so marking something read
+// does not survive a reload.
+// TODO(raja-api): PATCH /notifications/{id} { isRead }.
+import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { LoadingPanel, ErrorPanel, EmptyPanel } from '../components/dashboard/AsyncStates';
 import {
   IconBell, IconCheckCircle, IconClock, IconInbox, IconAlertTriangle, IconArrowRight,
 } from '../components/dashboard/icons';
-import { notifications as seed, NOTIFICATION_FILTERS } from '../data/mockNotifications';
+import { NOTIFICATION_FILTERS } from '../data/filters';
+import { listMyNotifications } from '../api/notifications';
+import useAsync from '../hooks/useAsync';
 
 // Icon + accent per notification type.
 const TYPE_META = {
@@ -31,8 +38,13 @@ function relativeTime(iso) {
 }
 
 export default function Notifications() {
-  const [items, setItems] = useState(seed);
+  const { data, error, loading, refetch } = useAsync(() => listMyNotifications(), []);
+  const [items, setItems] = useState([]);
   const [filter, setFilter] = useState('All');
+
+  // Mirror fetched data into local state so read toggles can be applied
+  // optimistically without a refetch.
+  useEffect(() => { setItems(data || []); }, [data]);
 
   const unread = items.filter((n) => !n.isRead).length;
   const visible = useMemo(
@@ -86,16 +98,20 @@ export default function Notifications() {
         })}
       </div>
 
-      {visible.length === 0 ? (
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-12 flex flex-col items-center text-center">
-          <div className="w-14 h-14 rounded-2xl bg-slate-100 text-slate-400 flex items-center justify-center mb-4">
-            <IconBell size={26} />
-          </div>
-          <h2 className="font-display font-bold text-slate-800 text-lg">Nothing to read</h2>
-          <p className="text-[14px] text-slate-500 mt-1">
-            You have no unread notifications right now.
-          </p>
-        </div>
+      {loading ? (
+        <LoadingPanel label="Loading notifications…" />
+      ) : error ? (
+        <ErrorPanel error={error} onRetry={refetch} />
+      ) : visible.length === 0 ? (
+        <EmptyPanel
+          icon={IconBell}
+          title={items.length === 0 ? 'No notifications yet' : 'Nothing to read'}
+          message={
+            items.length === 0
+              ? "You'll be notified here whenever one of your complaints changes status."
+              : 'You have no unread notifications right now.'
+          }
+        />
       ) : (
         <ul className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden divide-y divide-slate-100">
           {visible.map((n) => {

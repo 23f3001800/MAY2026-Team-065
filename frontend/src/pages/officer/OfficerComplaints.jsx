@@ -1,20 +1,18 @@
 // Officer complaint queue — the screen the grievance workflow runs through.
-// Filter and search the department's complaints, then open one to review the
-// AI classification, override it, merge duplicates, assign a field worker, or
-// verify resolution evidence and close it.
 //
-// All actions mutate local state only; see mockOfficerQueue.js for the
-// endpoints these map to once the backend exists.
-import React, { useEffect, useMemo, useState } from 'react';
+// Backed by GET /complaints/ (officers get every complaint, not just their own)
+// and GET /workers/. Filtering and sorting are client-side; the list endpoint
+// takes no query parameters.
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import StatusBadge from '../../components/dashboard/StatusBadge';
 import SeverityBadge from '../../components/dashboard/SeverityBadge';
 import ComplaintDrawer from '../../components/officer/ComplaintDrawer';
-import {
-  IconSearch, IconChevronDown, IconInbox, IconSparkles, IconAlertTriangle, IconCheckCircle,
-} from '../../components/dashboard/icons';
-import {
-  queue as seedQueue, workers, CATEGORIES, SEVERITIES, QUEUE_STATUSES,
-} from '../../data/mockOfficerQueue';
+import { LoadingPanel, ErrorPanel, EmptyPanel } from '../../components/dashboard/AsyncStates';
+import { IconSearch, IconChevronDown, IconCheckCircle } from '../../components/dashboard/icons';
+import { listComplaints, assignFieldWorker, updateComplaintStatus, recategoriseComplaint } from '../../api/complaints';
+import { listFieldWorkers } from '../../api/workers';
+import { CATEGORIES, ASSIGNABLE_STATUSES } from '../../api/mappers';
+import useAsync from '../../hooks/useAsync';
 
 function formatDate(iso) {
   const d = new Date(iso);
@@ -25,6 +23,8 @@ function formatDate(iso) {
 
 // Severity ordering so the queue surfaces the urgent work first.
 const SEVERITY_RANK = { Critical: 0, High: 1, Medium: 2, Low: 3 };
+const SEVERITIES = ['Low', 'Medium', 'High', 'Critical'];
+const CATEGORY_LABELS = CATEGORIES.map((c) => c.label);
 
 function FilterSelect({ label, value, onChange, options, allLabel }) {
   return (
@@ -44,9 +44,18 @@ function FilterSelect({ label, value, onChange, options, allLabel }) {
 }
 
 export default function OfficerComplaints() {
-  const [items, setItems] = useState(seedQueue);
+  const { data, error, loading, refetch, setData } = useAsync(() => listComplaints(), []);
+  const items = useMemo(() => data || [], [data]);
+
+  // Workers load independently: a failure here should not blank the queue, it
+  // should just disable assignment.
+  const [workers, setWorkers] = useState([]);
+  const [workersError, setWorkersError] = useState('');
+
   const [selectedId, setSelectedId] = useState(null);
   const [toast, setToast] = useState('');
+  const [actionError, setActionError] = useState('');
+  const [busy, setBusy] = useState(false);
 
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState('All');
@@ -54,7 +63,16 @@ export default function OfficerComplaints() {
   const [severity, setSeverity] = useState('All');
   const [since, setSince] = useState('');
 
-  // Auto-dismiss the confirmation banner.
+  useEffect(() => {
+    let cancelled = false;
+    listFieldWorkers()
+      .then((w) => { if (!cancelled) setWorkers(w); })
+      .catch((err) => {
+        if (!cancelled && err.name !== 'SessionExpiredError') setWorkersError(err.message);
+      });
+    return () => { cancelled = true; };
+  }, []);
+
   useEffect(() => {
     if (!toast) return undefined;
     const t = setTimeout(() => setToast(''), 4000);
@@ -65,9 +83,9 @@ export default function OfficerComplaints() {
 
   const counts = useMemo(() => ({
     unassigned: items.filter((c) => c.status === 'New').length,
-    active: items.filter((c) => c.status === 'Assigned' || c.status === 'In Progress').length,
-    verify: items.filter((c) => c.status === 'Resolved').length,
-    duplicates: items.filter((c) => c.duplicateCandidates?.length > 0 && c.status !== 'Merged').length,
+    assigned: items.filter((c) => c.status === 'Assigned').length,
+    resolved: items.filter((c) => c.status === 'Resolved').length,
+    rejected: items.filter((c) => c.status === 'Rejected').length,
   }), [items]);
 
   const filtered = useMemo(() => {
@@ -87,29 +105,36 @@ export default function OfficerComplaints() {
       });
   }, [items, query, status, category, severity, since]);
 
-  const patch = (id, changes) =>
-    setItems((list) => list.map((c) => (c.id === id ? { ...c, ...changes } : c)));
+  // Every mutation returns the updated complaint, so the row is patched in
+  // place rather than refetching the whole list.
+  const applyUpdate = useCallback((updated) => {
+    setData((list) => (list || []).map((c) => (c.id === updated.id ? updated : c)));
+  }, [setData]);
 
-  const handleOverride = (id, { category: cat, severity: sev }) => {
-    patch(id, { category: cat, severity: sev });
-    setToast(`${id} reclassified as ${cat} · ${sev}.`);
+  const runAction = useCallback(async (fn, successMessage) => {
+    setBusy(true);
+    setActionError('');
+    try {
+      const updated = await fn();
+      applyUpdate(updated);
+      setToast(successMessage);
+    } catch (err) {
+      if (err.name !== 'SessionExpiredError') setActionError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }, [applyUpdate]);
+
+  const handleRecategorise = (id, categoryId) => {
+    const label = CATEGORIES.find((c) => c.categoryId === categoryId)?.label || categoryId;
+    return runAction(() => recategoriseComplaint(id, categoryId), `${id} recategorised as ${label}.`);
   };
 
-  const handleAssign = (id, worker) => {
-    patch(id, { worker: worker.name, status: 'Assigned' });
-    setToast(`${id} assigned to ${worker.name}.`);
-  };
+  const handleAssign = (id, worker) =>
+    runAction(() => assignFieldWorker(id, worker.id), `${id} assigned to ${worker.name}.`);
 
-  const handleMerge = (id, intoId) => {
-    patch(id, { status: 'Merged', duplicateCandidates: [], mergedInto: intoId });
-    setToast(`${id} merged into ${intoId}.`);
-    setSelectedId(null);
-  };
-
-  const handleClose = (id) => {
-    patch(id, { status: 'Closed' });
-    setToast(`${id} verified and closed.`);
-  };
+  const handleStatusChange = (id, next, remarks) =>
+    runAction(() => updateComplaintStatus(id, next, remarks), `${id} marked as ${next}.`);
 
   const resetFilters = () => {
     setQuery(''); setStatus('All'); setCategory('All'); setSeverity('All'); setSince('');
@@ -117,9 +142,9 @@ export default function OfficerComplaints() {
 
   const statChips = [
     { label: 'Awaiting assignment', value: counts.unassigned, tone: 'bg-amber-50 text-amber-700 border-amber-200', filter: 'New' },
-    { label: 'Active', value: counts.active, tone: 'bg-blue-50 text-blue-700 border-blue-200', filter: null },
-    { label: 'Awaiting verification', value: counts.verify, tone: 'bg-violet-50 text-violet-700 border-violet-200', filter: 'Resolved' },
-    { label: 'Possible duplicates', value: counts.duplicates, tone: 'bg-slate-100 text-slate-600 border-slate-200', filter: null },
+    { label: 'Assigned', value: counts.assigned, tone: 'bg-blue-50 text-blue-700 border-blue-200', filter: 'Assigned' },
+    { label: 'Resolved', value: counts.resolved, tone: 'bg-violet-50 text-violet-700 border-violet-200', filter: 'Resolved' },
+    { label: 'Rejected', value: counts.rejected, tone: 'bg-slate-100 text-slate-600 border-slate-200', filter: 'Rejected' },
   ];
 
   return (
@@ -127,7 +152,7 @@ export default function OfficerComplaints() {
       <div>
         <h1 className="font-display text-2xl font-bold text-slate-900">Complaint Queue</h1>
         <p className="text-[14px] text-slate-500">
-          Review, prioritise and assign complaints routed to your department.
+          Review, prioritise and assign complaints across the city.
         </p>
       </div>
 
@@ -136,17 +161,18 @@ export default function OfficerComplaints() {
           <IconCheckCircle size={16} className="shrink-0" /> {toast}
         </div>
       )}
+      {actionError && (
+        <div className="bg-red-50 border border-red-200 text-red-700 text-[13px] font-medium px-4 py-3 rounded-xl">
+          {actionError}
+        </div>
+      )}
 
-      {/* At-a-glance counts; the actionable ones filter the table. */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {statChips.map((s) => (
           <button
             key={s.label}
-            onClick={() => s.filter && setStatus(s.filter)}
-            disabled={!s.filter}
-            className={`text-left rounded-2xl border p-4 transition-colors ${s.tone} ${
-              s.filter ? 'hover:brightness-95 cursor-pointer' : 'cursor-default'
-            }`}
+            onClick={() => setStatus(s.filter)}
+            className={`text-left rounded-2xl border p-4 transition-colors hover:brightness-95 ${s.tone}`}
           >
             <div className="text-[26px] font-bold leading-none font-display">{s.value}</div>
             <div className="text-[12px] font-medium mt-1.5">{s.label}</div>
@@ -154,7 +180,6 @@ export default function OfficerComplaints() {
         ))}
       </div>
 
-      {/* Filters */}
       <div className="flex gap-3 flex-wrap">
         <div className="flex-1 min-w-[220px] flex items-center gap-2 bg-white rounded-xl border border-slate-200 px-3 focus-within:border-primary focus-within:ring-2 focus-within:ring-emerald-100 transition">
           <IconSearch size={18} className="text-slate-400 shrink-0" />
@@ -166,8 +191,8 @@ export default function OfficerComplaints() {
             className="flex-1 py-2.5 text-[14px] text-slate-800 outline-none bg-transparent"
           />
         </div>
-        <FilterSelect label="Status" value={status} onChange={setStatus} options={QUEUE_STATUSES} allLabel="All Statuses" />
-        <FilterSelect label="Category" value={category} onChange={setCategory} options={CATEGORIES} allLabel="All Categories" />
+        <FilterSelect label="Status" value={status} onChange={setStatus} options={ASSIGNABLE_STATUSES} allLabel="All Statuses" />
+        <FilterSelect label="Category" value={category} onChange={setCategory} options={CATEGORY_LABELS} allLabel="All Categories" />
         <FilterSelect label="Severity" value={severity} onChange={setSeverity} options={SEVERITIES} allLabel="All Severities" />
         <input
           type="date"
@@ -178,18 +203,21 @@ export default function OfficerComplaints() {
         />
       </div>
 
-      {/* Queue */}
-      {filtered.length === 0 ? (
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-12 flex flex-col items-center text-center">
-          <div className="w-14 h-14 rounded-2xl bg-slate-100 text-slate-400 flex items-center justify-center mb-4">
-            <IconInbox size={26} />
-          </div>
-          <h2 className="font-display font-bold text-slate-800 text-lg">No complaints match</h2>
-          <p className="text-[14px] text-slate-500 mt-1">Try widening the filters.</p>
-          <button onClick={resetFilters} className="mt-4 text-[13px] font-semibold text-primary hover:underline">
-            Clear all filters
-          </button>
-        </div>
+      {loading ? (
+        <LoadingPanel label="Loading the complaint queue…" />
+      ) : error ? (
+        <ErrorPanel error={error} onRetry={refetch} />
+      ) : filtered.length === 0 ? (
+        <EmptyPanel
+          title={items.length === 0 ? 'No complaints yet' : 'No complaints match'}
+          message={items.length === 0 ? 'Nothing has been reported to the city yet.' : 'Try widening the filters.'}
+        >
+          {items.length > 0 && (
+            <button onClick={resetFilters} className="text-[13px] font-semibold text-primary hover:underline">
+              Clear all filters
+            </button>
+          )}
+        </EmptyPanel>
       ) : (
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
           <div className="hidden lg:block overflow-x-auto">
@@ -201,59 +229,35 @@ export default function OfficerComplaints() {
                   <th className="font-semibold px-3 py-3">Category</th>
                   <th className="font-semibold px-3 py-3">Severity</th>
                   <th className="font-semibold px-3 py-3">Location</th>
-                  <th className="font-semibold px-3 py-3">Assigned</th>
                   <th className="font-semibold px-3 py-3">Status</th>
                   <th className="font-semibold px-3 py-3">Reported</th>
                   <th className="font-semibold px-5 py-3 text-right">Action</th>
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((c) => {
-                  const overridden = c.category !== c.aiCategory;
-                  const dupes = c.duplicateCandidates?.length > 0 && c.status !== 'Merged';
-                  return (
-                    <tr key={c.id} className="border-t border-slate-100 hover:bg-slate-50 transition-colors">
-                      <td className="px-5 py-3 text-[12px] font-mono text-slate-500 whitespace-nowrap">{c.id}</td>
-                      <td className="px-3 py-3">
-                        <div className="text-[13px] font-medium text-slate-800">{c.issue}</div>
-                        {dupes && (
-                          <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-700 mt-1">
-                            <IconAlertTriangle size={11} /> {c.duplicateCandidates.length} possible duplicate
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-3 py-3 whitespace-nowrap">
-                        <div className="text-[13px] text-slate-600">{c.category}</div>
-                        <span className={`inline-flex items-center gap-1 text-[10px] font-semibold mt-0.5 ${
-                          overridden ? 'text-slate-400' : c.aiConfidence < 0.6 ? 'text-amber-600' : 'text-primary'
-                        }`}>
-                          <IconSparkles size={10} />
-                          {overridden ? 'Overridden' : `AI ${Math.round(c.aiConfidence * 100)}%`}
-                        </span>
-                      </td>
-                      <td className="px-3 py-3"><SeverityBadge severity={c.severity} /></td>
-                      <td className="px-3 py-3 text-[13px] text-slate-500 whitespace-nowrap">{c.location}</td>
-                      <td className="px-3 py-3 text-[13px] whitespace-nowrap">
-                        {c.worker || <span className="text-slate-300">—</span>}
-                      </td>
-                      <td className="px-3 py-3"><StatusBadge status={c.status} /></td>
-                      <td className="px-3 py-3 text-[12px] text-slate-400 whitespace-nowrap">{formatDate(c.reportedAt)}</td>
-                      <td className="px-5 py-3 text-right">
-                        <button
-                          onClick={() => setSelectedId(c.id)}
-                          className="text-[12px] font-semibold text-primary hover:underline whitespace-nowrap"
-                        >
-                          {c.status === 'New' ? 'Review & assign' : c.status === 'Resolved' ? 'Verify' : 'Open'}
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
+                {filtered.map((c) => (
+                  <tr key={c.id} className="border-t border-slate-100 hover:bg-slate-50 transition-colors">
+                    <td className="px-5 py-3 text-[12px] font-mono text-slate-500 whitespace-nowrap">{c.id}</td>
+                    <td className="px-3 py-3 text-[13px] font-medium text-slate-800">{c.issue}</td>
+                    <td className="px-3 py-3 text-[13px] text-slate-600 whitespace-nowrap">{c.category}</td>
+                    <td className="px-3 py-3"><SeverityBadge severity={c.severity} /></td>
+                    <td className="px-3 py-3 text-[13px] text-slate-500 whitespace-nowrap">{c.location}</td>
+                    <td className="px-3 py-3"><StatusBadge status={c.status} /></td>
+                    <td className="px-3 py-3 text-[12px] text-slate-400 whitespace-nowrap">{formatDate(c.reportedAt)}</td>
+                    <td className="px-5 py-3 text-right">
+                      <button
+                        onClick={() => setSelectedId(c.id)}
+                        className="text-[12px] font-semibold text-primary hover:underline whitespace-nowrap"
+                      >
+                        {c.status === 'New' ? 'Review & assign' : 'Open'}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
 
-          {/* Compact cards below the table breakpoint */}
           <ul className="lg:hidden divide-y divide-slate-100">
             {filtered.map((c) => (
               <li key={c.id}>
@@ -266,10 +270,7 @@ export default function OfficerComplaints() {
                   <div className="flex items-center gap-2 mt-2 text-[12px] text-slate-500">
                     <span>{c.category}</span><span>·</span><span>{c.location}</span>
                   </div>
-                  <div className="flex items-center justify-between mt-2">
-                    <SeverityBadge severity={c.severity} />
-                    <span className="text-[12px] text-slate-400">{c.worker || 'Unassigned'}</span>
-                  </div>
+                  <div className="mt-2"><SeverityBadge severity={c.severity} /></div>
                 </button>
               </li>
             ))}
@@ -277,17 +278,20 @@ export default function OfficerComplaints() {
         </div>
       )}
 
-      <p className="text-[12px] text-slate-400">Showing {filtered.length} of {items.length} complaints</p>
+      {!loading && !error && items.length > 0 && (
+        <p className="text-[12px] text-slate-400">Showing {filtered.length} of {items.length} complaints</p>
+      )}
 
       {selected && (
         <ComplaintDrawer
           complaint={selected}
           workers={workers}
+          workersError={workersError}
+          busy={busy}
           onDismiss={() => setSelectedId(null)}
-          onOverride={handleOverride}
+          onRecategorise={handleRecategorise}
           onAssign={handleAssign}
-          onMerge={handleMerge}
-          onCloseComplaint={handleClose}
+          onStatusChange={handleStatusChange}
         />
       )}
     </div>

@@ -1,30 +1,27 @@
 // Report an Issue — lets a citizen file a new complaint: pick a category,
 // describe it, attach a photo, set the location, and submit.
-// The "AI Prediction" block is a front-end preview only (mock) until Raja's
-// backend exposes a real classifier.
-import React, { useState, useRef, useCallback } from 'react';
+//
+// Two things the backend forces on this form:
+//   - POST /complaints/ needs a real latitude/longitude, so the browser's
+//     location has to be captured before a complaint can be filed.
+//   - The photo is a second, separate request against the new complaint id, so
+//     it can fail after the complaint itself is safely saved.
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   IconAlertTriangle, IconTrash, IconDroplet, IconBulb, IconMoreHorizontal,
   IconUpload, IconX, IconMapPin, IconCrosshair, IconSparkles, IconSend,
 } from '../components/dashboard/icons';
 import { createComplaint } from '../api/complaints';
+import { CATEGORIES } from '../api/mappers';
 
-// Category options with the icon + a default AI-predicted severity used by the
-// preview. `value` is what we send to the backend.
-const CATEGORIES = [
-  { value: 'pothole', label: 'Pothole', icon: IconAlertTriangle, severity: 'High' },
-  { value: 'garbage', label: 'Garbage', icon: IconTrash, severity: 'Medium' },
-  { value: 'water_leakage', label: 'Water Leakage', icon: IconDroplet, severity: 'High' },
-  { value: 'streetlight', label: 'Streetlight', icon: IconBulb, severity: 'Low' },
-  { value: 'other', label: 'Other', icon: IconMoreHorizontal, severity: 'Medium' },
-];
-
-const SEVERITY_STYLES = {
-  Low: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-  Medium: 'bg-amber-50 text-amber-700 border-amber-200',
-  High: 'bg-red-50 text-red-700 border-red-200',
-  Critical: 'bg-red-100 text-red-800 border-red-300',
+// Icon per seeded category, keyed by the backend's categoryId.
+const CATEGORY_ICONS = {
+  'CAT-ROA-01': IconAlertTriangle,
+  'CAT-SAN-01': IconTrash,
+  'CAT-WAT-01': IconDroplet,
+  'CAT-ELE-01': IconBulb,
+  'CAT-PUB-01': IconMoreHorizontal,
 };
 
 const MAX_IMAGE_MB = 5;
@@ -33,16 +30,41 @@ export default function ReportIssue() {
   const navigate = useNavigate();
   const fileRef = useRef(null);
 
-  const [category, setCategory] = useState('');
+  const [categoryId, setCategoryId] = useState('');
   const [description, setDescription] = useState('');
-  const [location, setLocation] = useState('MG Road, City');
+  const [address, setAddress] = useState('');
+  const [coords, setCoords] = useState(null); // { latitude, longitude }
+  const [locating, setLocating] = useState(false);
   const [image, setImage] = useState(null); // File
   const [preview, setPreview] = useState(''); // object URL
   const [dragging, setDragging] = useState(false);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState({ text: '', type: '' });
 
-  const selected = CATEGORIES.find((c) => c.value === category);
+  const selected = CATEGORIES.find((c) => c.categoryId === categoryId);
+
+  const captureLocation = useCallback(() => {
+    if (!navigator.geolocation) {
+      setMessage({ text: 'This browser cannot share your location, which is required to file a complaint.', type: 'error' });
+      return;
+    }
+    setLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setCoords({ latitude: pos.coords.latitude, longitude: pos.coords.longitude });
+        setLocating(false);
+      },
+      () => {
+        setMessage({ text: 'Could not get your location. Allow location access and try again.', type: 'error' });
+        setLocating(false);
+      },
+      { timeout: 10000 },
+    );
+  }, []);
+
+  // Ask on mount — the coordinates are mandatory, so getting the permission
+  // prompt out of the way early beats failing at submit time.
+  useEffect(() => { captureLocation(); }, [captureLocation]);
 
   const acceptFile = useCallback((file) => {
     if (!file) return;
@@ -75,40 +97,50 @@ export default function ReportIssue() {
     acceptFile(e.dataTransfer.files?.[0]);
   };
 
-  const useCurrentLocation = () => {
-    if (!navigator.geolocation) {
-      setMessage({ text: 'Geolocation is not supported by this browser.', type: 'error' });
-      return;
-    }
-    navigator.geolocation.getCurrentPosition(
-      (pos) => setLocation(`${pos.coords.latitude.toFixed(5)}, ${pos.coords.longitude.toFixed(5)}`),
-      () => setMessage({ text: 'Could not get your location. Please enter it manually.', type: 'error' }),
-    );
-  };
-
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!category) return setMessage({ text: 'Please select an issue category.', type: 'error' });
+    if (!categoryId) return setMessage({ text: 'Please select an issue category.', type: 'error' });
     if (!description.trim()) return setMessage({ text: 'Please describe the issue.', type: 'error' });
-    if (!location.trim()) return setMessage({ text: 'Please provide a location.', type: 'error' });
+    if (!address.trim()) return setMessage({ text: 'Please provide a street address or landmark.', type: 'error' });
+    if (!coords) {
+      return setMessage({
+        text: 'Your location is required to file a complaint. Tap "Use Current Location" to capture it.',
+        type: 'error',
+      });
+    }
 
     setMessage({ text: '', type: '' });
     setLoading(true);
     try {
-      await createComplaint({
-        category,
+      const { complaint, imageError } = await createComplaint({
         description: description.trim(),
-        location: location.trim(),
-        severity: selected?.severity || 'Medium',
+        categoryId,
+        address: address.trim(),
+        latitude: coords.latitude,
+        longitude: coords.longitude,
         image,
       });
-      setMessage({ text: 'Complaint submitted successfully! Redirecting…', type: 'success' });
-      setTimeout(() => navigate('/my-complaints'), 1500);
+
+      // The complaint is filed either way; only the photo may have failed. Say
+      // so, rather than reporting a clean success or a false failure.
+      setMessage({
+        text: imageError
+          ? `Complaint ${complaint.id} was filed, but the photo did not upload (${imageError}).`
+          : `Complaint ${complaint.id} submitted successfully! Redirecting…`,
+        type: imageError ? 'warning' : 'success',
+      });
+      setTimeout(() => navigate('/my-complaints'), imageError ? 4000 : 1500);
     } catch (err) {
-      setMessage({ text: err.message, type: 'error' });
+      if (err.name !== 'SessionExpiredError') setMessage({ text: err.message, type: 'error' });
     } finally {
       setLoading(false);
     }
+  };
+
+  const messageStyles = {
+    error: 'bg-red-50 text-red-700 border-red-200',
+    warning: 'bg-amber-50 text-amber-800 border-amber-200',
+    success: 'bg-emerald-50 text-emerald-700 border-emerald-200',
   };
 
   return (
@@ -117,13 +149,7 @@ export default function ReportIssue() {
       <p className="text-[14px] text-slate-500 mb-6">Tell us what's wrong and where — we'll route it to the right team.</p>
 
       {message.text && (
-        <div
-          className={`mb-5 px-4 py-3 rounded-xl text-[13px] font-medium border ${
-            message.type === 'error'
-              ? 'bg-red-50 text-red-700 border-red-200'
-              : 'bg-emerald-50 text-emerald-700 border-emerald-200'
-          }`}
-        >
+        <div className={`mb-5 px-4 py-3 rounded-xl text-[13px] font-medium border ${messageStyles[message.type] || messageStyles.error}`}>
           {message.text}
         </div>
       )}
@@ -131,20 +157,17 @@ export default function ReportIssue() {
       <form onSubmit={handleSubmit} className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-7">
         {/* 1. Category */}
         <section>
-          <div className="flex items-center gap-2 mb-3">
-            <h2 className="font-semibold text-slate-800 text-[15px]">1. Select Issue Category</h2>
-            <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-primary bg-emerald-50 px-2 py-0.5 rounded-full">
-              <IconSparkles size={12} /> AI Auto-Detect
-            </span>
-          </div>
+          <h2 className="font-semibold text-slate-800 text-[15px] mb-3">1. Select Issue Category</h2>
           <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-            {CATEGORIES.map(({ value, label, icon: Icon }) => {
-              const active = category === value;
+            {CATEGORIES.map((c) => {
+              const Icon = CATEGORY_ICONS[c.categoryId] || IconMoreHorizontal;
+              const active = categoryId === c.categoryId;
               return (
                 <button
                   type="button"
-                  key={value}
-                  onClick={() => setCategory(value)}
+                  key={c.categoryId}
+                  onClick={() => setCategoryId(c.categoryId)}
+                  title={c.name}
                   className={`flex flex-col items-center gap-2 py-4 px-2 rounded-xl border text-[13px] font-medium transition-colors ${
                     active
                       ? 'border-primary bg-emerald-50 text-primary'
@@ -152,11 +175,16 @@ export default function ReportIssue() {
                   }`}
                 >
                   <Icon size={22} />
-                  {label}
+                  {c.label}
                 </button>
               );
             })}
           </div>
+          {selected && (
+            <p className="text-[12px] text-slate-400 mt-2">
+              Routes to the {selected.department} department.
+            </p>
+          )}
         </section>
 
         {/* 2. Description */}
@@ -173,7 +201,9 @@ export default function ReportIssue() {
 
         {/* 3. Image */}
         <section>
-          <h2 className="font-semibold text-slate-800 text-[15px] mb-3">3. Upload Image</h2>
+          <h2 className="font-semibold text-slate-800 text-[15px] mb-3">
+            3. Upload Image <span className="font-normal text-slate-400 text-[13px]">(optional)</span>
+          </h2>
           <div className="flex items-start gap-4 flex-wrap">
             <label
               onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
@@ -219,46 +249,40 @@ export default function ReportIssue() {
           <div className="flex items-center gap-2 rounded-xl border border-slate-200 px-3 focus-within:border-primary focus-within:ring-2 focus-within:ring-emerald-100 transition">
             <IconMapPin size={18} className="text-primary shrink-0" />
             <input
-              value={location}
-              onChange={(e) => setLocation(e.target.value)}
-              placeholder="Enter the location"
+              value={address}
+              onChange={(e) => setAddress(e.target.value)}
+              placeholder="Street address or landmark"
               className="flex-1 py-3 text-[14px] text-slate-800 outline-none bg-transparent"
             />
             <button
               type="button"
-              onClick={useCurrentLocation}
-              className="shrink-0 inline-flex items-center gap-1 text-[12px] font-semibold text-primary hover:underline"
+              onClick={captureLocation}
+              disabled={locating}
+              className="shrink-0 inline-flex items-center gap-1 text-[12px] font-semibold text-primary hover:underline disabled:opacity-60"
             >
-              <IconCrosshair size={14} /> Use Current Location
+              <IconCrosshair size={14} /> {locating ? 'Locating…' : 'Use Current Location'}
             </button>
           </div>
+          <p className={`text-[12px] mt-2 ${coords ? 'text-slate-400' : 'text-amber-700'}`}>
+            {coords
+              ? `GPS captured: ${coords.latitude.toFixed(5)}, ${coords.longitude.toFixed(5)}`
+              : 'GPS coordinates are required — tap "Use Current Location" to capture them.'}
+          </p>
         </section>
 
-        {/* 5. AI Prediction (preview only) */}
+        {/* 5. AI classification — not wired yet */}
         <section>
           <div className="flex items-center gap-2 mb-3">
-            <h2 className="font-semibold text-slate-800 text-[15px]">5. AI Prediction</h2>
-            <span className="text-[11px] font-medium text-slate-400">(Preview)</span>
+            <h2 className="font-semibold text-slate-800 text-[15px]">5. AI Classification</h2>
+            <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">
+              <IconSparkles size={12} /> Not connected
+            </span>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div className="rounded-xl border border-slate-200 p-4">
-              <div className="text-[12px] text-slate-400 mb-1">Predicted Category</div>
-              <div className="font-semibold text-slate-800">{selected ? selected.label : '—'}</div>
-              <div className="text-[12px] text-slate-400 mt-1">
-                {selected ? 'Confidence: 92%' : 'Select a category above'}
-              </div>
-            </div>
-            <div className="rounded-xl border border-slate-200 p-4">
-              <div className="text-[12px] text-slate-400 mb-1">Severity Level</div>
-              {selected ? (
-                <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[13px] font-semibold ${SEVERITY_STYLES[selected.severity]}`}>
-                  <IconAlertTriangle size={14} /> {selected.severity}
-                </span>
-              ) : (
-                <div className="font-semibold text-slate-800">—</div>
-              )}
-            </div>
-          </div>
+          <p className="text-[13px] text-slate-500 leading-relaxed">
+            Automatic category and severity detection is not live yet. Your chosen category is used
+            as-is, and every complaint is filed at <strong>Low</strong> severity until an officer
+            reviews it.
+          </p>
         </section>
 
         {/* Submit */}
