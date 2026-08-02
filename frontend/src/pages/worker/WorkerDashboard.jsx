@@ -1,134 +1,178 @@
-// Field worker overview: availability toggle, task KPIs, and an interactive
-// task list where the worker advances a job's status. Data is mocked and the
-// status changes are local only (see TODO in src/data/mockWorker.js).
-import React, { useMemo, useState } from 'react';
+// Field worker overview: availability toggle and open-task KPIs/list, backed
+// by real endpoints.
+//
+// Tasks come from GET /complaints/worker/tasks. The previous mocked version
+// had an "In Progress" stage a worker could move a task through locally --
+// the backend's StatusEnum has no such value (PENDING | ASSIGNED | RESOLVED |
+// REJECTED), so the only real transition here is straight to Resolved or
+// Rejected via PATCH /complaints/{id}/status. There is also no rating
+// endpoint to average, so "Avg. Rating" -- which was invented in the mock --
+// has been dropped rather than kept with fake numbers.
+import React, { useCallback, useMemo, useState } from 'react';
 import StatTile from '../../components/dashboard/StatTile';
 import StatusBadge from '../../components/dashboard/StatusBadge';
 import SeverityBadge from '../../components/dashboard/SeverityBadge';
-import { IconStar, IconMapPin } from '../../components/dashboard/icons';
+import TaskDrawer from '../../components/worker/TaskDrawer';
+import { LoadingPanel, ErrorPanel } from '../../components/dashboard/AsyncStates';
+import { IconMapPin, IconCheckCircle } from '../../components/dashboard/icons';
 import { getCurrentUser } from '../../api/auth';
-import { assignedTasks, AVAILABILITY_OPTIONS, workerRating } from '../../data/mockWorker';
-
-// What the primary action does next, given a task's current status.
-const NEXT = {
-  Assigned: { status: 'In Progress', label: 'Start' },
-  'In Progress': { status: 'Resolved', label: 'Mark Resolved' },
-};
+import { listMyTasks, updateComplaintStatus } from '../../api/complaints';
+import { setMyAvailability } from '../../api/workers';
+import useAsync from '../../hooks/useAsync';
 
 const AVAIL_STYLE = {
-  Available: 'bg-emerald-500 text-white',
-  Busy: 'bg-amber-500 text-white',
-  'Off Duty': 'bg-slate-400 text-white',
+  AVAILABLE: 'bg-emerald-500 text-white',
+  UNAVAILABLE: 'bg-slate-400 text-white',
 };
 
 export default function WorkerDashboard() {
   const user = getCurrentUser();
   const firstName = user?.name?.split(' ')[0] || 'there';
 
-  const [tasks, setTasks] = useState(assignedTasks);
-  const [availability, setAvailability] = useState('Available');
+  const { data, error, loading, refetch, setData } = useAsync(() => listMyTasks(), []);
+  const tasks = useMemo(() => data || [], [data]);
 
-  const advance = (id) =>
-    setTasks((prev) =>
-      prev.map((t) => (t.id === id && NEXT[t.status] ? { ...t, status: NEXT[t.status].status, due: NEXT[t.status].status === 'Resolved' ? 'Completed' : t.due } : t)),
-    );
+  // No GET for the worker's own availabilityStatus (see WorkerProfile) --
+  // only PATCH exists, so this stays null ("not confirmed") until they set it.
+  const [availability, setAvailability] = useState(null);
+  const [availBusy, setAvailBusy] = useState(false);
+
+  const [selectedId, setSelectedId] = useState(null);
+  const [toast, setToast] = useState('');
+  const [busy, setBusy] = useState(false);
+  const selected = tasks.find((t) => t.id === selectedId) || null;
+
+  const applyUpdate = useCallback((updated) => {
+    setData((list) => (list || []).map((t) => (t.id === updated.id ? updated : t)));
+  }, [setData]);
+
+  const handleAvailability = async (available) => {
+    setAvailBusy(true);
+    try {
+      const result = await setMyAvailability(available);
+      setAvailability(result.availabilityStatus);
+    } catch (err) {
+      if (err.name !== 'SessionExpiredError') setToast(err.message);
+    } finally {
+      setAvailBusy(false);
+    }
+  };
+
+  const handleStatusChange = async (id, status, remarks) => {
+    setBusy(true);
+    try {
+      const updated = await updateComplaintStatus(id, status, remarks);
+      applyUpdate(updated);
+      setToast(`${id} marked as ${status}.`);
+      setSelectedId(null);
+      setTimeout(() => setToast(''), 4000);
+    } catch (err) {
+      if (err.name !== 'SessionExpiredError') setToast(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const kpis = useMemo(() => {
     const by = (s) => tasks.filter((t) => t.status === s).length;
     return [
-      { key: 'assigned', label: 'Assigned', value: by('Assigned'), trend: 'Waiting to start', tone: 'amber' },
-      { key: 'in_progress', label: 'In Progress', value: by('In Progress'), trend: 'Currently working', tone: 'blue' },
-      { key: 'completed', label: 'Completed', value: by('Resolved'), trend: 'Marked resolved', tone: 'purple' },
-      { key: 'rating', label: 'Avg. Rating', value: `${workerRating} ★`, trend: 'From citizen feedback', tone: 'amber', icon: IconStar },
+      { key: 'new', label: 'New', value: by('New'), trend: 'Not yet started', tone: 'amber' },
+      { key: 'assigned', label: 'Assigned', value: by('Assigned'), trend: 'In your queue', tone: 'blue' },
+      { key: 'resolved', label: 'Resolved', value: by('Resolved'), trend: 'Marked complete', tone: 'purple' },
+      { key: 'total', label: 'Total Assigned', value: tasks.length, trend: 'All time', tone: 'emerald' },
     ];
   }, [tasks]);
 
+  const openTasks = useMemo(
+    () => tasks.filter((t) => t.status === 'New' || t.status === 'Assigned'),
+    [tasks],
+  );
+
   return (
     <div className="max-w-[1100px] mx-auto space-y-6">
-      {/* Header + availability */}
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <h1 className="font-display text-2xl font-bold text-slate-900">Hi, {firstName}</h1>
-          <p className="text-[14px] text-slate-500">Here are the tasks assigned to you today.</p>
+          <p className="text-[14px] text-slate-500">Here are the tasks assigned to you.</p>
         </div>
         <div className="flex items-center gap-2">
           <span className="text-[12px] text-slate-400 mr-1">Availability</span>
-          {AVAILABILITY_OPTIONS.map((opt) => {
-            const active = availability === opt;
-            return (
-              <button
-                key={opt}
-                onClick={() => setAvailability(opt)}
-                className={`px-3 py-1.5 rounded-lg text-[12px] font-semibold transition-colors ${
-                  active ? AVAIL_STYLE[opt] : 'bg-white border border-slate-200 text-slate-500 hover:bg-slate-50'
-                }`}
-              >
-                {opt}
-              </button>
-            );
-          })}
+          <button
+            onClick={() => handleAvailability(true)}
+            disabled={availBusy}
+            className={`px-3 py-1.5 rounded-lg text-[12px] font-semibold transition-colors disabled:opacity-60 ${
+              availability === 'AVAILABLE' ? AVAIL_STYLE.AVAILABLE : 'bg-white border border-slate-200 text-slate-500 hover:bg-slate-50'
+            }`}
+          >
+            Available
+          </button>
+          <button
+            onClick={() => handleAvailability(false)}
+            disabled={availBusy}
+            className={`px-3 py-1.5 rounded-lg text-[12px] font-semibold transition-colors disabled:opacity-60 ${
+              availability === 'UNAVAILABLE' ? AVAIL_STYLE.UNAVAILABLE : 'bg-white border border-slate-200 text-slate-500 hover:bg-slate-50'
+            }`}
+          >
+            Off Duty
+          </button>
         </div>
       </div>
 
-      {/* KPIs */}
-      <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
-        {kpis.map((k) => (
-          <StatTile key={k.key} {...k} />
-        ))}
-      </div>
-
-      {/* Task list */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm">
-        <div className="px-5 py-4 border-b border-slate-100">
-          <h3 className="font-display font-bold text-slate-900">My Tasks</h3>
+      {toast && (
+        <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 text-emerald-800 text-[13px] font-medium px-4 py-3 rounded-xl">
+          <IconCheckCircle size={16} className="shrink-0" /> {toast}
         </div>
-        <ul className="divide-y divide-slate-100">
-          {tasks.map((t) => {
-            const next = NEXT[t.status];
-            return (
-              <li key={t.id} className="flex items-center gap-4 px-5 py-4 flex-wrap">
-                <div className="flex-1 min-w-[200px]">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-[14px] font-medium text-slate-800">{t.issue}</span>
-                    <SeverityBadge severity={t.severity} />
-                  </div>
-                  <div className="flex items-center gap-1.5 text-[12px] text-slate-400 mt-1">
-                    <IconMapPin size={13} /> {t.location}
-                    <span className="mx-1">·</span>
-                    <span>{t.category}</span>
-                  </div>
-                </div>
+      )}
 
-                <div className="text-right">
-                  <div className="text-[11px] text-slate-400">{t.due}</div>
-                  <div className="mt-1"><StatusBadge status={t.status} /></div>
-                </div>
+      {loading ? (
+        <LoadingPanel label="Loading your tasks…" />
+      ) : error ? (
+        <ErrorPanel error={error} onRetry={refetch} />
+      ) : (
+        <>
+          <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
+            {kpis.map((k) => <StatTile key={k.key} {...k} />)}
+          </div>
 
-                <div className="w-[130px] text-right">
-                  {next ? (
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm">
+            <div className="px-5 py-4 border-b border-slate-100">
+              <h3 className="font-display font-bold text-slate-900">Open Tasks</h3>
+            </div>
+            {openTasks.length === 0 ? (
+              <p className="text-[14px] text-slate-500 p-8 text-center">Nothing open right now.</p>
+            ) : (
+              <ul className="divide-y divide-slate-100">
+                {openTasks.map((t) => (
+                  <li key={t.id} className="flex items-center gap-4 px-5 py-4 flex-wrap">
+                    <div className="flex-1 min-w-[200px]">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-[14px] font-medium text-slate-800">{t.issue}</span>
+                        <SeverityBadge severity={t.severity} />
+                      </div>
+                      <div className="flex items-center gap-1.5 text-[12px] text-slate-400 mt-1">
+                        <IconMapPin size={13} /> {t.location}
+                        <span className="mx-1">·</span>
+                        <span>{t.category}</span>
+                      </div>
+                    </div>
+                    <StatusBadge status={t.status} />
                     <button
-                      onClick={() => advance(t.id)}
-                      className={`w-full px-3 py-2 rounded-lg text-[12px] font-semibold text-white transition-colors ${
-                        t.status === 'In Progress' ? 'bg-primary hover:bg-emerald-600' : 'bg-blue-600 hover:bg-blue-700'
-                      }`}
+                      onClick={() => setSelectedId(t.id)}
+                      className="shrink-0 px-3 py-2 rounded-lg text-[12px] font-semibold text-white bg-primary hover:bg-emerald-600 transition-colors"
                     >
-                      {next.label}
+                      Open
                     </button>
-                  ) : (
-                    <span className="inline-block w-full px-3 py-2 rounded-lg text-[12px] font-semibold text-emerald-600 bg-emerald-50">
-                      Done
-                    </span>
-                  )}
-                </div>
-              </li>
-            );
-          })}
-        </ul>
-      </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </>
+      )}
 
-      <p className="text-[12px] text-slate-400">
-        Status changes are saved locally for now — they'll sync once the backend is connected.
-      </p>
+      {selected && (
+        <TaskDrawer task={selected} busy={busy} onDismiss={() => setSelectedId(null)} onStatusChange={handleStatusChange} />
+      )}
     </div>
   );
 }
