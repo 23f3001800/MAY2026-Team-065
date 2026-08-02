@@ -24,6 +24,8 @@ import models
 import schemas
 import security
 
+from security import get_password_hash
+
 app = FastAPI(title="Municipal Complaint Management API")
 # Create a folder to store images
 os.makedirs("uploads", exist_ok=True)
@@ -314,7 +316,8 @@ async def create_field_worker(
         name=worker.name,
         email=worker.email,
         phone=worker.phone,
-        passwordHash=worker.password, 
+        # passwordHash=worker.password, 
+        passwordHash=get_password_hash(worker.password),
         role="field_worker",          
         skillSet=worker.skillSet,
         availabilityStatus="AVAILABLE"
