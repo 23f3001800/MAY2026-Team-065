@@ -57,31 +57,6 @@ CRA only exposes vars prefixed with `REACT_APP_`, and you must restart
 
 ---
 
-## Working without the backend (dev preview)
-
-You don't need a running API to look at the UI. On the login page in
-development, there are **preview buttons** for each role — click one and it
-fabricates a session and drops you straight into that role's dashboard.
-
-| Button | Lands on |
-|---|---|
-| Citizen | `/dashboard` |
-| Officer | `/officer/dashboard` |
-| Field Worker | `/worker/dashboard` |
-| Admin | `/admin/dashboard` |
-
-This lives in [src/api/devPreview.js](src/api/devPreview.js) and is gated on
-`process.env.NODE_ENV === 'development'`, so the buttons never render in a
-production build.
-
-**It only gets you as far as the layout now.** The fabricated token is not a
-real JWT, so every data call behind it returns 401 and the client will bounce
-you back to `/login`. Use it to look at chrome and navigation; use a real
-seeded account (`admin@city.gov` / `admin123`, see `backend/seed.py`) to
-exercise anything that loads data.
-
----
-
 ## Project structure
 
 ```
@@ -98,8 +73,7 @@ src/
 │   ├── complaints.js       # create, list, detail, assign, status, feedback
 │   ├── workers.js          # field worker list + availability + create
 │   ├── admin.js            # analytics, user search, officer creation, suspend, reset password
-│   ├── notifications.js    # citizen inbox
-│   └── devPreview.js       # DEV ONLY — fake login per role
+│   └── notifications.js    # citizen inbox
 │
 ├── hooks/
 │   └── useAsync.js         # load / error / refetch for page data
@@ -111,7 +85,7 @@ src/
 │   └── AdminLayout.jsx
 │
 ├── pages/
-│   ├── Login.jsx  Register.jsx
+│   ├── Home.jsx  Login.jsx  Register.jsx
 │   ├── CitizenDashboard.jsx  ReportIssue.jsx  MyComplaints.jsx
 │   ├── ComplaintDetails.jsx  Notifications.jsx  NearbyIssues.jsx
 │   ├── TrackComplaints.jsx  Feedback.jsx  AIAssistant.jsx
@@ -158,7 +132,8 @@ your role's home (or `/login` if signed out).
 > This is a **UX guard, not a security boundary** — it only reads the role out
 > of `localStorage`. The backend must enforce authorization on every endpoint.
 
-**Public** — `/login`, `/register` (self-register is citizen-only)
+**Public** — `/` (landing page; sends a signed-in visitor straight to their
+dashboard), `/login`, `/register` (self-register is citizen-only)
 
 **Citizen** — `/dashboard`, `/report`, `/my-complaints`, `/complaints/:id`,
 `/track`, `/nearby`, `/notifications`, `/feedback`, `/ai-assistant`,

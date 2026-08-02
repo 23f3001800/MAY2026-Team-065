@@ -1,6 +1,7 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import AuthBackground from './components/AuthBackground';
+import Home from './pages/Home';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import CitizenLayout from './layouts/CitizenLayout';
@@ -50,10 +51,11 @@ function RequireAuth({ allow, children }) {
   return children;
 }
 
-// Sends the visitor to their role's home (or /login if signed out).
+// Sends the visitor to their role's home (or the public landing page if
+// signed out) for any path that isn't a known route.
 function RoleHome() {
   const user = getCurrentUser();
-  return <Navigate to={user ? homePathForRole(user.role) : '/login'} replace />;
+  return <Navigate to={user ? homePathForRole(user.role) : '/'} replace />;
 }
 
 // Dark, centered layout for the auth screens (login/register).
@@ -72,6 +74,9 @@ function App() {
   return (
     <BrowserRouter>
       <Routes>
+        {/* Public landing page — redirects a signed-in visitor to their dashboard */}
+        <Route path="/" element={<Home />} />
+
         {/* Public auth screens */}
         <Route path="/login" element={<AuthScreen><Login /></AuthScreen>} />
         <Route path="/register" element={<AuthScreen><Register /></AuthScreen>} />
