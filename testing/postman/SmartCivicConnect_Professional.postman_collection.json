@@ -19,6 +19,14 @@
     {
       "key": "userId",
       "value": ""
+    },
+    {
+      "key": "workerId",
+      "value": ""
+    },
+    {
+      "key": "categoryId",
+      "value": "CAT-WAT-01"
     }
   ],
   "item": [
@@ -46,7 +54,9 @@
               "listen": "test",
               "script": {
                 "exec": [
-                  "pm.test('Status code is not 500', function(){pm.expect(pm.response.code).to.not.eql(500);});"
+                  "pm.test(\"Status is not 500\",()=>pm.expect(pm.response.code).to.not.eql(500));",
+                  "pm.test(\"Response is JSON\",()=>pm.response.to.be.json);",
+                  "pm.test(\"Response Time < 1000 ms\",()=>pm.expect(pm.response.responseTime).to.be.below(1000));"
                 ]
               }
             }
@@ -73,7 +83,10 @@
               "listen": "test",
               "script": {
                 "exec": [
-                  "pm.test('Status code is not 500', function(){pm.expect(pm.response.code).to.not.eql(500);});"
+                  "pm.test(\"Status is not 500\",()=>pm.expect(pm.response.code).to.not.eql(500));",
+                  "pm.test(\"Response is JSON\",()=>pm.response.to.be.json);",
+                  "pm.test(\"Response Time < 1000 ms\",()=>pm.expect(pm.response.responseTime).to.be.below(1000));",
+                  "if(pm.response.code===200){let j=pm.response.json();if(j.access_token)pm.environment.set(\"token\",j.access_token);}"
                 ]
               }
             }
@@ -110,7 +123,10 @@
               "listen": "test",
               "script": {
                 "exec": [
-                  "pm.test('Status code is not 500', function(){pm.expect(pm.response.code).to.not.eql(500);});"
+                  "pm.test(\"Status is not 500\",()=>pm.expect(pm.response.code).to.not.eql(500));",
+                  "pm.test(\"Response is JSON\",()=>pm.response.to.be.json);",
+                  "pm.test(\"Response Time < 1000 ms\",()=>pm.expect(pm.response.responseTime).to.be.below(1000));",
+                  "if(pm.response.code===201){pm.environment.set(\"complaintId\",pm.response.json().complaintId);}"
                 ]
               }
             }
@@ -142,7 +158,9 @@
               "listen": "test",
               "script": {
                 "exec": [
-                  "pm.test('Status code is not 500', function(){pm.expect(pm.response.code).to.not.eql(500);});"
+                  "pm.test(\"Status is not 500\",()=>pm.expect(pm.response.code).to.not.eql(500));",
+                  "pm.test(\"Response is JSON\",()=>pm.response.to.be.json);",
+                  "pm.test(\"Response Time < 1000 ms\",()=>pm.expect(pm.response.responseTime).to.be.below(1000));"
                 ]
               }
             }
@@ -176,7 +194,9 @@
               "listen": "test",
               "script": {
                 "exec": [
-                  "pm.test('Status code is not 500', function(){pm.expect(pm.response.code).to.not.eql(500);});"
+                  "pm.test(\"Status is not 500\",()=>pm.expect(pm.response.code).to.not.eql(500));",
+                  "pm.test(\"Response is JSON\",()=>pm.response.to.be.json);",
+                  "pm.test(\"Response Time < 1000 ms\",()=>pm.expect(pm.response.responseTime).to.be.below(1000));"
                 ]
               }
             }
@@ -210,7 +230,9 @@
               "listen": "test",
               "script": {
                 "exec": [
-                  "pm.test('Status code is not 500', function(){pm.expect(pm.response.code).to.not.eql(500);});"
+                  "pm.test(\"Status is not 500\",()=>pm.expect(pm.response.code).to.not.eql(500));",
+                  "pm.test(\"Response is JSON\",()=>pm.response.to.be.json);",
+                  "pm.test(\"Response Time < 1000 ms\",()=>pm.expect(pm.response.responseTime).to.be.below(1000));"
                 ]
               }
             }
@@ -244,7 +266,9 @@
               "listen": "test",
               "script": {
                 "exec": [
-                  "pm.test('Status code is not 500', function(){pm.expect(pm.response.code).to.not.eql(500);});"
+                  "pm.test(\"Status is not 500\",()=>pm.expect(pm.response.code).to.not.eql(500));",
+                  "pm.test(\"Response is JSON\",()=>pm.response.to.be.json);",
+                  "pm.test(\"Response Time < 1000 ms\",()=>pm.expect(pm.response.responseTime).to.be.below(1000));"
                 ]
               }
             }
@@ -277,7 +301,9 @@
               "listen": "test",
               "script": {
                 "exec": [
-                  "pm.test('Status code is not 500', function(){pm.expect(pm.response.code).to.not.eql(500);});"
+                  "pm.test(\"Status is not 500\",()=>pm.expect(pm.response.code).to.not.eql(500));",
+                  "pm.test(\"Response is JSON\",()=>pm.response.to.be.json);",
+                  "pm.test(\"Response Time < 1000 ms\",()=>pm.expect(pm.response.responseTime).to.be.below(1000));"
                 ]
               }
             }
@@ -310,7 +336,9 @@
               "listen": "test",
               "script": {
                 "exec": [
-                  "pm.test('Status code is not 500', function(){pm.expect(pm.response.code).to.not.eql(500);});"
+                  "pm.test(\"Status is not 500\",()=>pm.expect(pm.response.code).to.not.eql(500));",
+                  "pm.test(\"Response is JSON\",()=>pm.response.to.be.json);",
+                  "pm.test(\"Response Time < 1000 ms\",()=>pm.expect(pm.response.responseTime).to.be.below(1000));"
                 ]
               }
             }
@@ -344,7 +372,9 @@
               "listen": "test",
               "script": {
                 "exec": [
-                  "pm.test('Status code is not 500', function(){pm.expect(pm.response.code).to.not.eql(500);});"
+                  "pm.test(\"Status is not 500\",()=>pm.expect(pm.response.code).to.not.eql(500));",
+                  "pm.test(\"Response is JSON\",()=>pm.response.to.be.json);",
+                  "pm.test(\"Response Time < 1000 ms\",()=>pm.expect(pm.response.responseTime).to.be.below(1000));"
                 ]
               }
             }
@@ -378,7 +408,9 @@
               "listen": "test",
               "script": {
                 "exec": [
-                  "pm.test('Status code is not 500', function(){pm.expect(pm.response.code).to.not.eql(500);});"
+                  "pm.test(\"Status is not 500\",()=>pm.expect(pm.response.code).to.not.eql(500));",
+                  "pm.test(\"Response is JSON\",()=>pm.response.to.be.json);",
+                  "pm.test(\"Response Time < 1000 ms\",()=>pm.expect(pm.response.responseTime).to.be.below(1000));"
                 ]
               }
             }
@@ -412,7 +444,9 @@
               "listen": "test",
               "script": {
                 "exec": [
-                  "pm.test('Status code is not 500', function(){pm.expect(pm.response.code).to.not.eql(500);});"
+                  "pm.test(\"Status is not 500\",()=>pm.expect(pm.response.code).to.not.eql(500));",
+                  "pm.test(\"Response is JSON\",()=>pm.response.to.be.json);",
+                  "pm.test(\"Response Time < 1000 ms\",()=>pm.expect(pm.response.responseTime).to.be.below(1000));"
                 ]
               }
             }
@@ -450,7 +484,9 @@
               "listen": "test",
               "script": {
                 "exec": [
-                  "pm.test('Status code is not 500', function(){pm.expect(pm.response.code).to.not.eql(500);});"
+                  "pm.test(\"Status is not 500\",()=>pm.expect(pm.response.code).to.not.eql(500));",
+                  "pm.test(\"Response is JSON\",()=>pm.response.to.be.json);",
+                  "pm.test(\"Response Time < 1000 ms\",()=>pm.expect(pm.response.responseTime).to.be.below(1000));"
                 ]
               }
             }
@@ -484,7 +520,10 @@
               "listen": "test",
               "script": {
                 "exec": [
-                  "pm.test('Status code is not 500', function(){pm.expect(pm.response.code).to.not.eql(500);});"
+                  "pm.test(\"Status is not 500\",()=>pm.expect(pm.response.code).to.not.eql(500));",
+                  "pm.test(\"Response is JSON\",()=>pm.response.to.be.json);",
+                  "pm.test(\"Response Time < 1000 ms\",()=>pm.expect(pm.response.responseTime).to.be.below(1000));",
+                  "if(pm.response.code===201){pm.environment.set(\"userId\",pm.response.json().userId);}"
                 ]
               }
             }
@@ -517,7 +556,9 @@
               "listen": "test",
               "script": {
                 "exec": [
-                  "pm.test('Status code is not 500', function(){pm.expect(pm.response.code).to.not.eql(500);});"
+                  "pm.test(\"Status is not 500\",()=>pm.expect(pm.response.code).to.not.eql(500));",
+                  "pm.test(\"Response is JSON\",()=>pm.response.to.be.json);",
+                  "pm.test(\"Response Time < 1000 ms\",()=>pm.expect(pm.response.responseTime).to.be.below(1000));"
                 ]
               }
             }
@@ -551,7 +592,9 @@
               "listen": "test",
               "script": {
                 "exec": [
-                  "pm.test('Status code is not 500', function(){pm.expect(pm.response.code).to.not.eql(500);});"
+                  "pm.test(\"Status is not 500\",()=>pm.expect(pm.response.code).to.not.eql(500));",
+                  "pm.test(\"Response is JSON\",()=>pm.response.to.be.json);",
+                  "pm.test(\"Response Time < 1000 ms\",()=>pm.expect(pm.response.responseTime).to.be.below(1000));"
                 ]
               }
             }
@@ -588,7 +631,10 @@
               "listen": "test",
               "script": {
                 "exec": [
-                  "pm.test('Status code is not 500', function(){pm.expect(pm.response.code).to.not.eql(500);});"
+                  "pm.test(\"Status is not 500\",()=>pm.expect(pm.response.code).to.not.eql(500));",
+                  "pm.test(\"Response is JSON\",()=>pm.response.to.be.json);",
+                  "pm.test(\"Response Time < 1000 ms\",()=>pm.expect(pm.response.responseTime).to.be.below(1000));",
+                  "if(pm.response.code===201){pm.environment.set(\"workerId\",pm.response.json().userId);}"
                 ]
               }
             }
@@ -620,7 +666,9 @@
               "listen": "test",
               "script": {
                 "exec": [
-                  "pm.test('Status code is not 500', function(){pm.expect(pm.response.code).to.not.eql(500);});"
+                  "pm.test(\"Status is not 500\",()=>pm.expect(pm.response.code).to.not.eql(500));",
+                  "pm.test(\"Response is JSON\",()=>pm.response.to.be.json);",
+                  "pm.test(\"Response Time < 1000 ms\",()=>pm.expect(pm.response.responseTime).to.be.below(1000));"
                 ]
               }
             }
@@ -654,7 +702,9 @@
               "listen": "test",
               "script": {
                 "exec": [
-                  "pm.test('Status code is not 500', function(){pm.expect(pm.response.code).to.not.eql(500);});"
+                  "pm.test(\"Status is not 500\",()=>pm.expect(pm.response.code).to.not.eql(500));",
+                  "pm.test(\"Response is JSON\",()=>pm.response.to.be.json);",
+                  "pm.test(\"Response Time < 1000 ms\",()=>pm.expect(pm.response.responseTime).to.be.below(1000));"
                 ]
               }
             }
@@ -693,7 +743,9 @@
               "listen": "test",
               "script": {
                 "exec": [
-                  "pm.test('Status code is not 500', function(){pm.expect(pm.response.code).to.not.eql(500);});"
+                  "pm.test(\"Status is not 500\",()=>pm.expect(pm.response.code).to.not.eql(500));",
+                  "pm.test(\"Response is JSON\",()=>pm.response.to.be.json);",
+                  "pm.test(\"Response Time < 1000 ms\",()=>pm.expect(pm.response.responseTime).to.be.below(1000));"
                 ]
               }
             }
@@ -731,7 +783,9 @@
               "listen": "test",
               "script": {
                 "exec": [
-                  "pm.test('Status code is not 500', function(){pm.expect(pm.response.code).to.not.eql(500);});"
+                  "pm.test(\"Status is not 500\",()=>pm.expect(pm.response.code).to.not.eql(500));",
+                  "pm.test(\"Response is JSON\",()=>pm.response.to.be.json);",
+                  "pm.test(\"Response Time < 1000 ms\",()=>pm.expect(pm.response.responseTime).to.be.below(1000));"
                 ]
               }
             }
