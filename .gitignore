@@ -18,6 +18,12 @@ backend/smart_civic.db
 # OS files
 .DS_Store
 
+# Windows metadata
+*:Zone.Identifier
+
+# Accidental npm folder
+${APPDATA}\npm/
+
 # Environment variables (secrets)
 .env
 .env.*
