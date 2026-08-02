@@ -1,36 +1,9 @@
-# Smart CivicConnect - QA Automation
-
-## Requirements
-
-- Python 3.13
-- FastAPI
-- PostgreSQL
-- pytest
-- asyncpg
+# Pytest API Suite
 
 ## Install
+pip install pytest requests
 
-```bash
-pip install -r backend/requirements.txt
-pip install pytest
-```
+## Run
+pytest -v
 
-## Run All Tests
-
-```bash
-pytest testing/pytest -v
-```
-
-## Run Individual Module
-
-```bash
-pytest testing/pytest/test_auth.py -v
-pytest testing/pytest/test_complaints.py -v
-pytest testing/pytest/test_workers.py -v
-```
-
-## Notes
-
-- Tests require a running PostgreSQL database.
-- Configure `.env` correctly before execution.
-- Login uses JWT authentication.
+Update BASE_URL and add authentication if required for protected endpoints.
