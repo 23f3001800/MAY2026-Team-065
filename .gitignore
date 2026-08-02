@@ -21,3 +21,4 @@ backend/smart_civic.db
 # Environment variables (secrets)
 .env
 .env.*
+!.env.example
