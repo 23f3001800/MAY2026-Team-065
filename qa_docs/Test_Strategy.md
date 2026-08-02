@@ -1,19 +1,22 @@
 # Smart CivicConnect
-## Software Test Strategy
+
+# Software Test Strategy
 
 ---
 
 # 1. Introduction
 
-This document describes the overall testing strategy for the Smart CivicConnect project. It defines the testing approach, testing levels, techniques, tools, and responsibilities that will be followed to ensure the application meets its functional and quality requirements.
+This document describes the overall testing strategy for the Smart CivicConnect project. It defines the testing approach, testing levels, testing techniques, tools, responsibilities, and quality objectives that will be followed to ensure the application meets its functional and non-functional requirements.
 
 ---
 
 # 2. Testing Approach
 
-Testing will be performed throughout the Software Development Life Cycle (SDLC). Both manual and automated testing will be used to identify defects early and improve software quality.
+Testing will be performed throughout the Software Development Life Cycle (SDLC). Both manual and automated testing will be used to identify defects early, improve software quality, and reduce regression issues.
 
-The QA process will begin with reviewing requirements and API specifications before development is completed. Once the application modules are implemented, different levels of testing will be carried out to verify functionality, integration, and overall system behavior.
+The QA process begins with reviewing project requirements, user stories, API specifications, and implementation changes before executing manual and automated testing activities.
+
+Testing will be performed incrementally for every sprint and repeated whenever significant code changes are introduced.
 
 ---
 
@@ -21,54 +24,63 @@ The QA process will begin with reviewing requirements and API specifications bef
 
 ## Unit Testing
 
-Each module will be tested individually by the respective developer. Pytest will be used for backend API unit testing.
+Individual modules will be tested independently by developers.
+
+Pytest will be used for backend unit and API testing where applicable.
 
 ---
 
 ## API Testing
 
-REST APIs will be tested using Postman and Pytest to verify:
+REST APIs will be verified using:
+
+- Swagger UI
+- Postman
+- Newman
+- Pytest
+
+Testing will verify:
 
 - Request validation
 - Response format
 - HTTP status codes
-- Error handling
 - Authentication
 - Authorization
+- Error handling
 
 ---
 
 ## Integration Testing
 
-Integration testing will verify communication between:
+Integration testing verifies communication between:
 
 - Frontend and Backend
 - Backend and Database
-- Backend and AI Services
 - Backend and Notification Services
+- Backend and AI Services (if implemented)
 
 ---
 
 ## Functional Testing
 
-Functional testing will verify that all user requirements are implemented correctly for:
+Functional testing verifies that implemented features satisfy user requirements for:
 
 - Citizens
-- Municipal Grievance Officers
+- Administrators
+- Municipal Officers
 - Field Workers
-- City Administration
 
 ---
 
 ## Regression Testing
 
-Regression testing will be performed after every major update to ensure that existing functionality continues to work correctly after code changes.
+Regression testing is performed after every significant change to ensure previously working functionality continues to behave correctly.
 
 ---
 
 ## Smoke Testing
 
-Smoke testing will be performed after each deployment to verify that critical functionalities are working before detailed testing begins.
+Smoke testing verifies that critical application functionality is operational before detailed testing begins.
 
 ---
 
@@ -86,20 +98,23 @@ The following testing techniques will be used:
 
 # 5. Test Automation
 
-Automation will be used for backend API testing using:
+Automation will be performed using:
 
 - Pytest
-- FastAPI TestClient
+- Newman
 
-Manual testing will be performed for user interface validation and usability testing.
+Manual testing will be performed using:
+
+- Swagger UI
+- Postman
 
 ---
 
 # 6. Defect Management
 
-All identified defects will be documented using GitHub Issues.
+All identified defects will be documented using project bug reports.
 
-Each defect will include:
+Each defect record should include:
 
 - Bug ID
 - Description
@@ -114,15 +129,19 @@ Each defect will include:
 
 # 7. Test Documentation
 
-The following QA documents will be maintained:
+The following QA documents will be maintained throughout the project:
 
 - Test Plan
-- Test Cases
+- Test Strategy
 - API Test Cases
-- Bug Reports
-- Test Reports
-- Regression Checklist
+- API Testing Report
+- Bug Report
+- Regression Testing Checklist
 - Code Review Checklist
+- Swagger YAML
+- Postman Collection
+- Newman Report
+- Pytest Report
 
 ---
 
@@ -130,12 +149,13 @@ The following QA documents will be maintained:
 
 | Activity | Tool |
 |-----------|------|
+| API Documentation | Swagger UI |
+| Manual API Testing | Swagger UI |
 | API Testing | Postman |
+| Automated API Testing | Newman |
 | Automated Testing | Pytest |
-| Backend Testing | FastAPI TestClient |
 | Version Control | GitHub |
-| Project Management | Jira |
-| Bug Tracking | GitHub Issues |
+| IDE | Visual Studio Code |
 
 ---
 
@@ -143,10 +163,12 @@ The following QA documents will be maintained:
 
 Testing will be considered successful when:
 
-- Critical APIs pass all test cases.
+- Critical APIs pass all planned test cases.
 - No unresolved critical defects remain.
 - Integration testing passes successfully.
 - Regression testing confirms existing functionality is unaffected.
+- Automated tests execute successfully.
+- Test reports are generated successfully.
 - User requirements are satisfied.
 
 ---
@@ -155,4 +177,10 @@ Testing will be considered successful when:
 
 | Version | Date | Description |
 |----------|------|-------------|
-| 1.0 | YYYY-MM-DD | Initial Test Strategy |
+| 1.0 | 2026-08-02 | Initial Test Strategy |
+
+---
+
+# Notes
+
+This strategy should be reviewed and updated whenever significant architectural changes, new modules, or additional testing requirements are introduced into the Smart CivicConnect project.
