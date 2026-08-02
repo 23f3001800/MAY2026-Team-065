@@ -164,3 +164,36 @@ export function fromApiFeedback(f) {
     submittedAt: f.submittedAt,
   };
 }
+
+// ── Admin: users ──────────────────────────────────────────────────
+// GET /admin/users returns the polymorphic UserModel as plain dicts (no
+// response_model, so whatever columns exist on the concrete subtype come
+// through). department/skillSet are only present on officer/worker rows.
+const ADMIN_ROLE_LABEL = {
+  citizen: 'Citizen',
+  officer: 'Municipal Officer',
+  municipal_officer: 'Municipal Officer',
+  field_worker: 'Field Worker',
+  administrator: 'Administrator',
+};
+
+export function fromApiUser(u) {
+  if (!u) return null;
+  return {
+    id: u.userId,
+    name: u.name,
+    email: u.email,
+    phone: u.phone || '',
+    role: u.role,
+    roleLabel: ADMIN_ROLE_LABEL[String(u.role).toLowerCase()] || u.role,
+    department: u.department || null,
+    designation: u.designation || null,
+    skillSet: u.skillSet || null,
+    availabilityStatus: u.availabilityStatus || null,
+    // The backend accepts writes to this field, but UserModel has no
+    // isActive column, so the value it echoes back never actually reflects
+    // a persisted suspension. Default true rather than imply a state we
+    // cannot confirm.
+    isActive: u.isActive !== false,
+  };
+}
