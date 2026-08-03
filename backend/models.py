@@ -26,8 +26,7 @@ class CitizenModel(UserModel):
     __tablename__ = "citizens"
     userId: Mapped[str] = mapped_column(ForeignKey("users.userId"), primary_key=True)
     address: Mapped[str] = mapped_column(String, nullable=True)
-    
-    # Relationships
+
     complaints: Mapped[List["ComplaintModel"]] = relationship(back_populates="citizen")
     
     __mapper_args__ = {"polymorphic_identity": "citizen"}
@@ -103,21 +102,18 @@ class ComplaintModel(Base):
     officerId: Mapped[Optional[str]] = mapped_column(ForeignKey("municipal_officers.userId"), nullable=True)
     fieldWorkerId: Mapped[Optional[str]] = mapped_column(ForeignKey("field_workers.userId"), nullable=True)
     
-    # Relationships mapping back to users and properties
     location: Mapped["LocationModel"] = relationship(back_populates="complaint")
     category: Mapped["CategoryModel"] = relationship(back_populates="complaints")
     citizen: Mapped["CitizenModel"] = relationship(back_populates="complaints")
     officer: Mapped["MunicipalOfficerModel"] = relationship(back_populates="complaints")
     field_worker: Mapped["FieldWorkerModel"] = relationship(back_populates="complaints")
     
-    # One-to-Many relationships for supporting features
     media_attachments: Mapped[List["MediaAttachmentModel"]] = relationship(back_populates="complaint")
     status_histories: Mapped[List["StatusHistoryModel"]] = relationship(back_populates="complaint")
     notifications: Mapped[List["NotificationModel"]] = relationship(back_populates="complaint")
     feedbacks: Mapped[List["FeedbackModel"]] = relationship(back_populates="complaint")
 
 
-# --- Supporting Entities ---
 class MediaAttachmentModel(Base):
     __tablename__ = "media_attachments"
     mediaId: Mapped[str] = mapped_column(String, primary_key=True)
