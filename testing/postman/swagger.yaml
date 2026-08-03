@@ -1,0 +1,1084 @@
+openapi: 3.1.0
+info:
+  title: Municipal Complaint Management API
+  version: 0.1.0
+paths:
+  /auth/register:
+    post:
+      summary: Register User
+      operationId: register_user_auth_register_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserRegister"
+        required: true
+      responses:
+        "201":
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        "422":
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HTTPValidationError"
+  /auth/login:
+    post:
+      summary: Login
+      operationId: login_auth_login_post
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: "#/components/schemas/Body_login_auth_login_post"
+        required: true
+      responses:
+        "200":
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Token"
+        "422":
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HTTPValidationError"
+  /complaints/:
+    get:
+      summary: Get Complaints
+      operationId: get_complaints_complaints__get
+      responses:
+        "200":
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: "#/components/schemas/ComplaintResponse"
+                type: array
+                title: Response Get Complaints Complaints  Get
+      security:
+        - OAuth2PasswordBearer: []
+    post:
+      summary: Create Complaint
+      operationId: create_complaint_complaints__post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ComplaintCreate"
+        required: true
+      responses:
+        "201":
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ComplaintResponse"
+        "422":
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HTTPValidationError"
+      security:
+        - OAuth2PasswordBearer: []
+  /admin/analytics:
+    get:
+      summary: Get City Analytics
+      operationId: get_city_analytics_admin_analytics_get
+      responses:
+        "200":
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+        - OAuth2PasswordBearer: []
+  "/complaints/{complaintId}/assign":
+    patch:
+      summary: Assign Field Worker
+      operationId: assign_field_worker_complaints__complaintId__assign_patch
+      security:
+        - OAuth2PasswordBearer: []
+      parameters:
+        - name: complaintId
+          in: path
+          required: true
+          schema:
+            type: string
+            title: Complaintid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ComplaintAssign"
+      responses:
+        "200":
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ComplaintResponse"
+        "422":
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HTTPValidationError"
+  /workers/:
+    post:
+      summary: Create Field Worker
+      operationId: create_field_worker_workers__post
+      security:
+        - OAuth2PasswordBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FieldWorkerCreate"
+      responses:
+        "201":
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FieldWorkerResponse"
+        "422":
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HTTPValidationError"
+    get:
+      summary: Get Field Workers
+      operationId: get_field_workers_workers__get
+      security:
+        - OAuth2PasswordBearer: []
+      parameters:
+        - name: skillSet
+          in: query
+          required: false
+          schema:
+            anyOf:
+              - type: string
+              - type: "null"
+            title: Skillset
+      responses:
+        "200":
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/FieldWorkerResponse"
+                title: Response Get Field Workers Workers  Get
+        "422":
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HTTPValidationError"
+  /complaints/worker/tasks:
+    get:
+      summary: Get Worker Tasks
+      operationId: get_worker_tasks_complaints_worker_tasks_get
+      responses:
+        "200":
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: "#/components/schemas/ComplaintResponse"
+                type: array
+                title: Response Get Worker Tasks Complaints Worker Tasks Get
+      security:
+        - OAuth2PasswordBearer: []
+  "/users/{userId}/reset-password":
+    patch:
+      summary: Reset User Password
+      operationId: reset_user_password_users__userId__reset_password_patch
+      security:
+        - OAuth2PasswordBearer: []
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+            title: Userid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PasswordReset"
+      responses:
+        "200":
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        "422":
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HTTPValidationError"
+  "/complaints/{complaintId}/image":
+    post:
+      summary: Upload Complaint Image
+      operationId: upload_complaint_image_complaints__complaintId__image_post
+      security:
+        - OAuth2PasswordBearer: []
+      parameters:
+        - name: complaintId
+          in: path
+          required: true
+          schema:
+            type: string
+            title: Complaintid
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/Body_upload_complaint_image_complaints__complaintId\
+                __image_post"
+      responses:
+        "201":
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        "422":
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HTTPValidationError"
+  /workers/me/availability:
+    patch:
+      summary: Update Worker Availability
+      operationId: update_worker_availability_workers_me_availability_patch
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AvailabilityUpdate"
+        required: true
+      responses:
+        "200":
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        "422":
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HTTPValidationError"
+      security:
+        - OAuth2PasswordBearer: []
+  /admin/users/official:
+    post:
+      summary: Create System Official
+      operationId: create_system_official_admin_users_official_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SystemOfficialCreate"
+        required: true
+      responses:
+        "201":
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        "422":
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HTTPValidationError"
+      security:
+        - OAuth2PasswordBearer: []
+  /admin/users:
+    get:
+      summary: List Users
+      operationId: list_users_admin_users_get
+      security:
+        - OAuth2PasswordBearer: []
+      parameters:
+        - name: query
+          in: query
+          required: false
+          schema:
+            anyOf:
+              - type: string
+              - type: "null"
+            title: Query
+        - name: role
+          in: query
+          required: false
+          schema:
+            anyOf:
+              - type: string
+              - type: "null"
+            title: Role
+        - name: skip
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+            title: Skip
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            maximum: 100
+            default: 50
+            title: Limit
+      responses:
+        "200":
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        "422":
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HTTPValidationError"
+  "/admin/users/{user_id}":
+    patch:
+      summary: Update User
+      operationId: update_user_admin_users__user_id__patch
+      security:
+        - OAuth2PasswordBearer: []
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema:
+            type: string
+            title: User Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserUpdate"
+      responses:
+        "200":
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        "422":
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HTTPValidationError"
+  /complaints/nearby:
+    get:
+      summary: Get Nearby Complaints
+      operationId: get_nearby_complaints_complaints_nearby_get
+      security:
+        - OAuth2PasswordBearer: []
+      parameters:
+        - name: latitude
+          in: query
+          required: true
+          schema:
+            type: number
+            description: Citizen's current latitude
+            title: Latitude
+          description: Citizen's current latitude
+        - name: longitude
+          in: query
+          required: true
+          schema:
+            type: number
+            description: Citizen's current longitude
+            title: Longitude
+          description: Citizen's current longitude
+        - name: radius_km
+          in: query
+          required: false
+          schema:
+            type: number
+            description: Search radius in kilometers
+            default: 5
+            title: Radius Km
+          description: Search radius in kilometers
+      responses:
+        "200":
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ComplaintResponse"
+                title: Response Get Nearby Complaints Complaints Nearby Get
+        "422":
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HTTPValidationError"
+  "/complaints/{complaintId}":
+    get:
+      summary: Get Complaint By Id
+      operationId: get_complaint_by_id_complaints__complaintId__get
+      security:
+        - OAuth2PasswordBearer: []
+      parameters:
+        - name: complaintId
+          in: path
+          required: true
+          schema:
+            type: string
+            title: Complaintid
+      responses:
+        "200":
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ComplaintResponse"
+        "422":
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HTTPValidationError"
+  "/complaints/{complaintId}/feedback":
+    post:
+      summary: Submit Feedback
+      operationId: submit_feedback_complaints__complaintId__feedback_post
+      security:
+        - OAuth2PasswordBearer: []
+      parameters:
+        - name: complaintId
+          in: path
+          required: true
+          schema:
+            type: string
+            title: Complaintid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FeedbackCreate"
+      responses:
+        "201":
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeedbackResponse"
+        "422":
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HTTPValidationError"
+  /notifications/me:
+    get:
+      summary: Get My Notifications
+      operationId: get_my_notifications_notifications_me_get
+      responses:
+        "200":
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: "#/components/schemas/NotificationResponse"
+                type: array
+                title: Response Get My Notifications Notifications Me Get
+      security:
+        - OAuth2PasswordBearer: []
+  "/complaints/{complaintId}/status":
+    patch:
+      summary: Update Complaint Status
+      operationId: update_complaint_status_complaints__complaintId__status_patch
+      security:
+        - OAuth2PasswordBearer: []
+      parameters:
+        - name: complaintId
+          in: path
+          required: true
+          schema:
+            type: string
+            title: Complaintid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StatusUpdate"
+      responses:
+        "200":
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ComplaintResponse"
+        "422":
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HTTPValidationError"
+  "/complaints/{complaintId}/category":
+    patch:
+      summary: Recategorize Complaint
+      operationId: recategorize_complaint_complaints__complaintId__category_patch
+      security:
+        - OAuth2PasswordBearer: []
+      parameters:
+        - name: complaintId
+          in: path
+          required: true
+          schema:
+            type: string
+            title: Complaintid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ComplaintRecategorize"
+      responses:
+        "200":
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ComplaintResponse"
+        "422":
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HTTPValidationError"
+components:
+  schemas:
+    AvailabilityUpdate:
+      properties:
+        status:
+          type: string
+          pattern: ^(AVAILABLE|UNAVAILABLE)$
+          title: Status
+          description: Must be AVAILABLE or UNAVAILABLE
+      type: object
+      required:
+        - status
+      title: AvailabilityUpdate
+    Body_login_auth_login_post:
+      properties:
+        grant_type:
+          anyOf:
+            - type: string
+              pattern: ^password$
+            - type: "null"
+          title: Grant Type
+        username:
+          type: string
+          title: Username
+        password:
+          type: string
+          format: password
+          title: Password
+        scope:
+          type: string
+          title: Scope
+          default: ""
+        client_id:
+          anyOf:
+            - type: string
+            - type: "null"
+          title: Client Id
+        client_secret:
+          anyOf:
+            - type: string
+            - type: "null"
+          format: password
+          title: Client Secret
+      type: object
+      required:
+        - username
+        - password
+      title: Body_login_auth_login_post
+    Body_upload_complaint_image_complaints__complaintId__image_post:
+      properties:
+        file:
+          type: string
+          contentMediaType: application/octet-stream
+          title: File
+      type: object
+      required:
+        - file
+      title: Body_upload_complaint_image_complaints__complaintId__image_post
+    CategoryResponse:
+      properties:
+        categoryId:
+          type: string
+          title: Categoryid
+        name:
+          type: string
+          title: Name
+        department:
+          type: string
+          title: Department
+      type: object
+      required:
+        - categoryId
+        - name
+        - department
+      title: CategoryResponse
+    ComplaintAssign:
+      properties:
+        fieldWorkerId:
+          type: string
+          title: Fieldworkerid
+      type: object
+      required:
+        - fieldWorkerId
+      title: ComplaintAssign
+    ComplaintCreate:
+      properties:
+        description:
+          type: string
+          title: Description
+        categoryId:
+          type: string
+          title: Categoryid
+        location:
+          $ref: "#/components/schemas/LocationCreate"
+      type: object
+      required:
+        - description
+        - categoryId
+        - location
+      title: ComplaintCreate
+    ComplaintRecategorize:
+      properties:
+        categoryId:
+          type: string
+          title: Categoryid
+      type: object
+      required:
+        - categoryId
+      title: ComplaintRecategorize
+    ComplaintResponse:
+      properties:
+        complaintId:
+          type: string
+          title: Complaintid
+        description:
+          type: string
+          title: Description
+        status:
+          $ref: "#/components/schemas/StatusEnum"
+        severity:
+          $ref: "#/components/schemas/SeverityEnum"
+        createdAt:
+          type: string
+          format: date-time
+          title: Createdat
+        updatedAt:
+          type: string
+          format: date-time
+          title: Updatedat
+        location:
+          $ref: "#/components/schemas/LocationResponse"
+        category:
+          $ref: "#/components/schemas/CategoryResponse"
+      type: object
+      required:
+        - complaintId
+        - description
+        - status
+        - severity
+        - createdAt
+        - updatedAt
+        - location
+        - category
+      title: ComplaintResponse
+    FeedbackCreate:
+      properties:
+        rating:
+          type: integer
+          maximum: 5
+          minimum: 1
+          title: Rating
+          description: Rating from 1 to 5
+        comments:
+          anyOf:
+            - type: string
+            - type: "null"
+          title: Comments
+      type: object
+      required:
+        - rating
+      title: FeedbackCreate
+    FeedbackResponse:
+      properties:
+        feedbackId:
+          type: string
+          title: Feedbackid
+        rating:
+          type: integer
+          title: Rating
+        comments:
+          anyOf:
+            - type: string
+            - type: "null"
+          title: Comments
+        submittedAt:
+          type: string
+          format: date-time
+          title: Submittedat
+        complaintId:
+          type: string
+          title: Complaintid
+      type: object
+      required:
+        - feedbackId
+        - rating
+        - comments
+        - submittedAt
+        - complaintId
+      title: FeedbackResponse
+    FieldWorkerCreate:
+      properties:
+        name:
+          type: string
+          title: Name
+        email:
+          type: string
+          title: Email
+        phone:
+          type: string
+          title: Phone
+        password:
+          type: string
+          title: Password
+        skillSet:
+          type: string
+          title: Skillset
+      type: object
+      required:
+        - name
+        - email
+        - phone
+        - password
+        - skillSet
+      title: FieldWorkerCreate
+    FieldWorkerResponse:
+      properties:
+        userId:
+          type: string
+          title: Userid
+        name:
+          type: string
+          title: Name
+        phone:
+          type: string
+          title: Phone
+        skillSet:
+          type: string
+          title: Skillset
+        availabilityStatus:
+          type: string
+          title: Availabilitystatus
+      type: object
+      required:
+        - userId
+        - name
+        - phone
+        - skillSet
+        - availabilityStatus
+      title: FieldWorkerResponse
+    HTTPValidationError:
+      properties:
+        detail:
+          items:
+            $ref: "#/components/schemas/ValidationError"
+          type: array
+          title: Detail
+      type: object
+      title: HTTPValidationError
+    LocationCreate:
+      properties:
+        latitude:
+          type: number
+          title: Latitude
+        longitude:
+          type: number
+          title: Longitude
+        address:
+          type: string
+          title: Address
+      type: object
+      required:
+        - latitude
+        - longitude
+        - address
+      title: LocationCreate
+    LocationResponse:
+      properties:
+        latitude:
+          type: number
+          title: Latitude
+        longitude:
+          type: number
+          title: Longitude
+        address:
+          type: string
+          title: Address
+        locationId:
+          type: integer
+          title: Locationid
+      type: object
+      required:
+        - latitude
+        - longitude
+        - address
+        - locationId
+      title: LocationResponse
+    NotificationResponse:
+      properties:
+        notificationId:
+          type: string
+          title: Notificationid
+        message:
+          type: string
+          title: Message
+        type:
+          type: string
+          title: Type
+        sentAt:
+          type: string
+          format: date-time
+          title: Sentat
+        isRead:
+          type: boolean
+          title: Isread
+        complaintId:
+          type: string
+          title: Complaintid
+      type: object
+      required:
+        - notificationId
+        - message
+        - type
+        - sentAt
+        - isRead
+        - complaintId
+      title: NotificationResponse
+    PasswordReset:
+      properties:
+        newPassword:
+          type: string
+          title: Newpassword
+      type: object
+      required:
+        - newPassword
+      title: PasswordReset
+    SeverityEnum:
+      type: string
+      enum:
+        - LOW
+        - MEDIUM
+        - HIGH
+        - CRITICAL
+      title: SeverityEnum
+    StatusEnum:
+      type: string
+      enum:
+        - PENDING
+        - ASSIGNED
+        - RESOLVED
+        - REJECTED
+      title: StatusEnum
+    StatusUpdate:
+      properties:
+        status:
+          $ref: "#/components/schemas/StatusEnum"
+        remarks:
+          anyOf:
+            - type: string
+            - type: "null"
+          title: Remarks
+      type: object
+      required:
+        - status
+      title: StatusUpdate
+    SystemOfficialCreate:
+      properties:
+        name:
+          type: string
+          title: Name
+        email:
+          type: string
+          title: Email
+        phone:
+          type: string
+          title: Phone
+        password:
+          type: string
+          title: Password
+        role:
+          type: string
+          title: Role
+        department:
+          type: string
+          title: Department
+          default: Unassigned
+        designation:
+          type: string
+          title: Designation
+          default: General Officer
+        skills:
+          anyOf:
+            - items:
+                type: string
+              type: array
+            - type: "null"
+          title: Skills
+      type: object
+      required:
+        - name
+        - email
+        - phone
+        - password
+        - role
+      title: SystemOfficialCreate
+    Token:
+      properties:
+        access_token:
+          type: string
+          title: Access Token
+        token_type:
+          type: string
+          title: Token Type
+      type: object
+      required:
+        - access_token
+        - token_type
+      title: Token
+    UserRegister:
+      properties:
+        userId:
+          type: string
+          title: Userid
+        name:
+          type: string
+          title: Name
+        email:
+          type: string
+          title: Email
+        phone:
+          type: string
+          title: Phone
+        password:
+          type: string
+          title: Password
+        role:
+          type: string
+          title: Role
+          default: citizen
+        address:
+          anyOf:
+            - type: string
+            - type: "null"
+          title: Address
+      type: object
+      required:
+        - userId
+        - name
+        - email
+        - phone
+        - password
+      title: UserRegister
+    UserUpdate:
+      properties:
+        isActive:
+          anyOf:
+            - type: boolean
+            - type: "null"
+          title: Isactive
+        role:
+          anyOf:
+            - type: string
+            - type: "null"
+          title: Role
+        department:
+          anyOf:
+            - type: string
+            - type: "null"
+          title: Department
+        skills:
+          anyOf:
+            - items:
+                type: string
+              type: array
+            - type: "null"
+          title: Skills
+      type: object
+      title: UserUpdate
+    ValidationError:
+      properties:
+        loc:
+          items:
+            anyOf:
+              - type: string
+              - type: integer
+          type: array
+          title: Location
+        msg:
+          type: string
+          title: Message
+        type:
+          type: string
+          title: Error Type
+        input:
+          title: Input
+        ctx:
+          type: object
+          title: Context
+      type: object
+      required:
+        - loc
+        - msg
+        - type
+      title: ValidationError
+  securitySchemes:
+    OAuth2PasswordBearer:
+      type: oauth2
+      flows:
+        password:
+          scopes: {}
+          tokenUrl: auth/login
