@@ -1,13 +1,14 @@
 # Smart CivicConnect
-## Regression Testing Checklist
+
+# Regression Testing Checklist
 
 ---
 
 # Purpose
 
-This checklist ensures that existing features continue to work correctly after new features, bug fixes, or code changes are introduced.
+This checklist is used to ensure that existing Smart CivicConnect functionalities continue to work correctly after introducing new features, bug fixes, refactoring, or configuration changes.
 
-Regression testing helps identify any unintended side effects caused by recent updates.
+Regression testing helps identify unintended side effects and ensures that previously working functionality remains stable throughout the development lifecycle.
 
 ---
 
@@ -17,72 +18,80 @@ Regression testing should be performed:
 
 - After implementing a new feature.
 - After fixing a reported bug.
+- Before merging a Pull Request.
 - Before each sprint review.
 - Before deployment.
 - Before the final project submission.
 
 ---
 
-# 1. User Authentication
+# 1. Authentication
 
 - [ ] User registration works correctly.
 - [ ] User login works correctly.
-- [ ] User logout works correctly.
+- [ ] Password reset works correctly.
 - [ ] Invalid login credentials are handled properly.
-- [ ] Session/token handling works correctly.
+- [ ] JWT authentication works correctly.
+- [ ] Protected APIs remain inaccessible without authorization.
 
 ---
 
 # 2. Complaint Management
 
 - [ ] Citizen can create a complaint.
-- [ ] Complaint details are saved correctly.
+- [ ] Complaint details are stored correctly.
+- [ ] Complaint retrieval works correctly.
 - [ ] Complaint status updates correctly.
-- [ ] Complaint history is maintained.
-- [ ] Complaint search and filtering work correctly.
+- [ ] Complaint assignment works correctly.
+- [ ] Complaint recategorization works correctly.
+- [ ] Complaint history remains intact.
 
 ---
 
-# 3. AI Features
+# 3. Worker Management
+
+- [ ] Worker list loads correctly.
+- [ ] Worker task retrieval works correctly.
+- [ ] Worker availability update functions correctly.
+- [ ] Worker assignments remain unaffected.
+
+---
+
+# 4. Administration
+
+- [ ] Admin analytics load correctly.
+- [ ] Municipal officer creation works correctly.
+- [ ] User management functions correctly.
+- [ ] User updates are reflected correctly.
+
+---
+
+# 5. Feedback & Notifications
+
+- [ ] Feedback submission works correctly.
+- [ ] Feedback is stored successfully.
+- [ ] Notifications are generated correctly.
+- [ ] Status update notifications are delivered.
+- [ ] Notification details are accurate.
+
+---
+
+# 6. AI Features (If Implemented)
 
 - [ ] Complaint classification works correctly.
 - [ ] Severity prediction is generated successfully.
-- [ ] AI response is displayed correctly.
-- [ ] AI errors are handled gracefully.
-
----
-
-# 4. Notifications
-
-- [ ] Notification is generated after complaint submission.
-- [ ] Status update notifications are sent correctly.
-- [ ] Notification content is accurate.
-
----
-
-# 5. Dashboard
-
-- [ ] Dashboard loads successfully.
-- [ ] Complaint statistics are updated.
-- [ ] Charts and graphs display correctly.
-- [ ] Recent complaints are visible.
-
----
-
-# 6. User Management
-
-- [ ] User profile loads correctly.
-- [ ] Profile update works correctly.
-- [ ] User role permissions remain unchanged.
+- [ ] AI responses are returned correctly.
+- [ ] AI service failures are handled gracefully.
 
 ---
 
 # 7. API Regression
 
-- [ ] Existing APIs return expected responses.
-- [ ] No API endpoint is broken.
-- [ ] Response format remains unchanged.
-- [ ] Authentication still works correctly.
+- [ ] Existing API endpoints are accessible.
+- [ ] API responses remain unchanged unless intentionally modified.
+- [ ] Response formats remain consistent.
+- [ ] Authentication and authorization continue to work.
+- [ ] HTTP status codes remain correct.
 
 ---
 
@@ -90,25 +99,48 @@ Regression testing should be performed:
 
 - [ ] Existing records remain unchanged.
 - [ ] New records are stored correctly.
-- [ ] Updates are reflected in the database.
-- [ ] Data integrity is maintained.
+- [ ] Updates are reflected correctly.
+- [ ] Duplicate data is prevented.
+- [ ] Database integrity is maintained.
 
 ---
 
 # 9. UI Validation
 
 - [ ] Navigation works correctly.
-- [ ] Buttons function properly.
+- [ ] Buttons function correctly.
 - [ ] Forms submit successfully.
-- [ ] Responsive design remains intact.
+- [ ] Error messages display correctly.
+- [ ] Responsive layout remains intact.
 
 ---
 
-# 10. Performance Check
+# 10. Performance Validation
 
-- [ ] Application loads without errors.
+- [ ] Application starts successfully.
 - [ ] APIs respond within acceptable time.
-- [ ] No noticeable performance degradation.
+- [ ] No noticeable performance degradation is observed.
+- [ ] Multiple requests are handled correctly.
+
+---
+
+# 11. Security Validation
+
+- [ ] Protected endpoints require authentication.
+- [ ] Unauthorized users cannot access restricted resources.
+- [ ] Sensitive information is not exposed.
+- [ ] JWT tokens continue to function correctly.
+
+---
+
+# Testing Tools
+
+Regression testing was performed using:
+
+- Swagger UI
+- Postman
+- Newman
+- Pytest
 
 ---
 
@@ -116,26 +148,43 @@ Regression testing should be performed:
 
 | Test ID | Module | Result | Remarks |
 |----------|--------|--------|---------|
-| REG-001 | Authentication | Pass / Fail | |
-| REG-002 | Complaint Management | Pass / Fail | |
-| REG-003 | AI Features | Pass / Fail | |
-| REG-004 | Notifications | Pass / Fail | |
-| REG-005 | Dashboard | Pass / Fail | |
+| REG-001 | Authentication | PASS / FAIL / BLOCKED | |
+| REG-002 | Complaint Management | PASS / FAIL / BLOCKED | |
+| REG-003 | Worker Management | PASS / FAIL / BLOCKED | |
+| REG-004 | Administration | PASS / FAIL / BLOCKED | |
+| REG-005 | Feedback & Notifications | PASS / FAIL / BLOCKED | |
+| REG-006 | API Regression | PASS / FAIL / BLOCKED | |
 
 ---
 
 # Overall Result
 
-Regression Testing Date:
+**Execution Date:**
 
-Tested By:
+_____________________________
 
-Build Version:
+**Tested By:**
 
-Overall Status:
+_____________________________
+
+**Build Version:**
+
+_____________________________
+
+**Testing Environment:**
+
+_____________________________
+
+### Overall Status
 
 ☐ Passed
 
 ☐ Passed with Minor Issues
 
 ☐ Failed
+
+---
+
+# Notes
+
+This checklist should be executed after every significant backend or frontend change. Update the checklist whenever new modules, APIs, or features are introduced into the Smart CivicConnect project to ensure comprehensive regression coverage.
