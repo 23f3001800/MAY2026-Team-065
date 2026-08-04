@@ -7,7 +7,6 @@ import AuthCard from '../components/AuthCard';
 import { FormField, TextInput, PasswordInput, Alert, SubmitButton } from '../components/formControls';
 import { IconMail, IconLock } from '../components/icons';
 import { login, saveSession, homePathForRole } from '../api/auth';
-import { isDevPreviewEnabled, PREVIEW_ROLES, startPreview } from '../api/devPreview';
 
 export default function Login() {
   const navigate = useNavigate();
@@ -81,28 +80,6 @@ export default function Login() {
 
         <SubmitButton loading={loading}>Login</SubmitButton>
       </form>
-
-      {/* DEV-ONLY: preview any role without the backend. Hidden in production
-          builds. TODO(raja-api): remove once real login is wired up. */}
-      {isDevPreviewEnabled() && (
-        <div className="mt-6 pt-5 border-t border-white/10">
-          <div className="text-[11px] uppercase tracking-wider text-[#64748b] mb-3">
-            Dev preview · no backend
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            {PREVIEW_ROLES.map(({ role, label }) => (
-              <button
-                key={role}
-                type="button"
-                onClick={() => navigate(startPreview(role), { replace: true })}
-                className="px-3 py-2 rounded-lg text-[13px] font-semibold text-[#cbd5e1] bg-white/5 border border-white/10 transition-fast hover:bg-white/10 hover:text-white"
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
     </AuthCard>
   );
 }
