@@ -7,12 +7,13 @@
 //   - The photo is a second, separate request against the new complaint id, so
 //     it can fail after the complaint itself is safely saved.
 import React, { useState, useRef, useCallback, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import {
   IconAlertTriangle, IconTrash, IconDroplet, IconBulb, IconMoreHorizontal,
   IconUpload, IconX, IconMapPin, IconCrosshair, IconSparkles, IconSend,
 } from '../components/dashboard/icons';
 import { createComplaint } from '../api/complaints';
+import { triage as runTriage } from '../api/ai';
 import { CATEGORIES } from '../api/mappers';
 
 // Icon per seeded category, keyed by the backend's categoryId.
@@ -41,7 +42,18 @@ export default function ReportIssue() {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState({ text: '', type: '' });
 
+  // Live AI preview. Advisory only — nothing here changes what gets submitted.
+  const [triage, setTriage] = useState(null);
+  const [triaging, setTriaging] = useState(false);
+
   const selected = CATEGORIES.find((c) => c.categoryId === categoryId);
+
+  // Top-ranked AI category suggestion, resolved to our label table.
+  const suggestedCategory = (() => {
+    const top = triage?.category?.suggestions?.[0];
+    if (!top?.categoryId) return null;
+    return CATEGORIES.find((c) => c.categoryId === top.categoryId) || null;
+  })();
 
   const captureLocation = useCallback(() => {
     if (!navigator.geolocation) {
@@ -65,6 +77,40 @@ export default function ReportIssue() {
   // Ask on mount — the coordinates are mandatory, so getting the permission
   // prompt out of the way early beats failing at submit time.
   useEffect(() => { captureLocation(); }, [captureLocation]);
+
+  // Debounced triage as the description is typed. 700ms is long enough that a
+  // normal typist does not fire a request per keystroke, short enough that the
+  // suggestion arrives while they are still looking at the form. Below 20
+  // characters there is nothing useful to classify.
+  useEffect(() => {
+    const text = description.trim();
+    if (text.length < 20) {
+      setTriage(null);
+      return undefined;
+    }
+
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      setTriaging(true);
+      try {
+        const result = await runTriage({
+          description: text,
+          categoryId,
+          latitude: coords?.latitude,
+          longitude: coords?.longitude,
+        });
+        if (!cancelled) setTriage(result);
+      } catch {
+        // A failed preview must never block filing a complaint, so this stays
+        // silent — the panel simply shows nothing.
+        if (!cancelled) setTriage(null);
+      } finally {
+        if (!cancelled) setTriaging(false);
+      }
+    }, 700);
+
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [description, categoryId, coords]);
 
   const acceptFile = useCallback((file) => {
     if (!file) return;
@@ -270,19 +316,99 @@ export default function ReportIssue() {
           </p>
         </section>
 
-        {/* 5. AI classification — not wired yet */}
+        {/* 5. AI preview — runs while you type, applies nothing */}
         <section>
           <div className="flex items-center gap-2 mb-3">
-            <h2 className="font-semibold text-slate-800 text-[15px]">5. AI Classification</h2>
-            <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">
-              <IconSparkles size={12} /> Not connected
-            </span>
+            <h2 className="font-semibold text-slate-800 text-[15px]">5. AI Preview</h2>
+            {triaging && (
+              <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-violet-700 bg-violet-50 px-2 py-0.5 rounded-full">
+                <IconSparkles size={12} className="animate-pulse-dot" /> Analysing…
+              </span>
+            )}
+            {!triaging && triage?.source && (
+              <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
+                <IconSparkles size={12} /> {triage.source === 'gemini' ? 'Model' : 'Rules engine'}
+              </span>
+            )}
           </div>
-          <p className="text-[13px] text-slate-500 leading-relaxed">
-            Automatic category and severity detection is not live yet. Your chosen category is used
-            as-is, and every complaint is filed at <strong>Low</strong> severity until an officer
-            reviews it.
-          </p>
+
+          {!triage && !triaging && (
+            <p className="text-[13px] text-slate-500 leading-relaxed">
+              Describe the issue above and we'll suggest a category and severity, and check whether
+              it has already been reported nearby.
+            </p>
+          )}
+
+          {triage && (
+            <div className="space-y-3 animate-rise-in">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="rounded-xl border border-slate-200 p-3.5">
+                  <div className="text-[11px] uppercase tracking-wide text-slate-400">Suggested category</div>
+                  <div className="font-semibold text-slate-800 mt-0.5">
+                    {suggestedCategory?.label || '—'}
+                  </div>
+                  {suggestedCategory && suggestedCategory.categoryId !== categoryId && (
+                    <button
+                      type="button"
+                      onClick={() => setCategoryId(suggestedCategory.categoryId)}
+                      className="focus-ring mt-2 text-[12px] font-semibold text-primary hover:underline"
+                    >
+                      Use this instead
+                    </button>
+                  )}
+                </div>
+                <div className="rounded-xl border border-slate-200 p-3.5">
+                  <div className="text-[11px] uppercase tracking-wide text-slate-400">Likely severity</div>
+                  <div className="font-semibold text-slate-800 mt-0.5">
+                    {triage.severity?.severity
+                      ? triage.severity.severity.charAt(0) + triage.severity.severity.slice(1).toLowerCase()
+                      : '—'}
+                  </div>
+                  {triage.severity?.reason && (
+                    <div className="text-[12px] text-slate-500 mt-1 leading-snug">{triage.severity.reason}</div>
+                  )}
+                </div>
+              </div>
+
+              {/* Duplicate warning. This is the point of running triage before
+                  submit — catching a repeat costs the citizen nothing here, and
+                  saves an officer a merge later. */}
+              {triage.duplicates?.isDuplicate && triage.duplicates.candidates?.length > 0 && (
+                <div className="rounded-xl border border-amber-200 bg-amber-50 p-3.5">
+                  <div className="flex items-start gap-2">
+                    <IconAlertTriangle size={16} className="text-amber-600 shrink-0 mt-0.5" />
+                    <div className="min-w-0">
+                      <div className="text-[13px] font-semibold text-amber-900">
+                        This may already have been reported
+                      </div>
+                      <ul className="mt-2 space-y-1.5">
+                        {triage.duplicates.candidates.slice(0, 3).map((d) => (
+                          <li key={d.complaintId} className="text-[12px] text-amber-900">
+                            <Link
+                              to={`/complaints/${d.complaintId}`}
+                              className="font-mono underline hover:no-underline"
+                            >
+                              {d.complaintId}
+                            </Link>
+                            {typeof d.distanceKm === 'number' && ` · ${d.distanceKm.toFixed(1)} km away`}
+                            {typeof d.similarity === 'number' && ` · ${Math.round(d.similarity * 100)}% match`}
+                            {d.reason && <div className="text-amber-800/80 mt-0.5">{d.reason}</div>}
+                          </li>
+                        ))}
+                      </ul>
+                      <p className="text-[12px] text-amber-800 mt-2">
+                        You can still submit — officers will merge duplicates if needed.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <p className="text-[12px] text-slate-400">
+                Suggestions only. Your chosen category is what gets filed.
+              </p>
+            </div>
+          )}
         </section>
 
         {/* Submit */}
