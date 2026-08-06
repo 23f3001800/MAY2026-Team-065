@@ -125,7 +125,7 @@ export default function WorkerDashboard() {
       )}
 
       {loading ? (
-        <LoadingPanel label="Loading your tasks…" />
+        <LoadingPanel label="Loading your tasks…" variant="stats" />
       ) : error ? (
         <ErrorPanel error={error} onRetry={refetch} />
       ) : (

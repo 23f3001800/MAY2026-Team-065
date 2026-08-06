@@ -79,7 +79,7 @@ export default function OfficerDashboard() {
       </div>
 
       {loading ? (
-        <LoadingPanel label="Loading the dashboard…" />
+        <LoadingPanel label="Loading the dashboard…" variant="stats" />
       ) : error ? (
         <ErrorPanel error={error} onRetry={refetch} />
       ) : (

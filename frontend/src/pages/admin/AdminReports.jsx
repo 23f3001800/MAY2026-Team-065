@@ -92,7 +92,7 @@ export default function AdminReports() {
       </div>
 
       {loading ? (
-        <LoadingPanel label="Loading complaints…" />
+        <LoadingPanel label="Loading complaints…" variant="table" />
       ) : error ? (
         <ErrorPanel error={error} onRetry={refetch} />
       ) : (
