@@ -1,0 +1,797 @@
+{
+  "info": {
+    "name": "Smart CivicConnect",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://127.0.0.1:8000"
+    },
+    {
+      "key": "token",
+      "value": ""
+    },
+    {
+      "key": "complaintId",
+      "value": ""
+    },
+    {
+      "key": "userId",
+      "value": ""
+    },
+    {
+      "key": "workerId",
+      "value": ""
+    },
+    {
+      "key": "categoryId",
+      "value": "CAT-WAT-01"
+    }
+  ],
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "POST /auth/register",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/auth/register",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "auth",
+                "register"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status is not 500\",()=>pm.expect(pm.response.code).to.not.eql(500));",
+                  "pm.test(\"Response is JSON\",()=>pm.response.to.be.json);",
+                  "pm.test(\"Response Time < 1000 ms\",()=>pm.expect(pm.response.responseTime).to.be.below(1000));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /auth/login",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/auth/login",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status is not 500\",()=>pm.expect(pm.response.code).to.not.eql(500));",
+                  "pm.test(\"Response is JSON\",()=>pm.response.to.be.json);",
+                  "pm.test(\"Response Time < 1000 ms\",()=>pm.expect(pm.response.responseTime).to.be.below(1000));",
+                  "if(pm.response.code===200){let j=pm.response.json();if(j.access_token)pm.environment.set(\"token\",j.access_token);}"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Complaints",
+      "item": [
+        {
+          "name": "POST /complaints/",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/complaints/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "complaints"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status is not 500\",()=>pm.expect(pm.response.code).to.not.eql(500));",
+                  "pm.test(\"Response is JSON\",()=>pm.response.to.be.json);",
+                  "pm.test(\"Response Time < 1000 ms\",()=>pm.expect(pm.response.responseTime).to.be.below(1000));",
+                  "if(pm.response.code===201){pm.environment.set(\"complaintId\",pm.response.json().complaintId);}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /complaints/",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/complaints/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "complaints"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status is not 500\",()=>pm.expect(pm.response.code).to.not.eql(500));",
+                  "pm.test(\"Response is JSON\",()=>pm.response.to.be.json);",
+                  "pm.test(\"Response Time < 1000 ms\",()=>pm.expect(pm.response.responseTime).to.be.below(1000));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "PATCH /complaints/{complaintId}/assign",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/complaints/{complaintId}/assign",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "complaints",
+                "{complaintId}",
+                "assign"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status is not 500\",()=>pm.expect(pm.response.code).to.not.eql(500));",
+                  "pm.test(\"Response is JSON\",()=>pm.response.to.be.json);",
+                  "pm.test(\"Response Time < 1000 ms\",()=>pm.expect(pm.response.responseTime).to.be.below(1000));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /complaints/worker/tasks",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/complaints/worker/tasks",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "complaints",
+                "worker",
+                "tasks"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status is not 500\",()=>pm.expect(pm.response.code).to.not.eql(500));",
+                  "pm.test(\"Response is JSON\",()=>pm.response.to.be.json);",
+                  "pm.test(\"Response Time < 1000 ms\",()=>pm.expect(pm.response.responseTime).to.be.below(1000));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /complaints/{complaintId}/image",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/complaints/{complaintId}/image",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "complaints",
+                "{complaintId}",
+                "image"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status is not 500\",()=>pm.expect(pm.response.code).to.not.eql(500));",
+                  "pm.test(\"Response is JSON\",()=>pm.response.to.be.json);",
+                  "pm.test(\"Response Time < 1000 ms\",()=>pm.expect(pm.response.responseTime).to.be.below(1000));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /complaints/nearby",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/complaints/nearby",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "complaints",
+                "nearby"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status is not 500\",()=>pm.expect(pm.response.code).to.not.eql(500));",
+                  "pm.test(\"Response is JSON\",()=>pm.response.to.be.json);",
+                  "pm.test(\"Response Time < 1000 ms\",()=>pm.expect(pm.response.responseTime).to.be.below(1000));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /complaints/{complaintId}",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/complaints/{complaintId}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "complaints",
+                "{complaintId}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status is not 500\",()=>pm.expect(pm.response.code).to.not.eql(500));",
+                  "pm.test(\"Response is JSON\",()=>pm.response.to.be.json);",
+                  "pm.test(\"Response Time < 1000 ms\",()=>pm.expect(pm.response.responseTime).to.be.below(1000));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /complaints/{complaintId}/feedback",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/complaints/{complaintId}/feedback",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "complaints",
+                "{complaintId}",
+                "feedback"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status is not 500\",()=>pm.expect(pm.response.code).to.not.eql(500));",
+                  "pm.test(\"Response is JSON\",()=>pm.response.to.be.json);",
+                  "pm.test(\"Response Time < 1000 ms\",()=>pm.expect(pm.response.responseTime).to.be.below(1000));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "PATCH /complaints/{complaintId}/status",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/complaints/{complaintId}/status",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "complaints",
+                "{complaintId}",
+                "status"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status is not 500\",()=>pm.expect(pm.response.code).to.not.eql(500));",
+                  "pm.test(\"Response is JSON\",()=>pm.response.to.be.json);",
+                  "pm.test(\"Response Time < 1000 ms\",()=>pm.expect(pm.response.responseTime).to.be.below(1000));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "PATCH /complaints/{complaintId}/category",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/complaints/{complaintId}/category",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "complaints",
+                "{complaintId}",
+                "category"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status is not 500\",()=>pm.expect(pm.response.code).to.not.eql(500));",
+                  "pm.test(\"Response is JSON\",()=>pm.response.to.be.json);",
+                  "pm.test(\"Response Time < 1000 ms\",()=>pm.expect(pm.response.responseTime).to.be.below(1000));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Admin",
+      "item": [
+        {
+          "name": "GET /admin/analytics",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/admin/analytics",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "admin",
+                "analytics"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status is not 500\",()=>pm.expect(pm.response.code).to.not.eql(500));",
+                  "pm.test(\"Response is JSON\",()=>pm.response.to.be.json);",
+                  "pm.test(\"Response Time < 1000 ms\",()=>pm.expect(pm.response.responseTime).to.be.below(1000));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /admin/users/official",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/admin/users/official",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "admin",
+                "users",
+                "official"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status is not 500\",()=>pm.expect(pm.response.code).to.not.eql(500));",
+                  "pm.test(\"Response is JSON\",()=>pm.response.to.be.json);",
+                  "pm.test(\"Response Time < 1000 ms\",()=>pm.expect(pm.response.responseTime).to.be.below(1000));",
+                  "if(pm.response.code===201){pm.environment.set(\"userId\",pm.response.json().userId);}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /admin/users",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/admin/users",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "admin",
+                "users"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status is not 500\",()=>pm.expect(pm.response.code).to.not.eql(500));",
+                  "pm.test(\"Response is JSON\",()=>pm.response.to.be.json);",
+                  "pm.test(\"Response Time < 1000 ms\",()=>pm.expect(pm.response.responseTime).to.be.below(1000));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "PATCH /admin/users/{user_id}",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/admin/users/{user_id}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "admin",
+                "users",
+                "{user_id}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status is not 500\",()=>pm.expect(pm.response.code).to.not.eql(500));",
+                  "pm.test(\"Response is JSON\",()=>pm.response.to.be.json);",
+                  "pm.test(\"Response Time < 1000 ms\",()=>pm.expect(pm.response.responseTime).to.be.below(1000));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Workers",
+      "item": [
+        {
+          "name": "POST /workers/",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/workers/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "workers"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status is not 500\",()=>pm.expect(pm.response.code).to.not.eql(500));",
+                  "pm.test(\"Response is JSON\",()=>pm.response.to.be.json);",
+                  "pm.test(\"Response Time < 1000 ms\",()=>pm.expect(pm.response.responseTime).to.be.below(1000));",
+                  "if(pm.response.code===201){pm.environment.set(\"workerId\",pm.response.json().userId);}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /workers/",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/workers/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "workers"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status is not 500\",()=>pm.expect(pm.response.code).to.not.eql(500));",
+                  "pm.test(\"Response is JSON\",()=>pm.response.to.be.json);",
+                  "pm.test(\"Response Time < 1000 ms\",()=>pm.expect(pm.response.responseTime).to.be.below(1000));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "PATCH /workers/me/availability",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/workers/me/availability",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "workers",
+                "me",
+                "availability"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status is not 500\",()=>pm.expect(pm.response.code).to.not.eql(500));",
+                  "pm.test(\"Response is JSON\",()=>pm.response.to.be.json);",
+                  "pm.test(\"Response Time < 1000 ms\",()=>pm.expect(pm.response.responseTime).to.be.below(1000));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Users",
+      "item": [
+        {
+          "name": "PATCH /users/{userId}/reset-password",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/users/{userId}/reset-password",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "users",
+                "{userId}",
+                "reset-password"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status is not 500\",()=>pm.expect(pm.response.code).to.not.eql(500));",
+                  "pm.test(\"Response is JSON\",()=>pm.response.to.be.json);",
+                  "pm.test(\"Response Time < 1000 ms\",()=>pm.expect(pm.response.responseTime).to.be.below(1000));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Notifications",
+      "item": [
+        {
+          "name": "GET /notifications/me",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/notifications/me",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "notifications",
+                "me"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status is not 500\",()=>pm.expect(pm.response.code).to.not.eql(500));",
+                  "pm.test(\"Response is JSON\",()=>pm.response.to.be.json);",
+                  "pm.test(\"Response Time < 1000 ms\",()=>pm.expect(pm.response.responseTime).to.be.below(1000));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
