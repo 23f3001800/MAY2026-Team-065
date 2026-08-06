@@ -106,7 +106,42 @@ export function fromApiComplaint(c) {
     date: c.createdAt,
     reportedAt: c.createdAt,
     updatedAt: c.updatedAt,
+
+    // Advisory AI triage. All nullable: complaints filed before triage existed,
+    // or while it was switched off, carry none of it. `ai` is null rather than
+    // an object of nulls so components can branch on one check.
+    ai: c.aiAnalyzedAt || c.aiSuggestedCategoryId || c.aiSeverity
+      ? {
+          suggestedCategoryId: c.aiSuggestedCategoryId || null,
+          // The label is resolved here so the drawer does not have to know
+          // about the category table.
+          suggestedCategory: c.aiSuggestedCategoryId
+            ? CATEGORIES.find((x) => x.categoryId === c.aiSuggestedCategoryId)?.label
+              || c.aiSuggestedCategoryId
+            : null,
+          severity: c.aiSeverity ? fromApiSeverity(c.aiSeverity) : null,
+          confidence: typeof c.aiConfidence === 'number' ? c.aiConfidence : null,
+          summary: c.aiSummary || null,
+          // 'rules' (deterministic engine) or 'gemini' (model call).
+          source: c.aiSource || null,
+          analyzedAt: c.aiAnalyzedAt || null,
+        }
+      : null,
+
+    // Set by the officer merge flow / duplicate detection.
+    duplicateOfComplaintId: c.duplicateOfComplaintId || null,
   };
+}
+
+// True when the AI proposed something different from what the record says.
+// The officer drawer uses this to decide whether to offer an "accept" action.
+export function aiDisagrees(complaint) {
+  const ai = complaint?.ai;
+  if (!ai) return false;
+  const categoryDiffers = Boolean(ai.suggestedCategoryId)
+    && ai.suggestedCategoryId !== complaint.categoryId;
+  const severityDiffers = Boolean(ai.severity) && ai.severity !== complaint.severity;
+  return categoryDiffers || severityDiffers;
 }
 
 // ── Field workers ─────────────────────────────────────────────────

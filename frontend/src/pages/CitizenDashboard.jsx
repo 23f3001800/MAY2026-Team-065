@@ -79,7 +79,7 @@ export default function CitizenDashboard() {
       </div>
 
       {loading ? (
-        <LoadingPanel label="Loading your dashboard…" />
+        <LoadingPanel label="Loading your dashboard…" variant="stats" />
       ) : error ? (
         <ErrorPanel error={error} onRetry={refetch} />
       ) : (

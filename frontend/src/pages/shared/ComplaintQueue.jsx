@@ -11,8 +11,10 @@ import StatusBadge from '../../components/dashboard/StatusBadge';
 import SeverityBadge from '../../components/dashboard/SeverityBadge';
 import ComplaintDrawer from '../../components/officer/ComplaintDrawer';
 import { LoadingPanel, ErrorPanel, EmptyPanel } from '../../components/dashboard/AsyncStates';
-import { IconSearch, IconChevronDown, IconCheckCircle } from '../../components/dashboard/icons';
+import { IconSearch, IconChevronDown } from '../../components/dashboard/icons';
+import Toast from '../../components/dashboard/Toast';
 import { listComplaints, assignFieldWorker, updateComplaintStatus, recategoriseComplaint } from '../../api/complaints';
+import { analyzeComplaint } from '../../api/ai';
 import { listFieldWorkers } from '../../api/workers';
 import { CATEGORIES, ASSIGNABLE_STATUSES } from '../../api/mappers';
 import useAsync from '../../hooks/useAsync';
@@ -76,11 +78,7 @@ export default function ComplaintQueue({ title, subtitle }) {
     return () => { cancelled = true; };
   }, []);
 
-  useEffect(() => {
-    if (!toast) return undefined;
-    const t = setTimeout(() => setToast(''), 4000);
-    return () => clearTimeout(t);
-  }, [toast]);
+  // Auto-dismiss now lives in <Toast>, which also handles the close button.
 
   const selected = items.find((c) => c.id === selectedId) || null;
 
@@ -139,6 +137,24 @@ export default function ComplaintQueue({ title, subtitle }) {
   const handleStatusChange = (id, next, remarks) =>
     runAction(() => updateComplaintStatus(id, next, remarks), `${id} marked as ${next}.`);
 
+  // POST /ai/complaints/{id}/analyze returns the triage result, not the
+  // complaint, so refetch the row rather than trying to patch it from a
+  // different shape.
+  const handleAnalyse = useCallback(async (id) => {
+    setBusy(true);
+    setActionError('');
+    try {
+      await analyzeComplaint(id);
+      const fresh = await listComplaints();
+      setData(fresh);
+      setToast(`${id} re-analysed.`);
+    } catch (err) {
+      if (err.name !== 'SessionExpiredError') setActionError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }, [setData]);
+
   const resetFilters = () => {
     setQuery(''); setStatus('All'); setCategory('All'); setSeverity('All'); setSince('');
   };
@@ -157,16 +173,10 @@ export default function ComplaintQueue({ title, subtitle }) {
         <p className="text-[14px] text-slate-500">{subtitle}</p>
       </div>
 
-      {toast && (
-        <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 text-emerald-800 text-[13px] font-medium px-4 py-3 rounded-xl">
-          <IconCheckCircle size={16} className="shrink-0" /> {toast}
-        </div>
-      )}
-      {actionError && (
-        <div className="bg-red-50 border border-red-200 text-red-700 text-[13px] font-medium px-4 py-3 rounded-xl">
-          {actionError}
-        </div>
-      )}
+      <Toast message={toast} tone="success" onDismiss={() => setToast('')} />
+      {/* Errors do not auto-hide: the action did not happen, so the user needs
+          to read this at their own pace. */}
+      <Toast message={actionError} tone="error" onDismiss={() => setActionError('')} autoHideMs={0} />
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {statChips.map((s) => (
@@ -205,7 +215,7 @@ export default function ComplaintQueue({ title, subtitle }) {
       </div>
 
       {loading ? (
-        <LoadingPanel label="Loading the complaint queue…" />
+        <LoadingPanel label="Loading the complaint queue…" variant="table" />
       ) : error ? (
         <ErrorPanel error={error} onRetry={refetch} />
       ) : filtered.length === 0 ? (
@@ -236,8 +246,12 @@ export default function ComplaintQueue({ title, subtitle }) {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((c) => (
-                  <tr key={c.id} className="border-t border-slate-100 hover:bg-slate-50 transition-colors">
+                {filtered.map((c, i) => (
+                  <tr
+                    key={c.id}
+                    style={{ '--i': i }}
+                    className="border-t border-slate-100 hover:bg-slate-50 transition-colors animate-rise-in stagger"
+                  >
                     <td className="px-5 py-3 text-[12px] font-mono text-slate-500 whitespace-nowrap">{c.id}</td>
                     <td className="px-3 py-3 text-[13px] font-medium text-slate-800">{c.issue}</td>
                     <td className="px-3 py-3 text-[13px] text-slate-600 whitespace-nowrap">{c.category}</td>
@@ -293,6 +307,8 @@ export default function ComplaintQueue({ title, subtitle }) {
           onRecategorise={handleRecategorise}
           onAssign={handleAssign}
           onStatusChange={handleStatusChange}
+          onAnalyse={handleAnalyse}
+          onOpenComplaint={(id) => setSelectedId(id)}
         />
       )}
     </div>
