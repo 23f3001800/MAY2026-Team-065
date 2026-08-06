@@ -46,7 +46,7 @@ export default function OfficerWorkers() {
       </div>
 
       {loading ? (
-        <LoadingPanel label="Loading field workers…" />
+        <LoadingPanel label="Loading field workers…" variant="cards" />
       ) : error ? (
         <ErrorPanel error={error} onRetry={refetch} />
       ) : filtered.length === 0 ? (
