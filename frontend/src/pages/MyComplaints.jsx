@@ -111,7 +111,7 @@ export default function MyComplaints() {
 
       {/* Result set */}
       {loading ? (
-        <LoadingPanel label="Loading your complaints…" />
+        <LoadingPanel label="Loading your complaints…" variant="table" />
       ) : error ? (
         <ErrorPanel error={error} onRetry={refetch} />
       ) : filtered.length === 0 ? (

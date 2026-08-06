@@ -88,7 +88,7 @@ export default function ComplaintDetails() {
   }, [complaint]);
 
   if (loading) {
-    return <div className="max-w-[1200px] mx-auto"><LoadingPanel label="Loading complaint…" /></div>;
+    return <div className="max-w-[1200px] mx-auto"><LoadingPanel label="Loading complaint…" variant="detail" /></div>;
   }
 
   if (error) {

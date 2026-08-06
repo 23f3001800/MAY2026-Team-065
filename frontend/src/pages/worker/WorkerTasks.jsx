@@ -63,7 +63,7 @@ export default function WorkerTasks() {
       )}
 
       {loading ? (
-        <LoadingPanel label="Loading your tasks…" />
+        <LoadingPanel label="Loading your tasks…" variant="cards" />
       ) : error ? (
         <ErrorPanel error={error} onRetry={refetch} />
       ) : open.length === 0 ? (

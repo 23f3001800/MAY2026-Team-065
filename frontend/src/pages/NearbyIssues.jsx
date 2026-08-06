@@ -172,7 +172,7 @@ export default function NearbyIssues() {
       ) : locationError ? (
         <ErrorPanel error={locationError} onRetry={requestLocation} />
       ) : loading ? (
-        <LoadingPanel label="Looking for nearby complaints…" />
+        <LoadingPanel label="Looking for nearby complaints…" variant="cards" />
       ) : error ? (
         <ErrorPanel error={error} onRetry={load} />
       ) : filtered.length === 0 ? (
