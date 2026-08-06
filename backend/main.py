@@ -17,20 +17,39 @@ import shutil
 import math
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.orm import selectin_polymorphic  
+from sqlalchemy.orm import selectin_polymorphic
+
+import logging
 
 from database import engine, Base, AsyncSessionLocal
 import models
 import schemas
 import security
+import migrations
 
 from security import get_password_hash
+
+# Shared dependencies live in dependencies.py so the routers can use them
+# without importing this module (which would be circular). Re-exported here so
+# existing imports of `main.get_current_user` keep working.
+from dependencies import get_current_user, get_db, oauth2_scheme, require_roles
+
+from ai.service import AIService
+from routers import ai as ai_router
+from routers import notifications as notifications_router
+from services import notifications as notification_service
+from services import triage as triage_service
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)-8s %(name)s: %(message)s",
+)
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Municipal Complaint Management API")
 # Create a folder to store images
 os.makedirs("uploads", exist_ok=True)
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
 
 origins = [
     "http://localhost:3000",  
@@ -47,14 +66,22 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-async def get_db():
-    async with AsyncSessionLocal() as session:
-        yield session
-
 @app.on_event("startup")
 async def startup():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
+    # create_all() only creates missing tables -- it never alters existing ones.
+    # Databases created before the AI/notification columns existed need this.
+    await migrations.run_migrations(engine)
+
+    status_report = AIService().status()
+    logger.info(
+        "AI subsystem ready (provider=%s, llm_available=%s, model=%s)",
+        status_report["provider"],
+        status_report["llm"]["available"],
+        status_report["llm"]["model"],
+    )
 
 # for reset password
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -113,28 +140,8 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends(), db: AsyncSessi
     return {"access_token": access_token, "token_type": "bearer"}
 
 
-# Decodes the JWT token and fetches the current logged-in user from the database.
-async def get_current_user(token: str = Depends(oauth2_scheme), db: AsyncSession = Depends(get_db)):
-    credentials_exception = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
-    try:
-        payload = jwt.decode(token, security.SECRET_KEY, algorithms=[security.ALGORITHM])
-        email: str = payload.get("sub")
-        if email is None:
-            raise credentials_exception
-    except jwt.PyJWTError:
-        raise credentials_exception
-
-    stmt = select(models.UserModel).where(models.UserModel.email == email)
-    result = await db.execute(stmt)
-    user = result.scalar_one_or_none()
-    
-    if user is None:
-        raise credentials_exception
-    return user
+# get_current_user now lives in dependencies.py (imported above) so routers can
+# share it without importing this module.
 
 
 ## Allows a logged-in citizen to submit a new complaint
@@ -147,25 +154,77 @@ async def create_complaint(
     if current_user.role.lower() != "citizen":
         raise HTTPException(status_code=403, detail="Only citizens can file new complaints.")
 
+    # Validate the category up front: without this an unknown ID surfaces as a
+    # raw foreign-key IntegrityError (a 500) instead of a clear 404.
+    category = await db.get(models.CategoryModel, complaint_data.categoryId)
+    if category is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Category '{complaint_data.categoryId}' does not exist.",
+        )
+
     new_location = models.LocationModel(
         latitude=complaint_data.location.latitude,
         longitude=complaint_data.location.longitude,
         address=complaint_data.location.address
     )
     db.add(new_location)
-    await db.flush() 
+    await db.flush()
 
     complaint_id = f"CMP-{str(uuid.uuid4())[:6].upper()}"
     new_complaint = models.ComplaintModel(
         complaintId=complaint_id,
         description=complaint_data.description,
         categoryId=complaint_data.categoryId,
-        citizenId=current_user.userId, 
+        citizenId=current_user.userId,
         locationId=new_location.locationId,
         status="PENDING",
         severity="LOW"
     )
     db.add(new_complaint)
+    await db.flush()
+
+    # Run AI triage before committing so the complaint is stored already
+    # prioritised. Wrapped defensively: triage is an enhancement, and a failure
+    # in it must never stop a citizen from filing a complaint.
+    service = AIService()
+    triage_result = None
+    if service.settings.auto_triage_on_create:
+        try:
+            categories = await triage_service.load_categories(db)
+            candidates = await triage_service.load_duplicate_candidates(
+                db,
+                exclude_complaint_id=complaint_id,
+                window_days=service.settings.duplicate_window_days,
+            )
+            triage_result = await service.triage(
+                complaint_data.description,
+                categories,
+                duplicate_candidates=candidates,
+                latitude=complaint_data.location.latitude,
+                longitude=complaint_data.location.longitude,
+                categoryId=complaint_data.categoryId,
+            )
+            triage_service.apply_triage(new_complaint, triage_result)
+        except Exception:
+            logger.exception(
+                "AI triage failed for %s; filing it with default severity", complaint_id
+            )
+            triage_result = None
+
+    # Load relationships the notification messages read (category, location).
+    await db.refresh(new_complaint, ["category", "location"])
+
+    await notification_service.notify_new_complaint(db, new_complaint)
+
+    if triage_result and triage_result.severity.severity in {"HIGH", "CRITICAL"}:
+        await notification_service.notify_escalation(
+            db,
+            new_complaint,
+            severity=triage_result.severity.severity,
+            reason=triage_result.severity.reason,
+        )
+
     await db.commit()
 
     stmt = (
@@ -174,7 +233,7 @@ async def create_complaint(
         .options(selectinload(models.ComplaintModel.location), selectinload(models.ComplaintModel.category))
     )
     result = await db.execute(stmt)
-    
+
     return result.scalar_one()
 
 # If a Citizen asks to see complaints, the API should only return the complaints they personally submitted.
@@ -291,10 +350,15 @@ async def assign_field_worker(
         timestamp=datetime.now(timezone.utc).replace(tzinfo=None)
     )
     db.add(new_history)
-    
+
+    # Tell the worker they have a task, and the citizen that work has started.
+    notification_service.notify_assignment(
+        db, complaint, worker=field_worker, assigned_by=current_user
+    )
+
     await db.commit()
     await db.refresh(complaint)
-    
+
     return complaint
 
 
@@ -684,29 +748,20 @@ async def submit_feedback(
     )
     
     db.add(new_feedback)
+
+    # Let the officer and worker who handled it see the rating.
+    notification_service.notify_feedback(
+        db, complaint, rating=feedback_data.rating, comments=feedback_data.comments
+    )
+
     await db.commit()
     await db.refresh(new_feedback)
     return new_feedback
 
-### NOTIFICATIONS: Get inbox for the citizen
-@app.get("/notifications/me", response_model=List[schemas.NotificationResponse])
-async def get_my_notifications(
-    db: AsyncSession = Depends(get_db),
-    current_user: models.UserModel = Depends(get_current_user)
-):
-    if current_user.role.lower() != "citizen":
-        raise HTTPException(status_code=403, detail="Only citizens can view this inbox.")
-
-    # Join Notification and Complaint to find alerts belonging to this specific citizen
-    stmt = (
-        select(models.NotificationModel)
-        .join(models.ComplaintModel)
-        .where(models.ComplaintModel.citizenId == current_user.userId)
-        .order_by(models.NotificationModel.sentAt.desc())
-    )
-    
-    result = await db.execute(stmt)
-    return result.scalars().all()
+### NOTIFICATIONS
+# The inbox now lives in routers/notifications.py. It reads the explicit
+# recipientId instead of joining through complaint.citizenId, so field workers
+# and officers get real inboxes rather than a 403.
 
 ### Allows an Administrator,Officer and Field Worker to update the status of a complaint and logs the history.
  #  Allows an Admin, Officer, or the Assigned Field Worker to update the status.
@@ -748,22 +803,21 @@ async def update_complaint_status(
         timestamp=datetime.now(timezone.utc).replace(tzinfo=None)
     )
     db.add(new_history)
+
+    # Fan out to the citizen, the assigned worker and (on resolution) the owning
+    # officer -- everyone with a stake, minus whoever made the change.
     if previous_status != status_update.status:
-        status_name = status_update.status.name if hasattr(status_update.status, 'name') else str(status_update.status)
-        
-        notif_id = f"NOTIF-{str(uuid.uuid4())[:6].upper()}"
-        new_notification = models.NotificationModel(
-            notificationId=notif_id,
-            message=f"Your complaint ({complaintId}) is now marked as {status_name}.",
-            type="STATUS_UPDATE",
-            sentAt=datetime.now(timezone.utc).replace(tzinfo=None),
-            isRead=False,
-            complaintId=complaintId
+        notification_service.notify_status_change(
+            db,
+            complaint,
+            status_update.status,
+            remarks=status_update.remarks,
+            actor=current_user,
         )
-        db.add(new_notification)
+
     await db.commit()
     await db.refresh(complaint)
-    
+
     return complaint
 
 
@@ -813,9 +867,19 @@ async def recategorize_complaint(
         timestamp=datetime.now(timezone.utc).replace(tzinfo=None)
     )
     db.add(new_history)
-    
+
+    notification_service.notify_recategorized(
+        db, complaint, old_category=old_category_name, new_category=new_category.name
+    )
+
     await db.commit()
     await db.refresh(complaint)
-    
+
     return complaint
+
+
+# --- Routers -------------------------------------------------------------
+# Registered last so the route table reads in the same order as this file.
+app.include_router(notifications_router.router)
+app.include_router(ai_router.router)
 
