@@ -58,7 +58,18 @@ class ComplaintResponse(BaseModel):
     updatedAt: datetime
     location: LocationResponse
     category: CategoryResponse
-    class Config: 
+
+    # Advisory AI triage output. All optional: complaints filed before AI triage
+    # existed, or filed while it was disabled, simply leave these null.
+    aiSuggestedCategoryId: Optional[str] = None
+    aiSeverity: Optional[str] = None
+    aiConfidence: Optional[float] = None
+    aiSummary: Optional[str] = None
+    aiSource: Optional[str] = None
+    aiAnalyzedAt: Optional[datetime] = None
+    duplicateOfComplaintId: Optional[str] = None
+
+    class Config:
         from_attributes = True
 
 class ComplaintAssign(BaseModel):
@@ -130,7 +141,7 @@ class FeedbackResponse(BaseModel):
     class Config:
         from_attributes = True
 
-# --- NOTIFICATION SCHEMAS should be implemented later---
+# --- NOTIFICATION SCHEMAS ---
 class NotificationResponse(BaseModel):
     notificationId: str
     message: str
@@ -138,10 +149,141 @@ class NotificationResponse(BaseModel):
     sentAt: datetime
     isRead: bool
     complaintId: str
+    recipientId: Optional[str] = None
+    readAt: Optional[datetime] = None
+    priority: str = "NORMAL"
 
     class Config:
         from_attributes = True
 
+
+class NotificationReadUpdate(BaseModel):
+    """Body for marking a single notification read or unread."""
+    isRead: bool = True
+
+
+class UnreadCountResponse(BaseModel):
+    unread: int
+
+
+class MarkAllReadResponse(BaseModel):
+    message: str
+    updated: int
+
 # Complaint Recategorize
 class ComplaintRecategorize(BaseModel):
     categoryId: str
+
+
+# --- AI SCHEMAS ---
+# Responses mirror the dataclasses in ai/provider.py. Every AI response carries a
+# `source` field ("rules", "gemini" or "gemini-vision") so clients -- and
+# officers auditing a decision -- can always tell which engine produced it.
+
+class CategorySuggestionResponse(BaseModel):
+    categoryId: str
+    name: str
+    department: str
+    confidence: float = Field(..., ge=0, le=1)
+    reason: str = ""
+
+
+class CategorizeRequest(BaseModel):
+    description: str = Field(..., min_length=5, max_length=5000)
+
+
+class CategorizeResponse(BaseModel):
+    suggestions: List[CategorySuggestionResponse]
+    source: str
+
+
+class SeverityRequest(BaseModel):
+    description: str = Field(..., min_length=5, max_length=5000)
+    categoryId: Optional[str] = None
+
+
+class SeverityResponse(BaseModel):
+    severity: SeverityEnum
+    confidence: float = Field(..., ge=0, le=1)
+    reason: str = ""
+    signals: List[str] = []
+    source: str
+
+
+class DuplicateCheckRequest(BaseModel):
+    description: str = Field(..., min_length=5, max_length=5000)
+    categoryId: Optional[str] = None
+    latitude: Optional[float] = Field(None, ge=-90, le=90)
+    longitude: Optional[float] = Field(None, ge=-180, le=180)
+
+
+class DuplicateCandidateResponse(BaseModel):
+    complaintId: str
+    similarity: float
+    distanceKm: Optional[float] = None
+    status: str
+    description: str
+    createdAt: Optional[str] = None
+    reason: str = ""
+
+
+class DuplicateCheckResponse(BaseModel):
+    isDuplicate: bool
+    candidates: List[DuplicateCandidateResponse]
+    source: str
+
+
+class VisionResponse(BaseModel):
+    """Result of analysing a complaint photo.
+
+    `available` is False (with a reason) when analysis could not run -- no API
+    key, unsupported/oversized image, or a provider safety block. Callers should
+    treat that as a soft failure and continue without image input.
+    """
+    available: bool
+    unavailableReason: str = ""
+    description: str = ""
+    categoryId: Optional[str] = None
+    categoryName: Optional[str] = None
+    severity: SeverityEnum = SeverityEnum.LOW
+    confidence: float = 0.0
+    observations: List[str] = []
+    source: str = "gemini-vision"
+
+
+class TriageRequest(BaseModel):
+    description: str = Field(..., min_length=5, max_length=5000)
+    categoryId: Optional[str] = None
+    latitude: Optional[float] = Field(None, ge=-90, le=90)
+    longitude: Optional[float] = Field(None, ge=-180, le=180)
+
+
+class TriageResponse(BaseModel):
+    category: CategorizeResponse
+    severity: SeverityResponse
+    duplicates: DuplicateCheckResponse
+    summary: str
+    vision: Optional[VisionResponse] = None
+    source: str
+
+
+class AssistantQueryRequest(BaseModel):
+    question: str = Field(..., min_length=3, max_length=1000)
+
+
+class AssistantQueryResponse(BaseModel):
+    answer: str
+    citations: List[str] = []
+    source: str
+    contextUsed: List[str] = []
+
+
+class DescriptionWriteupRequest(BaseModel):
+    description: str = Field(..., min_length=5, max_length=5000)
+    categoryId: Optional[str] = None
+
+
+class DescriptionWriteupResponse(BaseModel):
+    original: str
+    rewritten: str
+    source: str

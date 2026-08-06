@@ -1,4 +1,4 @@
-# 🏙️ Municipal Complaint Management System — Backend
+# 🏙️ Smart Civic Connect — Backend
 
 A **FastAPI**-powered REST API for managing municipal complaints across citizens, field workers, municipal officers, and administrators.
 
@@ -14,6 +14,8 @@ A **FastAPI**-powered REST API for managing municipal complaints across citizens
 - [Running the Server](#running-the-server)
 - [API Endpoints](#api-endpoints)
 - [Data Models](#data-models)
+- [AI Features](#-ai-features)
+- [API Specification](#-api-specification)
 
 ---
 
@@ -35,14 +37,32 @@ A **FastAPI**-powered REST API for managing municipal complaints across citizens
 
 ```
 backend/
-├── main.py          # All API route definitions (FastAPI app)
-├── models.py        # SQLAlchemy ORM models
-├── schemas.py       # Pydantic request/response schemas
-├── database.py      # DB engine, session, and enums
-├── security.py      # JWT creation & password hashing helpers
-├── seed.py          # Database seeding script
-├── requirements.txt # Python dependencies
-└── .env             # Environment variables (not committed)
+├── main.py              # Core API routes (auth, complaints, workers, admin)
+├── models.py            # SQLAlchemy ORM models
+├── schemas.py           # Pydantic request/response schemas
+├── database.py          # DB engine, session, and enums
+├── security.py          # JWT creation & password hashing helpers
+├── dependencies.py      # Shared FastAPI dependencies (auth, DB session, role guard)
+├── migrations.py        # Additive, idempotent schema migrations (run at startup)
+├── seed.py              # Database seeding script
+├── generate_openapi.py  # Regenerates openapi.yaml from the live app
+├── openapi.yaml         # Generated OpenAPI 3.1 specification
+├── ai/                  # AI subsystem
+│   ├── config.py        #   environment-driven settings
+│   ├── provider.py      #   shared result types
+│   ├── text.py          #   dependency-free text & geo helpers
+│   ├── rules.py         #   deterministic engine (category, severity, duplicates)
+│   ├── gemini.py        #   async Gemini REST client (text + vision)
+│   ├── service.py       #   facade; owns the rules/LLM hybrid policy
+│   └── assistant.py     #   grounded, role-scoped question answering
+├── routers/
+│   ├── ai.py            # /ai/* endpoints
+│   └── notifications.py # /notifications/* endpoints
+├── services/
+│   ├── notifications.py # notification creation, fan-out, inbox queries
+│   └── triage.py        # DB <-> AI glue, persists triage results
+├── requirements.txt     # Python dependencies
+└── .env                 # Environment variables (not committed)
 ```
 
 ---
@@ -51,10 +71,12 @@ backend/
 
 | Role                  | Key Capabilities                                                                          |
 |-----------------------|-------------------------------------------------------------------------------------------|
-| **Citizen**           | Register, submit complaints, upload images, view own complaints, submit feedback, receive notifications |
+| **Citizen**           | Register, submit complaints, upload images, view own complaints, submit feedback, AI triage before filing |
 | **Field Worker**      | View assigned tasks, update complaint status, upload images, toggle availability          |
-| **Municipal Officer** | Assign field workers to complaints, recategorize complaints, update complaint status       |
+| **Municipal Officer** | Assign field workers to complaints, recategorize complaints, update complaint status, re-run AI triage |
 | **Administrator**     | Full access — create officers/workers, manage all users, view analytics, reset passwords   |
+
+All four roles have a notification inbox and access to the role-scoped AI assistant.
 
 ---
 
@@ -90,6 +112,13 @@ SECRET_KEY=your_super_secret_key
 ALGORITHM=HS256
 ACCESS_TOKEN_EXPIRE_MINUTES=60
 ```
+
+Copy `.env.example` for the full list, including the optional AI settings.
+
+**The AI features work with no extra configuration.** Categorisation, severity
+scoring and duplicate detection run on a built-in deterministic engine. Setting
+`GEMINI_API_KEY` additionally enables image analysis, description write-ups and
+the natural-language assistant — see [AI Features](#-ai-features).
 
 ### 5. Seed the Database (Optional)
 
@@ -151,9 +180,46 @@ Interactive docs: **`http://localhost:8000/docs`**
 
 ### 🔔 Notifications
 
-| Method | Endpoint            | Description                                  | Roles Allowed |
-|--------|---------------------|----------------------------------------------|---------------|
-| GET    | `/notifications/me` | Get notification inbox for logged-in citizen | Citizen       |
+Every authenticated role has an inbox. Notifications carry an explicit
+`recipientId`, so field workers and officers receive them too — not just citizens.
+
+| Method | Endpoint                            | Description                                          | Roles Allowed |
+|--------|-------------------------------------|------------------------------------------------------|---------------|
+| GET    | `/notifications/me`                 | Inbox, newest first (`unreadOnly`, `type`, `skip`, `limit`) | All           |
+| GET    | `/notifications/me/unread-count`    | Unread badge count                                   | All           |
+| PATCH  | `/notifications/{notificationId}/read` | Mark one read/unread (persists `readAt`)          | Owner         |
+| POST   | `/notifications/me/read-all`        | Mark every notification read                         | All           |
+| DELETE | `/notifications/{notificationId}`   | Delete one from your inbox                           | Owner         |
+
+**Events that generate notifications**
+
+| Event                              | Who is notified                                              |
+|------------------------------------|--------------------------------------------------------------|
+| Complaint filed                    | Officers of the matching department (all officers if unmatched) |
+| Triage rates it HIGH / CRITICAL    | Officers of the matching department (`ESCALATION`, urgent)   |
+| Field worker assigned              | The worker, and the citizen                                  |
+| Status changed                     | Citizen, assigned worker, and the owning officer on resolution |
+| Complaint recategorised            | Citizen                                                      |
+| Feedback submitted                 | Handling officer and field worker (high priority if ≤ 2 stars) |
+
+Whoever performed an action is never notified about their own change. Priority
+(`LOW`/`NORMAL`/`HIGH`/`URGENT`) is derived from complaint severity.
+
+---
+
+### 🤖 AI
+
+| Method | Endpoint                              | Description                                             | Roles Allowed          |
+|--------|---------------------------------------|---------------------------------------------------------|------------------------|
+| GET    | `/ai/health`                          | Which AI features this deployment can serve             | Public                 |
+| POST   | `/ai/categorize`                      | Suggest categories for complaint text                   | All authenticated      |
+| POST   | `/ai/severity`                        | Predict severity with explainable signals               | All authenticated      |
+| POST   | `/ai/duplicates`                      | Find likely duplicate complaints                        | All authenticated      |
+| POST   | `/ai/triage`                          | Category + severity + duplicates + summary in one call  | All authenticated      |
+| POST   | `/ai/analyze-image`                   | Vision: photo → description, category, severity         | All authenticated      |
+| POST   | `/ai/describe`                        | Rewrite a report into an officer-facing paragraph       | All authenticated      |
+| POST   | `/ai/assistant/query`                 | Grounded, role-scoped natural-language Q&A              | All authenticated      |
+| POST   | `/ai/complaints/{complaintId}/analyze`| Re-run triage on an existing complaint and persist it   | Officer, Administrator |
 
 ---
 
@@ -191,7 +257,11 @@ UserModel (base)
 | `StatusHistoryModel`   | Audit log of all complaint status changes        |
 | `MediaAttachmentModel` | File uploads (images) linked to a complaint      |
 | `FeedbackModel`        | Citizen rating (1–5) + comments after resolution |
-| `NotificationModel`    | In-app notifications sent on status changes      |
+| `NotificationModel`    | In-app notification addressed to a `recipientId` |
+
+`ComplaintModel` also carries advisory AI fields — `aiSuggestedCategoryId`,
+`aiSeverity`, `aiConfidence`, `aiSummary`, `aiSource`, `aiAnalyzedAt` and
+`duplicateOfComplaintId` — so a triage decision stays auditable after the fact.
 
 ### Enums
 
@@ -200,6 +270,101 @@ UserModel (base)
 | `StatusEnum`   | `PENDING`, `ASSIGNED`, `RESOLVED`, `REJECTED` |
 | `SeverityEnum` | `LOW`, `MEDIUM`, `HIGH`, `CRITICAL`           |
 
+### Schema migrations
+
+`Base.metadata.create_all()` creates missing tables but never alters existing
+ones, so columns added later would be invisible to an already-deployed database.
+`migrations.py` closes that gap at startup with additive, idempotent steps
+(`ADD COLUMN IF NOT EXISTS` plus `WHERE ... IS NULL` backfills). It is safe to
+run on every boot and handles PostgreSQL and SQLite. It is not a replacement for
+Alembic — a destructive or type-changing migration still needs a real tool.
+
+---
+
+## 🤖 AI Features
+
+### How it works
+
+The AI layer is a **hybrid**. A deterministic engine is the authority for triage,
+and Gemini refines it when configured:
+
+| Feature                | Engine                                          | Needs an API key? |
+|------------------------|-------------------------------------------------|-------------------|
+| Categorisation         | Rules engine, re-ranked by Gemini when unsure   | No                |
+| Severity prediction    | Rules engine; Gemini may only *raise* it        | No                |
+| Duplicate detection    | Rules engine only (text similarity + geo + time)| No                |
+| Image analysis         | Gemini vision                                   | **Yes**           |
+| Description write-ups  | Gemini                                          | **Yes**           |
+| Assistant (grounded)   | Gemini over role-scoped DB records              | **Yes**           |
+
+Every AI response carries a `source` field (`rules`, `gemini`, `gemini-vision`)
+so clients and officers can tell which engine produced a result.
+
+Check what a deployment can serve with `GET /ai/health`.
+
+### The deterministic engine
+
+Runs offline, costs nothing, and returns identical output for identical input.
+
+- **Categorisation** scores each category from the database against a civic-issue
+  lexicon plus the category's own wording, then normalises scores into relative
+  confidence. Categories are read from the database, so adding a category row
+  needs no code change.
+- **Severity** combines urgency vocabulary, hazard vocabulary and the matched
+  category's baseline risk. Results are explainable: every response lists the
+  `signals` that drove it.
+- **Duplicate detection** requires agreement on *what* and *where* — IDF-weighted
+  cosine similarity plus bigram overlap, multiplied by geographic proximity, with
+  a same-category bonus. Candidates outside the radius or time window are dropped
+  before scoring.
+
+### Design decisions
+
+- **Gemini can raise severity but never lower it.** Silently downgrading a hazard
+  the lexicon caught is the more dangerous failure direction for a public-safety
+  system, so the rules result is a floor.
+- **AI never overwrites `categoryId`.** The citizen or officer owns that choice;
+  the model's opinion is recorded separately in `aiSuggestedCategoryId`.
+  `severity` *is* updated, because it is an internal prioritisation signal no
+  user sets directly.
+- **Everything degrades softly.** An unconfigured key, a safety block or an
+  upstream error falls back to the rules engine. Triage failure during complaint
+  submission is caught and logged — it can never stop a citizen filing a report.
+- **The assistant has no vector store, deliberately.** Its questions are about
+  live rows ("where is my complaint", "what is assigned to me"), which SQL
+  answers better than embeddings over stale snapshots. Retrieval is scoped by
+  role **inside the query**, so a prompt injected into a complaint description
+  cannot widen what the model can read — those rows are never fetched.
+- **Vision prompts steer away from PII.** Street photos routinely contain
+  bystanders and number plates; the system prompt forbids describing people or
+  registration numbers, which is both the right privacy posture and fewer
+  provider safety blocks.
+
+### Configuration
+
+All optional — see `.env.example`. The important ones:
+
+```env
+AI_PROVIDER=auto              # auto | rules | gemini
+GEMINI_API_KEY=               # unset → deterministic engine only
+GEMINI_MODEL=gemini-2.5-flash # or gemini-3.5-flash-lite for lower cost
+AI_AUTO_TRIAGE=true           # run triage when a complaint is filed
+```
+
+Set `AI_PROVIDER=rules` in CI to guarantee no outbound calls.
+
+---
+
+## 📄 API Specification
+
+`openapi.yaml` is generated from the running app. Regenerate it after changing
+any endpoint:
+
+```bash
+python generate_openapi.py                       # → backend/openapi.yaml
+python generate_openapi.py <path/to/swagger.yaml>  # → any other destination
+```
+
 ---
 
 ## 📝 Notes
@@ -207,4 +372,5 @@ UserModel (base)
 - Uploaded images are stored in the `uploads/` directory and served statically at `/uploads/<filename>`.
 - JWT tokens must be passed as a `Bearer` token in the `Authorization` header for all protected routes.
 - Field worker assignment includes **skill validation** — the worker's `skillSet` must match the complaint category's `department`.
-- Status changes automatically trigger **in-app notifications** to the citizen who filed the complaint.
+- Complaint lifecycle events automatically trigger **in-app notifications** to every stakeholder — see [Notifications](#-notifications).
+- Filing a complaint with an unknown `categoryId` returns a `404` rather than surfacing a database integrity error.
