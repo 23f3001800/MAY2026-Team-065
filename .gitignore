@@ -15,6 +15,9 @@ backend/smart_civic.db
 *.db
 *.sqlite3
 
+# Citizen-uploaded complaint photos — runtime data, never committed
+backend/uploads/
+
 # OS files
 .DS_Store
 
