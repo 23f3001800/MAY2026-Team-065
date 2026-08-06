@@ -1,18 +1,19 @@
-// Side panel an officer works a single complaint in: recategorise it, assign a
-// field worker, and move its status.
+// Side panel an officer works a single complaint in: review AI triage,
+// recategorise, assign a field worker, and move its status.
 //
-// Three things the earlier mock version offered are gone, because the backend
-// has no equivalent and showing them would be inventing data:
-//   - AI category/severity confidence  (no classifier endpoint)
-//   - duplicate candidates + merge     (no similarity endpoint)
-//   - severity override                (PATCH exists for category only)
+// AI output here is ADVISORY. The backend stores it on the complaint but never
+// applies it, so this panel shows the suggestion, flags when it disagrees with
+// the record, and offers a one-click accept. The officer decides.
+//
+// Severity override is still absent: the backend exposes PATCH for category
+// only, so severity can only change via a triage run.
 import React, { useEffect, useState } from 'react';
 import StatusBadge from '../dashboard/StatusBadge';
 import SeverityBadge from '../dashboard/SeverityBadge';
 import {
   IconX, IconMapPin, IconClock, IconCheckCircle, IconAlertTriangle, IconSparkles,
 } from '../dashboard/icons';
-import { CATEGORIES, ASSIGNABLE_STATUSES } from '../../api/mappers';
+import { CATEGORIES, ASSIGNABLE_STATUSES, aiDisagrees } from '../../api/mappers';
 
 function formatStamp(iso) {
   const d = new Date(iso);
@@ -42,7 +43,11 @@ function Section({ title, badge, children }) {
 
 export default function ComplaintDrawer({
   complaint, workers, workersError, busy, onDismiss, onRecategorise, onAssign, onStatusChange,
+  onAnalyse, onOpenComplaint,
 }) {
+  const ai = complaint.ai;
+  const disagrees = aiDisagrees(complaint);
+
   const [categoryId, setCategoryId] = useState(complaint.categoryId || '');
   const [status, setStatus] = useState(complaint.status);
   const [remarks, setRemarks] = useState('');
@@ -71,13 +76,13 @@ export default function ComplaintDrawer({
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
-      <div className="absolute inset-0 bg-slate-900/40" onClick={onDismiss} aria-hidden="true" />
+      <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-[2px] animate-overlay-in" onClick={onDismiss} aria-hidden="true" />
 
       <aside
         role="dialog"
         aria-modal="true"
         aria-label={`Complaint ${complaint.id}`}
-        className="relative w-full max-w-[480px] h-full bg-white shadow-xl overflow-y-auto"
+        className="relative w-full max-w-[480px] h-full bg-white shadow-xl overflow-y-auto animate-drawer-in"
       >
         <div className="sticky top-0 bg-white border-b border-slate-200 px-5 py-4 flex items-start justify-between gap-3 z-10">
           <div className="min-w-0">
@@ -209,21 +214,140 @@ export default function ComplaintDrawer({
             </p>
           </Section>
 
-          {/* Honest about what is missing rather than showing fake AI output */}
+          {/* AI triage — advisory only. Nothing here has been applied to the
+              record; the officer decides. */}
           <Section
-            title="AI Assistance"
+            title="AI Triage"
             badge={
-              <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">
-                <IconSparkles size={12} /> Not available
-              </span>
+              ai ? (
+                <span
+                  className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full ${
+                    ai.source === 'gemini'
+                      ? 'bg-violet-50 text-violet-700'
+                      : 'bg-slate-100 text-slate-600'
+                  }`}
+                  title={
+                    ai.source === 'gemini'
+                      ? 'Produced by a language model'
+                      : 'Produced by the deterministic rules engine'
+                  }
+                >
+                  <IconSparkles size={12} /> {ai.source === 'gemini' ? 'Model' : 'Rules engine'}
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">
+                  <IconSparkles size={12} /> Not analysed
+                </span>
+              )
             }
           >
-            <p className="text-[12px] text-slate-500 leading-relaxed">
-              Automatic categorisation, severity scoring and duplicate detection are not implemented
-              on the backend yet. Category and severity here are whatever was set at submission or
-              by an officer.
-            </p>
+            {!ai ? (
+              <div className="space-y-3">
+                <p className="text-[12px] text-slate-500 leading-relaxed">
+                  This complaint has not been triaged. It may predate AI triage, or triage may have
+                  been switched off when it was filed.
+                </p>
+                <button
+                  onClick={() => onAnalyse?.(complaint.id)}
+                  disabled={busy || !onAnalyse}
+                  className="focus-ring w-full inline-flex items-center justify-center gap-2 bg-slate-900 hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold text-[13px] py-2.5 rounded-lg transition-colors"
+                >
+                  <IconSparkles size={14} /> Run triage now
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {ai.summary && (
+                  <p className="text-[13px] text-slate-600 leading-relaxed bg-slate-50 rounded-lg p-3 border border-slate-100">
+                    {ai.summary}
+                  </p>
+                )}
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="rounded-lg border border-slate-200 p-2.5">
+                    <div className="text-[10px] uppercase tracking-wide text-slate-400">Suggested category</div>
+                    <div className="text-[13px] font-semibold text-slate-800 mt-0.5">
+                      {ai.suggestedCategory || '—'}
+                    </div>
+                  </div>
+                  <div className="rounded-lg border border-slate-200 p-2.5">
+                    <div className="text-[10px] uppercase tracking-wide text-slate-400">Suggested severity</div>
+                    <div className="text-[13px] font-semibold text-slate-800 mt-0.5">
+                      {ai.severity || '—'}
+                    </div>
+                  </div>
+                </div>
+
+                {typeof ai.confidence === 'number' && (
+                  <div>
+                    <div className="flex items-center justify-between text-[11px] text-slate-500 mb-1">
+                      <span>Confidence</span>
+                      <span className="font-semibold tnum">{Math.round(ai.confidence * 100)}%</span>
+                    </div>
+                    {/* A bar, not just a number — relative certainty is easier
+                        to judge by length than by reading two decimals. */}
+                    <div className="h-1.5 rounded-full bg-slate-100 overflow-hidden">
+                      <div
+                        className={`h-full rounded-full origin-left animate-grow-x ${
+                          ai.confidence < 0.6 ? 'bg-amber-400' : 'bg-primary'
+                        }`}
+                        style={{ width: `${Math.round(ai.confidence * 100)}%` }}
+                      />
+                    </div>
+                    {ai.confidence < 0.6 && (
+                      <p className="text-[11px] text-amber-700 mt-1.5">
+                        Low confidence — confirm before assigning.
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {disagrees && (
+                  <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+                    <p className="text-[12px] text-amber-900 leading-snug">
+                      The AI suggestion differs from what this complaint is set to.
+                    </p>
+                    {ai.suggestedCategoryId && ai.suggestedCategoryId !== complaint.categoryId && (
+                      <button
+                        onClick={() => onRecategorise(complaint.id, ai.suggestedCategoryId)}
+                        disabled={busy}
+                        className="focus-ring mt-2 w-full inline-flex items-center justify-center gap-1.5 text-[12px] font-semibold text-amber-900 bg-amber-100 hover:bg-amber-200 disabled:opacity-40 py-2 rounded-lg transition-colors"
+                      >
+                        Accept “{ai.suggestedCategory}”
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                <p className="text-[11px] text-slate-400 leading-relaxed">
+                  Advisory only — nothing above has been applied to the record.
+                </p>
+              </div>
+            )}
           </Section>
+
+          {/* Duplicate flag, set by the backend's similarity check. */}
+          {complaint.duplicateOfComplaintId && (
+            <Section
+              title="Possible Duplicate"
+              badge={
+                <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700">
+                  <IconAlertTriangle size={12} /> Flagged
+                </span>
+              }
+            >
+              <p className="text-[13px] text-slate-600 leading-snug">
+                This looks like the same issue as{' '}
+                <span className="font-mono text-slate-800">{complaint.duplicateOfComplaintId}</span>.
+              </p>
+              <button
+                onClick={() => onOpenComplaint?.(complaint.duplicateOfComplaintId)}
+                className="focus-ring mt-2 w-full inline-flex items-center justify-center gap-1.5 text-[12px] font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 py-2 rounded-lg transition-colors"
+              >
+                Open {complaint.duplicateOfComplaintId}
+              </button>
+            </Section>
+          )}
         </div>
       </aside>
     </div>

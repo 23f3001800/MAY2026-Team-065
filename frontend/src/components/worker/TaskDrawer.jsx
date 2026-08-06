@@ -39,12 +39,12 @@ export default function TaskDrawer({ task, busy, readOnly, onDismiss, onStatusCh
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
-      <div className="absolute inset-0 bg-slate-900/40" onClick={onDismiss} aria-hidden="true" />
+      <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-[2px] animate-overlay-in" onClick={onDismiss} aria-hidden="true" />
       <aside
         role="dialog"
         aria-modal="true"
         aria-label={`Task ${task.id}`}
-        className="relative w-full max-w-[440px] h-full bg-white shadow-xl overflow-y-auto"
+        className="relative w-full max-w-[440px] h-full bg-white shadow-xl overflow-y-auto animate-drawer-in"
       >
         <div className="sticky top-0 bg-white border-b border-slate-200 px-5 py-4 flex items-start justify-between gap-3 z-10">
           <div className="min-w-0">
