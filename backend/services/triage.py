@@ -8,6 +8,7 @@ imports SQLAlchemy models and stays unit-testable without a database.
 from __future__ import annotations
 
 import logging
+import uuid
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional, Sequence
 
@@ -100,7 +101,84 @@ async def load_duplicate_candidates(
     return records
 
 
-def apply_triage(complaint: models.ComplaintModel, triage: TriageResult) -> None:
+def log_classification(
+    db: AsyncSession,
+    complaint: models.ComplaintModel,
+    *,
+    field: str,
+    ai_value: Optional[str],
+    confidence: Optional[float],
+    source: Optional[str],
+    previous: Optional[str],
+    new_value: Optional[str],
+) -> models.AIClassificationLogModel:
+    """Record what the AI predicted for one field.
+
+    Written at triage time with actorId NULL. Pairing these with the override
+    rows below is what makes accuracy measurable.
+    """
+    entry = models.AIClassificationLogModel(
+        logId=f"AIL-{str(uuid.uuid4())[:10].upper()}",
+        complaintId=complaint.complaintId,
+        field=field,
+        aiValue=ai_value,
+        aiConfidence=confidence,
+        aiSource=source,
+        previousValue=previous,
+        newValue=new_value,
+        actorId=None,
+        createdAt=_utcnow(),
+    )
+    db.add(entry)
+    return entry
+
+
+def log_override(
+    db: AsyncSession,
+    complaint: models.ComplaintModel,
+    *,
+    field: str,
+    previous: str,
+    new_value: str,
+    actor: models.UserModel,
+    remarks: Optional[str] = None,
+) -> models.AIClassificationLogModel:
+    """Record a human correcting an AI prediction.
+
+    ``aiValue`` is carried over from the complaint's stored triage result, so a
+    single row answers "what did the AI say, and what did the officer change it
+    to" without a join.
+    """
+    ai_value = complaint.aiSeverity if field == "severity" else complaint.aiSuggestedCategoryId
+
+    entry = models.AIClassificationLogModel(
+        logId=f"AIL-{str(uuid.uuid4())[:10].upper()}",
+        complaintId=complaint.complaintId,
+        field=field,
+        aiValue=ai_value,
+        aiConfidence=complaint.aiConfidence,
+        aiSource=complaint.aiSource,
+        previousValue=previous,
+        newValue=new_value,
+        actorId=actor.userId,
+        remarks=remarks,
+        createdAt=_utcnow(),
+    )
+    db.add(entry)
+    logger.info(
+        "ai override: complaint=%s field=%s ai=%s %s->%s by=%s",
+        complaint.complaintId, field, ai_value, previous, new_value, actor.userId,
+    )
+    return entry
+
+
+def apply_triage(
+    complaint: models.ComplaintModel,
+    triage: TriageResult,
+    *,
+    db: Optional[AsyncSession] = None,
+    autolink_threshold: float = 0.75,
+) -> None:
     """Write AI results onto a complaint.
 
     Advisory fields only. ``categoryId`` is never overwritten -- the citizen (or
@@ -108,8 +186,15 @@ def apply_triage(complaint: models.ComplaintModel, triage: TriageResult) -> None
     their back would make the audit trail lie. ``severity`` *is* updated, because
     it is an internal prioritisation signal no user sets directly, and under-
     triaging a hazard is the costlier mistake.
+
+    ``autolink_threshold`` is deliberately stricter than the threshold used to
+    *display* duplicate candidates. Showing a weak match costs an officer a
+    glance; recording one makes a second citizen's report look like it was
+    silently swallowed. When no candidate clears the bar the link is left unset,
+    even though the candidate list still shows them.
     """
     best_category = triage.category.best
+    previous_severity = str(getattr(complaint.severity, "name", complaint.severity) or "")
 
     complaint.aiSuggestedCategoryId = best_category.categoryId if best_category else None
     complaint.aiConfidence = best_category.confidence if best_category else None
@@ -118,7 +203,43 @@ def apply_triage(complaint: models.ComplaintModel, triage: TriageResult) -> None
     complaint.aiSource = triage.source
     complaint.aiAnalyzedAt = _utcnow()
 
+    # Only link a duplicate we are confident about.
     duplicate = triage.duplicates.best
-    complaint.duplicateOfComplaintId = duplicate.complaintId if duplicate else None
+    if duplicate and duplicate.similarity >= autolink_threshold:
+        complaint.duplicateOfComplaintId = duplicate.complaintId
+    else:
+        complaint.duplicateOfComplaintId = None
+        if duplicate:
+            logger.info(
+                "duplicate candidate %s for %s scored %.2f, below the %.2f auto-link "
+                "threshold; surfacing it without linking",
+                duplicate.complaintId, complaint.complaintId,
+                duplicate.similarity, autolink_threshold,
+            )
 
     complaint.severity = triage.severity.severity
+
+    # Record what the AI decided, so a later officer override can be compared
+    # against it when measuring accuracy.
+    if db is not None:
+        log_classification(
+            db, complaint,
+            field="severity",
+            ai_value=triage.severity.severity,
+            confidence=triage.severity.confidence,
+            source=triage.severity.source,
+            previous=previous_severity,
+            new_value=triage.severity.severity,
+        )
+        if best_category:
+            log_classification(
+                db, complaint,
+                field="category",
+                ai_value=best_category.categoryId,
+                confidence=best_category.confidence,
+                source=triage.category.source,
+                previous=complaint.categoryId,
+                # Advisory only: categoryId is not changed, so the "new" value
+                # is whatever the human already chose.
+                new_value=complaint.categoryId,
+            )
