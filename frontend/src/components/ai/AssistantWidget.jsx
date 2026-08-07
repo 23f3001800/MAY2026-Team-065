@@ -11,9 +11,25 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { askAssistant, aiHealth } from '../../api/ai';
+import { getCurrentUser } from '../../api/auth';
 import {
   IconBot, IconX, IconSend, IconSparkles, IconAlertTriangle, IconArrowRight,
 } from '../dashboard/icons';
+
+// What the assistant opens with, per role. Each says what it can see, because
+// the useful boundary here is *whose data* — a worker asking about city-wide
+// totals will get nothing, and it is kinder to say so up front than to let
+// them discover it through an empty answer.
+const GREETINGS = {
+  citizen: (name) =>
+    `Hi ${name} — I can look up your complaints, their status and what happens next. Ask me anything about the issues you've reported.`,
+  municipal_officer: (name) =>
+    `Hi ${name} — I can see the complaints in your queue. Ask about what's unassigned, overdue, or worth prioritising today.`,
+  field_worker: (name) =>
+    `Hi ${name} — I can see the tasks assigned to you. Ask what's outstanding, what's most urgent, or where your next job is.`,
+  admin: (name) =>
+    `Hi ${name} — I can see the whole city's complaint data. Ask about volumes, categories, resolution times or department performance.`,
+};
 
 // Role-appropriate openers. These demonstrate the shape of question that works
 // rather than inviting open-ended chat the assistant cannot answer.
@@ -58,6 +74,16 @@ export default function AssistantWidget({ role = 'citizen' }) {
   useEffect(() => {
     if (open) inputRef.current?.focus();
   }, [open]);
+
+  // Greet on first open, not on mount: seeding it earlier would mean the panel
+  // is never truly empty and the "no messages" branch below could not tell a
+  // fresh conversation from one in progress.
+  useEffect(() => {
+    if (!open || messages.length) return;
+    const first = (getCurrentUser()?.name || 'there').split(' ')[0];
+    const greet = GREETINGS[role] || GREETINGS.citizen;
+    setMessages([{ role: 'assistant', text: greet(first), greeting: true }]);
+  }, [open, messages.length, role]);
 
   // Keep the newest message in view.
   useEffect(() => {
@@ -146,28 +172,6 @@ export default function AssistantWidget({ role = 'citizen' }) {
               </div>
             )}
 
-            {messages.length === 0 && (
-              <div className="py-2">
-                <p className="text-[13px] text-ink-muted mb-3">
-                  Ask about your complaints. Answers come from records you already have access to.
-                </p>
-                <div className="space-y-2">
-                  {starters.map((s) => (
-                    <button
-                      key={s}
-                      onClick={() => send(s)}
-                      disabled={busy || Boolean(unavailable)}
-                      className="focus-ring w-full text-left text-[13px] text-ink-body bg-slate-50 hover:bg-slate-100 disabled:opacity-50
-                                 border border-line rounded-lg px-3 py-2 transition flex items-center gap-2 group"
-                    >
-                      <span className="flex-1">{s}</span>
-                      <IconArrowRight size={13} className="text-ink-faint opacity-0 group-hover:opacity-100 transition" />
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
             {messages.map((m, i) => (
               <div key={i} className={`animate-rise-in ${m.role === 'user' ? 'flex justify-end' : ''}`}>
                 {m.role === 'user' ? (
@@ -212,6 +216,28 @@ export default function AssistantWidget({ role = 'citizen' }) {
                 )}
               </div>
             ))}
+
+            {!messages.some((m) => m.role === 'user') && (
+              <div className="py-2">
+                <p className="text-[12px] font-medium uppercase tracking-wide text-ink-faint mb-2">
+                  Try asking
+                </p>
+                <div className="space-y-2">
+                  {starters.map((s) => (
+                    <button
+                      key={s}
+                      onClick={() => send(s)}
+                      disabled={busy || Boolean(unavailable)}
+                      className="focus-ring w-full text-left text-[13px] text-ink-body bg-slate-50 hover:bg-slate-100 disabled:opacity-50
+                                 border border-line rounded-lg px-3 py-2 transition flex items-center gap-2 group"
+                    >
+                      <span className="flex-1">{s}</span>
+                      <IconArrowRight size={13} className="text-ink-faint opacity-0 group-hover:opacity-100 transition" />
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {busy && (
               <div className="flex items-center gap-1.5 px-1" aria-label="Thinking">
