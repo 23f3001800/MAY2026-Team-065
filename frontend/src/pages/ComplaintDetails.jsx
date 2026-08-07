@@ -14,6 +14,7 @@ import SeverityBadge from '../components/dashboard/SeverityBadge';
 import { LoadingPanel, ErrorPanel } from '../components/dashboard/AsyncStates';
 import PhotoGrid from '../components/dashboard/PhotoGrid';
 import ReportSlipModal from '../components/dashboard/ReportSlipModal';
+import ComplaintMap from '../components/map/ComplaintMap';
 import {
   IconArrowLeft, IconMapPin, IconInbox, IconStar, IconBuilding, IconSend,
   IconCheckCircle, IconReport as IconFileText,
@@ -231,6 +232,15 @@ export default function ComplaintDetails() {
               </>
             )}
           </section>
+
+          {/* Where it is. Shown to whoever can open the complaint — citizen,
+              officer, worker or admin all need to place it. */}
+          {complaint.coords && (
+            <section className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+              <h2 className="font-semibold text-slate-800 text-[15px] mb-3">Location</h2>
+              <ComplaintMap complaints={[complaint]} height="300px" />
+            </section>
+          )}
 
           {/* Resolution evidence — the field worker's completion proof. */}
           {resolutionPhotos.length > 0 && (

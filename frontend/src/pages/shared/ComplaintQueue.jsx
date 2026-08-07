@@ -21,6 +21,7 @@ import { analyzeComplaint } from '../../api/ai';
 import { listFieldWorkers } from '../../api/workers';
 import { CATEGORIES, ASSIGNABLE_STATUSES } from '../../api/mappers';
 import useAsync from '../../hooks/useAsync';
+import ComplaintMap from '../../components/map/ComplaintMap';
 
 function formatDate(iso) {
   const d = new Date(iso);
@@ -70,6 +71,8 @@ export default function ComplaintQueue({ title, subtitle }) {
   const [category, setCategory] = useState('All');
   const [severity, setSeverity] = useState('All');
   const [since, setSince] = useState('');
+  // Table for triage, map for spotting clusters — the same filtered set either way.
+  const [view, setView] = useState('table');
 
   useEffect(() => {
     let cancelled = false;
@@ -235,6 +238,20 @@ export default function ComplaintQueue({ title, subtitle }) {
           aria-label="Reported on or after"
           className="bg-white rounded-xl border border-slate-200 px-3 py-2.5 text-[14px] text-slate-700 outline-none focus:border-primary cursor-pointer"
         />
+        <div className="flex rounded-xl border border-slate-200 overflow-hidden bg-white" role="group" aria-label="View">
+          {['table', 'map'].map((v) => (
+            <button
+              key={v}
+              onClick={() => setView(v)}
+              aria-pressed={view === v}
+              className={`focus-ring px-3.5 py-2.5 text-[13px] font-medium capitalize transition-colors ${
+                view === v ? 'bg-primary text-white' : 'text-slate-600 hover:bg-slate-50'
+              }`}
+            >
+              {v}
+            </button>
+          ))}
+        </div>
       </div>
 
       {loading ? (
@@ -252,6 +269,12 @@ export default function ComplaintQueue({ title, subtitle }) {
             </button>
           )}
         </EmptyPanel>
+      ) : view === 'map' ? (
+        <ComplaintMap
+          complaints={filtered}
+          height="520px"
+          onSelect={(c) => setSelectedId(c.id)}
+        />
       ) : (
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
           <div className="hidden lg:block overflow-x-auto">

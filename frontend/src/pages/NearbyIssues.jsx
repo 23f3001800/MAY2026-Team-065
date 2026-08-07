@@ -6,7 +6,7 @@
 // endpoint runs a bounding-box query and returns no distance, so distance is
 // computed here from the coordinates it does return.
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import StatusBadge from '../components/dashboard/StatusBadge';
 import SeverityBadge from '../components/dashboard/SeverityBadge';
 import { LoadingPanel, ErrorPanel, EmptyPanel } from '../components/dashboard/AsyncStates';
@@ -16,6 +16,7 @@ import {
 import { RADIUS_OPTIONS } from '../data/filters';
 import { CATEGORIES } from '../api/mappers';
 import { listNearbyComplaints } from '../api/complaints';
+import ComplaintMap from '../components/map/ComplaintMap';
 
 function formatDate(iso) {
   const d = new Date(iso);
@@ -42,6 +43,7 @@ function distanceKm(a, b) {
 const CATEGORY_FILTER_OPTIONS = ['All', ...CATEGORIES.map((c) => c.label)];
 
 export default function NearbyIssues() {
+  const navigate = useNavigate();
   const [origin, setOrigin] = useState(null);      // { latitude, longitude }
   const [locating, setLocating] = useState(true);
   const [locationError, setLocationError] = useState('');
@@ -190,6 +192,9 @@ export default function NearbyIssues() {
         </EmptyPanel>
       ) : (
         <>
+          {/* Proximity is the whole question on this page, so it gets a map. */}
+          <ComplaintMap complaints={filtered} height="340px" showMe onSelect={(c) => navigate(`/complaints/${c.id}`)} />
+
           <ul className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {filtered.map((i) => (
               <li key={i.id}>

@@ -1,7 +1,8 @@
 // Light sticky top bar for the citizen area.
 import React from 'react';
-import { IconMenu, IconMapPin, IconChevronDown } from './icons';
+import { IconMenu } from './icons';
 import NotificationBell from './NotificationBell';
+import LocationChip from './LocationChip';
 
 export default function Topbar({ user, onMenu, showLocation = true, notificationsHref = '/notifications' }) {
   const name = user?.name?.split(' ')[0] || 'there';
@@ -18,14 +19,8 @@ export default function Topbar({ user, onMenu, showLocation = true, notification
         <IconMenu size={22} />
       </button>
 
-      {/* Location selector */}
-      {showLocation && (
-        <button className="flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-200 text-slate-700 text-[13px] font-medium hover:bg-slate-50 transition-colors">
-          <IconMapPin size={16} className="text-primary" />
-          MG Road, City
-          <IconChevronDown size={14} className="text-slate-400" />
-        </button>
-      )}
+      {/* Real current area, replacing a hardcoded label that did nothing. */}
+      {showLocation && <LocationChip />}
 
       <div className="flex-1" />
 
