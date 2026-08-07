@@ -7,20 +7,28 @@
 import React from 'react';
 
 const STYLES = {
+  // Intake & triage
   'New': { chip: 'bg-emerald-50 text-emerald-700 ring-emerald-600/15', dot: 'bg-emerald-500' },
+  'Under Review': { chip: 'bg-sky-50 text-sky-700 ring-sky-600/15', dot: 'bg-sky-500' },
+  // Action & dispatch
   'Assigned': { chip: 'bg-amber-50 text-amber-800 ring-amber-600/15', dot: 'bg-amber-500' },
   'In Progress': { chip: 'bg-blue-50 text-blue-700 ring-blue-600/15', dot: 'bg-blue-500' },
+  'On Hold': { chip: 'bg-slate-100 text-slate-600 ring-slate-500/15', dot: 'bg-slate-400' },
+  'Escalated': { chip: 'bg-orange-50 text-orange-800 ring-orange-600/20', dot: 'bg-orange-500' },
+  // Closure & validation
   'Resolved': { chip: 'bg-violet-50 text-violet-700 ring-violet-600/15', dot: 'bg-violet-500' },
+  'Verified': { chip: 'bg-teal-50 text-teal-700 ring-teal-600/20', dot: 'bg-teal-600' },
+  'Reopened': { chip: 'bg-rose-50 text-rose-700 ring-rose-600/15', dot: 'bg-rose-500' },
   'Rejected': { chip: 'bg-red-50 text-red-700 ring-red-600/15', dot: 'bg-red-500' },
+  // Legacy / non-status labels still passed in a few places.
   'Critical': { chip: 'bg-red-50 text-red-700 ring-red-600/15', dot: 'bg-red-500' },
-  'Closed': { chip: 'bg-slate-100 text-slate-700 ring-slate-500/15', dot: 'bg-slate-500' },
   'Merged': { chip: 'bg-slate-100 text-slate-600 ring-slate-500/15', dot: 'bg-slate-400' },
 };
 
 const FALLBACK = { chip: 'bg-slate-100 text-slate-600 ring-slate-500/15', dot: 'bg-slate-400' };
 
 // Statuses that mean "someone is working on this right now" get a live dot.
-const ACTIVE = new Set(['In Progress']);
+const ACTIVE = new Set(['In Progress', 'Escalated']);
 
 export default function StatusBadge({ status, className = '' }) {
   const { chip, dot } = STYLES[status] || FALLBACK;

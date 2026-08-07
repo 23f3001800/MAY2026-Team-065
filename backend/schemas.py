@@ -175,6 +175,60 @@ class ComplaintRecategorize(BaseModel):
     categoryId: str
 
 
+# --- OFFICER CONTROL SCHEMAS ---
+class SeverityOverride(BaseModel):
+    """Officer's manual correction of a severity the AI or defaults got wrong."""
+    severity: SeverityEnum
+    remarks: Optional[str] = Field(None, max_length=500)
+
+
+class ComplaintMerge(BaseModel):
+    """Merge this complaint into another that reports the same real-world issue."""
+    intoComplaintId: str
+    remarks: Optional[str] = Field(None, max_length=500)
+
+
+# --- READ-PATH SCHEMAS ---
+# These expose data the system already writes but previously had no way to read
+# back: the status timeline, uploaded photos, and submitted feedback.
+
+class StatusHistoryResponse(BaseModel):
+    historyId: str
+    status: StatusEnum
+    remarks: Optional[str] = None
+    timestamp: datetime
+    complaintId: str
+
+    class Config:
+        from_attributes = True
+
+
+class MediaAttachmentResponse(BaseModel):
+    mediaId: str
+    fileUrl: str
+    type: str
+    uploadedBy: str
+    uploadedAt: datetime
+    complaintId: str
+
+    class Config:
+        from_attributes = True
+
+
+# --- CITIZEN SELF-SERVICE SCHEMAS ---
+class CitizenProfileUpdate(BaseModel):
+    """Partial update: every field is optional, and omitted fields are left alone."""
+    name: Optional[str] = Field(None, min_length=1, max_length=120)
+    phone: Optional[str] = Field(None, min_length=5, max_length=20)
+    address: Optional[str] = Field(None, max_length=300)
+
+
+class CitizenPasswordUpdate(BaseModel):
+    oldPassword: str
+    # Enforced here so a weak password is rejected before it is ever hashed.
+    newPassword: str = Field(..., min_length=8, max_length=128)
+
+
 # --- AI SCHEMAS ---
 # Responses mirror the dataclasses in ai/provider.py. Every AI response carries a
 # `source` field ("rules", "gemini" or "gemini-vision") so clients -- and

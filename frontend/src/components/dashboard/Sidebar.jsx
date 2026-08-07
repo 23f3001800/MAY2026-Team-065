@@ -2,8 +2,8 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
 import {
-  IconGrid, IconReport, IconList, IconTrack, IconMapPin, IconBell,
-  IconBot, IconStar, IconUserCircle, IconSettings, IconLogout, IconArrowRight,
+  IconGrid, IconReport, IconList, IconTrack, IconMapPin,
+  IconStar, IconUserCircle, IconLogout, IconArrowRight,
 } from './icons';
 
 // Nav items shown to a citizen. `badge` renders a small count pill.
@@ -13,11 +13,8 @@ export const NAV_ITEMS = [
   { to: '/my-complaints', label: 'My Complaints', icon: IconList },
   { to: '/track', label: 'Track Complaints', icon: IconTrack },
   { to: '/nearby', label: 'Nearby Issues', icon: IconMapPin },
-  { to: '/notifications', label: 'Notifications', icon: IconBell, badge: 3 },
-  { to: '/ai-assistant', label: 'AI Assistant', icon: IconBot },
   { to: '/feedback', label: 'Feedback', icon: IconStar },
   { to: '/profile', label: 'Profile', icon: IconUserCircle },
-  { to: '/settings', label: 'Settings', icon: IconSettings },
 ];
 
 export default function Sidebar({ open, onNavigate, onLogout, items = NAV_ITEMS, showCta = true }) {

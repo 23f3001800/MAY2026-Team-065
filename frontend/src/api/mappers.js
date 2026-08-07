@@ -2,34 +2,34 @@
 // components already speak. Keeping it here means pages never deal with
 // SCREAMING_CASE enums or category ids.
 //
-// Two mismatches are worth knowing about, because they are not translation
-// problems -- they are missing backend capability:
-//
-// 1. StatusEnum is PENDING | ASSIGNED | RESOLVED | REJECTED. The UI lifecycle
-//    also has "In Progress" and "Closed", which have nowhere to go. They are
-//    display-only; see UI_ONLY_STATUSES below and never send them.
-// 2. There is no GET /categories, so CATEGORIES below is a hardcoded mirror of
-//    backend/seed.py. If raja edits the seed, this list has to change with it.
+// The CATEGORIES table below is a fallback only -- useCategories fetches the
+// real list from GET /categories. Keep it roughly in step with seed.py so the
+// fallback stays sane, but it is no longer the source of truth.
 
 // ── Status ────────────────────────────────────────────────────────
+// Mirrors backend/database.py StatusEnum, which now runs to ten states across
+// three phases: intake & triage, action & dispatch, closure & validation.
+// Nothing is display-only any more -- every status here round-trips.
 const STATUS_FROM_API = {
   PENDING: 'New',
+  UNDER_REVIEW: 'Under Review',
   ASSIGNED: 'Assigned',
+  IN_PROGRESS: 'In Progress',
+  ON_HOLD: 'On Hold',
+  ESCALATED: 'Escalated',
   RESOLVED: 'Resolved',
+  VERIFIED: 'Verified',
+  REOPENED: 'Reopened',
   REJECTED: 'Rejected',
 };
 
-const STATUS_TO_API = {
-  New: 'PENDING',
-  Assigned: 'ASSIGNED',
-  Resolved: 'RESOLVED',
-  Rejected: 'REJECTED',
-};
+const STATUS_TO_API = Object.fromEntries(
+  Object.entries(STATUS_FROM_API).map(([api, ui]) => [ui, api]),
+);
 
-// Statuses the UI can render but the backend cannot store. Anything here must
-// not reach a PATCH body -- toApiStatus returns null so callers fail loudly
-// rather than silently writing the wrong state.
-export const UI_ONLY_STATUSES = ['In Progress', 'Closed'];
+// Kept for callers that still import it; nothing is UI-only now that the
+// backend models the full lifecycle.
+export const UI_ONLY_STATUSES = [];
 
 export function fromApiStatus(status) {
   if (!status) return 'New';
@@ -40,8 +40,34 @@ export function toApiStatus(status) {
   return STATUS_TO_API[status] || null;
 }
 
-// Statuses an officer or worker can actually transition a complaint into.
-export const ASSIGNABLE_STATUSES = Object.keys(STATUS_TO_API);
+// Lifecycle order, used to sort dropdowns and lay out progress.
+export const ALL_STATUSES = Object.values(STATUS_FROM_API);
+
+// Statuses no longer counted as active work (backend TERMINAL_STATUSES).
+export const TERMINAL_STATUSES = ['Verified', 'Rejected'];
+
+/**
+ * Which statuses a role may set, mirroring services/lifecycle.py. Showing an
+ * option the backend will 403 on is worse than hiding it -- the user picks it,
+ * waits, and gets a permission error for something they were offered.
+ *
+ * Officials (officer/admin) may set anything; the other two roles are limited
+ * to decisions that are genuinely theirs to make.
+ */
+const CITIZEN_SETTABLE = ['Verified', 'Reopened'];
+const WORKER_SETTABLE = ['In Progress', 'On Hold', 'Resolved', 'Escalated'];
+
+export function statusesSettableBy(role) {
+  switch (role) {
+    case 'citizen': return CITIZEN_SETTABLE;
+    case 'field_worker': return WORKER_SETTABLE;
+    // municipal_officer, admin — triage and dispatch decisions included.
+    default: return ALL_STATUSES;
+  }
+}
+
+// Back-compat alias: the officer queue used this name for "everything".
+export const ASSIGNABLE_STATUSES = ALL_STATUSES;
 
 // ── Severity ──────────────────────────────────────────────────────
 export function fromApiSeverity(severity) {
@@ -142,6 +168,35 @@ export function aiDisagrees(complaint) {
     && ai.suggestedCategoryId !== complaint.categoryId;
   const severityDiffers = Boolean(ai.severity) && ai.severity !== complaint.severity;
   return categoryDiffers || severityDiffers;
+}
+
+// ── Status history ────────────────────────────────────────────────
+// GET /complaints/{id}/history. This is the audit trail the complaint detail
+// timeline was previously faking from createdAt/updatedAt.
+export function fromApiHistory(h) {
+  if (!h) return null;
+  return {
+    id: h.historyId,
+    status: fromApiStatus(h.status),
+    remarks: h.remarks || '',
+    at: h.timestamp,
+  };
+}
+
+// ── Media attachments ─────────────────────────────────────────────
+// GET /complaints/{id}/media. `fileUrl` is a server-relative path such as
+// "/uploads/CMP-1_ab12cd.jpg", so it has to be joined to the API origin rather
+// than used as-is — the frontend is served from a different port in dev.
+export function fromApiMedia(m, baseUrl = '') {
+  if (!m) return null;
+  const url = m.fileUrl || '';
+  return {
+    id: m.mediaId,
+    url: /^https?:\/\//i.test(url) ? url : `${baseUrl}${url}`,
+    contentType: m.type || '',
+    uploadedBy: m.uploadedBy || null,
+    uploadedAt: m.uploadedAt || null,
+  };
 }
 
 // ── Field workers ─────────────────────────────────────────────────
