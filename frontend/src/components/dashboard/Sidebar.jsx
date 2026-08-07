@@ -2,7 +2,7 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
 import {
-  IconGrid, IconReport, IconList, IconTrack, IconMapPin, IconBell,
+  IconGrid, IconReport, IconList, IconTrack, IconMapPin,
   IconStar, IconUserCircle, IconLogout, IconArrowRight,
 } from './icons';
 
@@ -13,7 +13,6 @@ export const NAV_ITEMS = [
   { to: '/my-complaints', label: 'My Complaints', icon: IconList },
   { to: '/track', label: 'Track Complaints', icon: IconTrack },
   { to: '/nearby', label: 'Nearby Issues', icon: IconMapPin },
-  { to: '/notifications', label: 'Notifications', icon: IconBell, badge: 3 },
   { to: '/feedback', label: 'Feedback', icon: IconStar },
   { to: '/profile', label: 'Profile', icon: IconUserCircle },
 ];

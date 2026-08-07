@@ -1,8 +1,9 @@
 // Light sticky top bar for the citizen area.
 import React from 'react';
-import { IconMenu, IconMapPin, IconChevronDown, IconBell } from './icons';
+import { IconMenu, IconMapPin, IconChevronDown } from './icons';
+import NotificationBell from './NotificationBell';
 
-export default function Topbar({ user, onMenu, showLocation = true }) {
+export default function Topbar({ user, onMenu, showLocation = true, notificationsHref = '/notifications' }) {
   const name = user?.name?.split(' ')[0] || 'there';
   const initial = (user?.name?.[0] || 'U').toUpperCase();
 
@@ -28,13 +29,8 @@ export default function Topbar({ user, onMenu, showLocation = true }) {
 
       <div className="flex-1" />
 
-      {/* Notifications */}
-      <button className="relative text-slate-600 hover:text-slate-900 p-2 rounded-lg hover:bg-slate-100 transition-colors" aria-label="Notifications">
-        <IconBell size={20} />
-        <span className="absolute top-1 right-1 min-w-4 h-4 px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">
-          3
-        </span>
-      </button>
+      {/* Notifications — real feed, replaces the old hardcoded "3" badge. */}
+      <NotificationBell viewAllHref={notificationsHref} />
 
       {/* User */}
       <div className="flex items-center gap-2.5 pl-2">

@@ -29,7 +29,7 @@ export default function OfficerLayout() {
       />
 
       <div className="flex-1 min-w-0 flex flex-col">
-        <Topbar user={user} showLocation={false} onMenu={() => setSidebarOpen(true)} />
+        <Topbar user={user} notificationsHref="/officer/notifications" showLocation={false} onMenu={() => setSidebarOpen(true)} />
         <main className="flex-1 p-4 sm:p-6 lg:p-8">
           <Outlet />
         </main>
