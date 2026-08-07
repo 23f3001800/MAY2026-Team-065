@@ -15,6 +15,9 @@ import {
 } from '../dashboard/icons';
 import { CATEGORIES, ASSIGNABLE_STATUSES, aiDisagrees } from '../../api/mappers';
 
+// Backend SeverityEnum, in ascending order.
+const SEVERITY_LEVELS = ['Low', 'Medium', 'High', 'Critical'];
+
 function formatStamp(iso) {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
@@ -43,7 +46,7 @@ function Section({ title, badge, children }) {
 
 export default function ComplaintDrawer({
   complaint, workers, workersError, busy, onDismiss, onRecategorise, onAssign, onStatusChange,
-  onAnalyse, onOpenComplaint,
+  onAnalyse, onOpenComplaint, onOverrideSeverity, onMerge,
 }) {
   const ai = complaint.ai;
   const disagrees = aiDisagrees(complaint);
@@ -51,12 +54,16 @@ export default function ComplaintDrawer({
   const [categoryId, setCategoryId] = useState(complaint.categoryId || '');
   const [status, setStatus] = useState(complaint.status);
   const [remarks, setRemarks] = useState('');
+  const [severity, setSeverity] = useState(complaint.severity);
+  const [mergeInto, setMergeInto] = useState('');
 
   useEffect(() => {
     setCategoryId(complaint.categoryId || '');
     setStatus(complaint.status);
+    setSeverity(complaint.severity);
     setRemarks('');
-  }, [complaint.id, complaint.categoryId, complaint.status]);
+    setMergeInto('');
+  }, [complaint.id, complaint.categoryId, complaint.status, complaint.severity]);
 
   useEffect(() => {
     const onKey = (e) => e.key === 'Escape' && onDismiss();
@@ -212,6 +219,58 @@ export default function ComplaintDrawer({
             <p className="text-[11px] text-slate-400 mt-2">
               Changing status notifies the citizen automatically.
             </p>
+          </Section>
+
+          {/* Severity override. Separate endpoint from status because the
+              backend audits it as its own action. */}
+          <Section title="Severity">
+            <p className="text-[12px] text-slate-500 mb-2">
+              Currently <span className="font-semibold text-slate-700">{complaint.severity}</span>.
+              Raising this moves the complaint up the queue for everyone.
+            </p>
+            <select
+              value={severity}
+              onChange={(e) => setSeverity(e.target.value)}
+              aria-label="Severity"
+              className="w-full bg-white rounded-lg border border-slate-200 px-2.5 py-2 text-[13px] text-slate-700 outline-none focus:border-primary cursor-pointer"
+            >
+              {SEVERITY_LEVELS.map((sv) => <option key={sv} value={sv}>{sv}</option>)}
+            </select>
+            <button
+              onClick={() => onOverrideSeverity?.(complaint.id, severity, remarks)}
+              disabled={severity === complaint.severity || busy || !onOverrideSeverity}
+              className="mt-2 w-full inline-flex items-center justify-center gap-2 bg-slate-900 hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold text-[13px] py-2.5 rounded-lg transition-colors"
+            >
+              {severity === complaint.severity ? 'No change to apply' : `Set severity to ${severity}`}
+            </button>
+          </Section>
+
+          {/* Merge. Deliberately requires typing the target id rather than
+              offering a dropdown: merging is destructive-ish and hard to
+              explain to the citizen whose complaint disappeared, so a moment of
+              friction is the point. */}
+          <Section title="Merge Duplicate">
+            <p className="text-[12px] text-slate-500 mb-2">
+              Folds this complaint into another one that reports the same issue.
+              {' '}<span className="font-semibold text-slate-700">{complaint.id}</span> will be
+              closed as a duplicate.
+            </p>
+            <input
+              value={mergeInto}
+              onChange={(e) => setMergeInto(e.target.value.trim().toUpperCase())}
+              placeholder="Target complaint ID, e.g. CMP-A1B2C3"
+              aria-label="Merge into complaint ID"
+              className="w-full rounded-lg border border-slate-200 px-2.5 py-2 text-[13px] font-mono text-slate-800 outline-none focus:border-primary transition"
+            />
+            <button
+              onClick={() => onMerge?.(complaint.id, mergeInto, remarks)}
+              disabled={!mergeInto || mergeInto === complaint.id || busy || !onMerge}
+              className="mt-2 w-full inline-flex items-center justify-center gap-2 bg-amber-600 hover:bg-amber-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold text-[13px] py-2.5 rounded-lg transition-colors"
+            >
+              {mergeInto === complaint.id
+                ? 'Cannot merge into itself'
+                : `Merge into ${mergeInto || '…'}`}
+            </button>
           </Section>
 
           {/* AI triage — advisory only. Nothing here has been applied to the
