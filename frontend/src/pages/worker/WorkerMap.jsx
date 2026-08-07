@@ -1,22 +1,24 @@
-// Task Map — where the worker's open tasks are, without a map dependency.
+// Task Map — where the worker's open tasks are.
 //
-// No map library (Leaflet, Google Maps JS) is installed in this project, and
-// adding one just for a single screen would be a heavier change than this
-// page needs. Real coordinates do exist on every complaint (GET
-// /complaints/worker/tasks returns location.latitude/longitude), so each task
-// here links out to Google Maps rather than faking a canvas with pins on it.
+// Now plots them on a real map (see components/map/ComplaintMap). The list
+// below it stays: a map answers "where", a list answers "what next", and a
+// worker planning a round wants both. Each row still links out to Google Maps
+// for turn-by-turn navigation, which Leaflet does not do.
 import React, { useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import StatusBadge from '../../components/dashboard/StatusBadge';
 import SeverityBadge from '../../components/dashboard/SeverityBadge';
 import { LoadingPanel, ErrorPanel, EmptyPanel } from '../../components/dashboard/AsyncStates';
 import { IconMapPin, IconCrosshair } from '../../components/dashboard/icons';
 import { listMyTasks } from '../../api/complaints';
 import useAsync from '../../hooks/useAsync';
+import ComplaintMap from '../../components/map/ComplaintMap';
 
 const OPEN_STATUSES = ['New', 'Assigned'];
 const SEVERITY_RANK = { Critical: 0, High: 1, Medium: 2, Low: 3 };
 
 export default function WorkerMap() {
+  const navigate = useNavigate();
   const { data, error, loading, refetch } = useAsync(() => listMyTasks(), []);
   const items = useMemo(() => data || [], [data]);
 
@@ -34,6 +36,10 @@ export default function WorkerMap() {
         <h1 className="font-display text-2xl font-bold text-slate-900">Task Map</h1>
         <p className="text-[14px] text-slate-500">Open tasks by location, nearest severity first.</p>
       </div>
+
+      {!loading && !error && open.length > 0 && (
+        <ComplaintMap complaints={open} height="380px" showMe onSelect={(c) => navigate(`/complaints/${c.id}`)} />
+      )}
 
       {loading ? (
         <LoadingPanel label="Loading task locations…" />

@@ -1,22 +1,26 @@
-// Report an Issue — lets a citizen file a new complaint: pick a category,
-// describe it, attach a photo, set the location, and submit.
+// Report an Issue — the citizen's complaint form.
 //
-// Two things the backend forces on this form:
-//   - POST /complaints/ needs a real latitude/longitude, so the browser's
-//     location has to be captured before a complaint can be filed.
-//   - The photo is a second, separate request against the new complaint id, so
-//     it can fail after the complaint itself is safely saved.
+// Backend constraints that shape this page:
+//   - POST /complaints/ needs real latitude/longitude AND a non-null address
+//     (locations.address is NOT NULL), so both must be present before submit.
+//   - Photos are a second, separate request against the new complaint id, so
+//     they can fail after the complaint itself is safely saved.
+//
+// The AI here is entirely advisory. It drafts, suggests and warns; it never
+// changes what gets submitted without the citizen accepting it. Filing a
+// complaint must work with the AI switched off, so every AI call fails silently.
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   IconAlertTriangle, IconTrash, IconDroplet, IconBulb, IconMoreHorizontal,
   IconUpload, IconX, IconMapPin, IconCrosshair, IconSparkles, IconSend,
+  IconCheckCircle, IconRefresh,
 } from '../components/dashboard/icons';
 import { createComplaint } from '../api/complaints';
-import { triage as runTriage } from '../api/ai';
-import { CATEGORIES } from '../api/mappers';
+import { triage as runTriage, analyzeImage, rewriteDescription } from '../api/ai';
+import { reverseGeocode } from '../api/geocode';
+import useCategories from '../hooks/useCategories';
 
-// Icon per seeded category, keyed by the backend's categoryId.
 const CATEGORY_ICONS = {
   'CAT-ROA-01': IconAlertTriangle,
   'CAT-SAN-01': IconTrash,
@@ -26,35 +30,48 @@ const CATEGORY_ICONS = {
 };
 
 const MAX_IMAGE_MB = 5;
+const MAX_IMAGES = 5;
+
+// Classification fires this soon after typing stops. Short enough to feel
+// immediate, long enough not to fire on every keystroke mid-word.
+const TRIAGE_DELAY_MS = 350;
+const MIN_CHARS_TO_CLASSIFY = 15;
 
 export default function ReportIssue() {
+  const { categories: CATEGORIES } = useCategories();
   const navigate = useNavigate();
   const fileRef = useRef(null);
 
   const [categoryId, setCategoryId] = useState('');
   const [description, setDescription] = useState('');
   const [address, setAddress] = useState('');
-  const [coords, setCoords] = useState(null); // { latitude, longitude }
+  const [coords, setCoords] = useState(null);
   const [locating, setLocating] = useState(false);
-  const [image, setImage] = useState(null); // File
-  const [preview, setPreview] = useState(''); // object URL
+  const [geocoding, setGeocoding] = useState(false);
+
+  // Photos: [{ id, file, url }]. Object URLs are revoked on removal and unmount.
+  const [photos, setPhotos] = useState([]);
   const [dragging, setDragging] = useState(false);
+
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState({ text: '', type: '' });
 
-  // Live AI preview. Advisory only — nothing here changes what gets submitted.
   const [triage, setTriage] = useState(null);
   const [triaging, setTriaging] = useState(false);
 
+  // AI description drafting.
+  const [drafting, setDrafting] = useState(false);
+  const [priorDescription, setPriorDescription] = useState(null); // for undo
+
   const selected = CATEGORIES.find((c) => c.categoryId === categoryId);
 
-  // Top-ranked AI category suggestion, resolved to our label table.
   const suggestedCategory = (() => {
     const top = triage?.category?.suggestions?.[0];
     if (!top?.categoryId) return null;
     return CATEGORIES.find((c) => c.categoryId === top.categoryId) || null;
   })();
 
+  // ── Location ────────────────────────────────────────────────────
   const captureLocation = useCallback(() => {
     if (!navigator.geolocation) {
       setMessage({ text: 'This browser cannot share your location, which is required to file a complaint.', type: 'error' });
@@ -74,17 +91,32 @@ export default function ReportIssue() {
     );
   }, []);
 
-  // Ask on mount — the coordinates are mandatory, so getting the permission
-  // prompt out of the way early beats failing at submit time.
   useEffect(() => { captureLocation(); }, [captureLocation]);
 
-  // Debounced triage as the description is typed. 700ms is long enough that a
-  // normal typist does not fire a request per keystroke, short enough that the
-  // suggestion arrives while they are still looking at the form. Below 20
-  // characters there is nothing useful to classify.
+  // Turn the coordinates into a street address. The backend requires a non-null
+  // address, so filling it automatically removes a mandatory field the citizen
+  // would otherwise have to type from a map in their head.
+  //
+  // Only runs when coordinates actually change — Nominatim's usage policy is
+  // about one request per second, and this must never be on a timer. It stays
+  // editable either way: the lookup is a convenience, not the source of truth.
+  useEffect(() => {
+    if (!coords) return undefined;
+    const controller = new AbortController();
+    setGeocoding(true);
+    reverseGeocode(coords, { signal: controller.signal })
+      .then((found) => {
+        // Do not clobber something the citizen has already typed.
+        if (found) setAddress((cur) => (cur.trim() ? cur : found));
+      })
+      .finally(() => setGeocoding(false));
+    return () => controller.abort();
+  }, [coords]);
+
+  // ── Live classification ─────────────────────────────────────────
   useEffect(() => {
     const text = description.trim();
-    if (text.length < 20) {
+    if (text.length < MIN_CHARS_TO_CLASSIFY) {
       setTriage(null);
       return undefined;
     }
@@ -101,48 +133,131 @@ export default function ReportIssue() {
         });
         if (!cancelled) setTriage(result);
       } catch {
-        // A failed preview must never block filing a complaint, so this stays
-        // silent — the panel simply shows nothing.
+        // Never block filing on the AI being up.
         if (!cancelled) setTriage(null);
       } finally {
         if (!cancelled) setTriaging(false);
       }
-    }, 700);
+    }, TRIAGE_DELAY_MS);
 
     return () => { cancelled = true; clearTimeout(timer); };
   }, [description, categoryId, coords]);
 
-  const acceptFile = useCallback((file) => {
-    if (!file) return;
-    if (!file.type.startsWith('image/')) {
-      setMessage({ text: 'Please upload an image file (JPG or PNG).', type: 'error' });
-      return;
+  // ── Photos ──────────────────────────────────────────────────────
+  const addFiles = useCallback((fileList) => {
+    const incoming = Array.from(fileList || []);
+    if (!incoming.length) return;
+
+    const accepted = [];
+    for (const file of incoming) {
+      if (!file.type.startsWith('image/')) {
+        setMessage({ text: `${file.name} is not an image — skipped.`, type: 'warning' });
+        continue;
+      }
+      if (file.size > MAX_IMAGE_MB * 1024 * 1024) {
+        setMessage({ text: `${file.name} is over ${MAX_IMAGE_MB}MB — skipped.`, type: 'warning' });
+        continue;
+      }
+      accepted.push(file);
     }
-    if (file.size > MAX_IMAGE_MB * 1024 * 1024) {
-      setMessage({ text: `Image must be under ${MAX_IMAGE_MB}MB.`, type: 'error' });
-      return;
-    }
-    setImage(file);
-    setPreview((prev) => {
-      if (prev) URL.revokeObjectURL(prev);
-      return URL.createObjectURL(file);
+
+    setPhotos((cur) => {
+      const room = MAX_IMAGES - cur.length;
+      if (room <= 0) {
+        setMessage({ text: `You can attach up to ${MAX_IMAGES} photos.`, type: 'warning' });
+        return cur;
+      }
+      if (accepted.length > room) {
+        setMessage({ text: `Only the first ${room} photo${room === 1 ? '' : 's'} were added — the limit is ${MAX_IMAGES}.`, type: 'warning' });
+      }
+      const next = accepted.slice(0, room).map((file) => ({
+        id: `${file.name}-${file.size}-${file.lastModified}`,
+        file,
+        url: URL.createObjectURL(file),
+      }));
+      return [...cur, ...next];
     });
-    setMessage({ text: '', type: '' });
   }, []);
 
-  const removeImage = () => {
-    if (preview) URL.revokeObjectURL(preview);
-    setImage(null);
-    setPreview('');
+  const removePhoto = (id) => {
+    setPhotos((cur) => {
+      const gone = cur.find((p) => p.id === id);
+      if (gone) URL.revokeObjectURL(gone.url);
+      return cur.filter((p) => p.id !== id);
+    });
     if (fileRef.current) fileRef.current.value = '';
   };
+
+  // Revoke every outstanding object URL when the page unmounts.
+  useEffect(() => () => {
+    setPhotos((cur) => {
+      cur.forEach((p) => URL.revokeObjectURL(p.url));
+      return cur;
+    });
+  }, []);
 
   const handleDrop = (e) => {
     e.preventDefault();
     setDragging(false);
-    acceptFile(e.dataTransfer.files?.[0]);
+    addFiles(e.dataTransfer.files);
   };
 
+  // ── AI description ──────────────────────────────────────────────
+  // Draft from the first photo. This is the strongest version of "let the AI
+  // write it": a citizen who can photograph a problem does not have to find
+  // words for it.
+  const draftFromPhoto = async () => {
+    if (!photos.length) return;
+    setDrafting(true);
+    setMessage({ text: '', type: '' });
+    try {
+      const res = await analyzeImage(photos[0].file);
+      if (res?.available === false) {
+        setMessage({ text: res.unavailableReason || 'Photo analysis is not switched on.', type: 'warning' });
+        return;
+      }
+      if (!res?.description) {
+        setMessage({ text: 'The photo could not be described. Try writing a short note instead.', type: 'warning' });
+        return;
+      }
+      setPriorDescription(description);
+      setDescription(res.description);
+      if (res.categoryId && !categoryId) setCategoryId(res.categoryId);
+    } catch {
+      setMessage({ text: 'Photo analysis is unavailable right now.', type: 'warning' });
+    } finally {
+      setDrafting(false);
+    }
+  };
+
+  // Rewrite what the citizen typed into something an officer can act on.
+  const improveWriting = async () => {
+    const text = description.trim();
+    if (text.length < MIN_CHARS_TO_CLASSIFY) return;
+    setDrafting(true);
+    setMessage({ text: '', type: '' });
+    try {
+      const res = await rewriteDescription({ description: text, categoryId });
+      if (!res?.rewritten || res.rewritten === text) {
+        setMessage({ text: 'The description already reads clearly.', type: 'warning' });
+        return;
+      }
+      setPriorDescription(description);
+      setDescription(res.rewritten);
+    } catch {
+      setMessage({ text: 'Rewriting is unavailable right now.', type: 'warning' });
+    } finally {
+      setDrafting(false);
+    }
+  };
+
+  const undoDraft = () => {
+    if (priorDescription === null) return;
+    setDescription(priorDescription);
+    setPriorDescription(null);
+  };
+
+  // ── Submit ──────────────────────────────────────────────────────
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!categoryId) return setMessage({ text: 'Please select an issue category.', type: 'error' });
@@ -164,18 +279,16 @@ export default function ReportIssue() {
         address: address.trim(),
         latitude: coords.latitude,
         longitude: coords.longitude,
-        image,
+        images: photos.map((p) => p.file),
       });
 
-      // The complaint is filed either way; only the photo may have failed. Say
-      // so, rather than reporting a clean success or a false failure.
       setMessage({
         text: imageError
-          ? `Complaint ${complaint.id} was filed, but the photo did not upload (${imageError}).`
+          ? `Complaint ${complaint.id} was filed, but the photos did not upload (${imageError}).`
           : `Complaint ${complaint.id} submitted successfully! Redirecting…`,
         type: imageError ? 'warning' : 'success',
       });
-      setTimeout(() => navigate('/my-complaints'), imageError ? 4000 : 1500);
+      setTimeout(() => navigate(`/complaints/${complaint.id}`), imageError ? 4000 : 1200);
     } catch (err) {
       if (err.name !== 'SessionExpiredError') setMessage({ text: err.message, type: 'error' });
     } finally {
@@ -189,10 +302,12 @@ export default function ReportIssue() {
     success: 'bg-emerald-50 text-emerald-700 border-emerald-200',
   };
 
+  const duplicates = triage?.duplicates?.candidates || [];
+
   return (
     <div className="max-w-[760px] mx-auto">
-      <h1 className="font-display text-2xl font-bold text-slate-900 mb-1">Report an Issue</h1>
-      <p className="text-[14px] text-slate-500 mb-6">Tell us what's wrong and where — we'll route it to the right team.</p>
+      <h1 className="font-display text-2xl font-bold text-ink mb-1">Report an Issue</h1>
+      <p className="text-[14px] text-ink-muted mb-6">Tell us what's wrong and where — we'll route it to the right team.</p>
 
       {message.text && (
         <div className={`mb-5 px-4 py-3 rounded-xl text-[13px] font-medium border ${messageStyles[message.type] || messageStyles.error}`}>
@@ -200,10 +315,119 @@ export default function ReportIssue() {
         </div>
       )}
 
-      <form onSubmit={handleSubmit} className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-7">
-        {/* 1. Category */}
+      <form onSubmit={handleSubmit} className="bg-white rounded-2xl border border-line shadow-sm p-6 space-y-7">
+        {/* 1. Photos — first, because a photo can write the description. */}
         <section>
-          <h2 className="font-semibold text-slate-800 text-[15px] mb-3">1. Select Issue Category</h2>
+          <h2 className="font-semibold text-ink text-[15px] mb-1">1. Add Photos</h2>
+          <p className="text-[13px] text-ink-muted mb-3">
+            Up to {MAX_IMAGES}. A clear photo lets us draft the description for you.
+          </p>
+
+          <label
+            onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+            onDragLeave={() => setDragging(false)}
+            onDrop={handleDrop}
+            className={`cursor-pointer rounded-xl border-2 border-dashed p-6 flex flex-col items-center justify-center text-center transition-colors ${
+              dragging ? 'border-primary bg-emerald-50' : 'border-slate-300 hover:border-primary hover:bg-slate-50'
+            }`}
+          >
+            <input
+              ref={fileRef}
+              type="file"
+              accept="image/png,image/jpeg"
+              multiple
+              className="hidden"
+              onChange={(e) => addFiles(e.target.files)}
+            />
+            <span className="w-10 h-10 rounded-full bg-emerald-50 text-primary flex items-center justify-center mb-2">
+              <IconUpload size={20} />
+            </span>
+            <span className="text-[13px] font-medium text-ink-body">Click to upload or drag &amp; drop</span>
+            <span className="text-[12px] text-ink-faint mt-0.5">
+              JPG or PNG, up to {MAX_IMAGE_MB}MB each · {photos.length}/{MAX_IMAGES} added
+            </span>
+          </label>
+
+          {photos.length > 0 && (
+            <div className="grid grid-cols-3 sm:grid-cols-5 gap-3 mt-3">
+              {photos.map((p, i) => (
+                <div key={p.id} className="relative group animate-scale-in">
+                  <img src={p.url} alt="" className="w-full aspect-square object-cover rounded-xl border border-line" />
+                  {i === 0 && (
+                    <span className="absolute bottom-1 left-1 text-[9px] font-semibold bg-slate-900/70 text-white px-1.5 py-0.5 rounded">
+                      Used for AI
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => removePhoto(p.id)}
+                    className="focus-ring absolute -top-2 -right-2 w-6 h-6 rounded-full bg-red-500 text-white flex items-center justify-center shadow"
+                    aria-label="Remove photo"
+                  >
+                    <IconX size={13} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+
+        {/* 2. Description, with AI drafting */}
+        <section>
+          <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
+            <h2 className="font-semibold text-ink text-[15px]">2. Describe the Issue</h2>
+            <div className="flex items-center gap-2">
+              {priorDescription !== null && (
+                <button
+                  type="button"
+                  onClick={undoDraft}
+                  className="focus-ring text-[12px] font-semibold text-ink-muted hover:text-ink px-2 py-1 rounded-md hover:bg-slate-100 transition"
+                >
+                  Undo
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={draftFromPhoto}
+                disabled={!photos.length || drafting}
+                title={photos.length ? 'Describe the first photo' : 'Add a photo first'}
+                className="focus-ring inline-flex items-center gap-1.5 text-[12px] font-semibold text-primary bg-emerald-50 hover:bg-emerald-100 disabled:opacity-40 disabled:cursor-not-allowed px-2.5 py-1.5 rounded-lg transition"
+              >
+                <IconSparkles size={13} /> Write from photo
+              </button>
+              <button
+                type="button"
+                onClick={improveWriting}
+                disabled={description.trim().length < MIN_CHARS_TO_CLASSIFY || drafting}
+                className="focus-ring inline-flex items-center gap-1.5 text-[12px] font-semibold text-ink-body bg-slate-100 hover:bg-slate-200 disabled:opacity-40 disabled:cursor-not-allowed px-2.5 py-1.5 rounded-lg transition"
+              >
+                <IconRefresh size={13} /> Improve
+              </button>
+            </div>
+          </div>
+
+          <div className="relative">
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              rows={4}
+              placeholder="What's wrong? A sentence or two is plenty — or add a photo and let us draft it."
+              className="focus-ring w-full rounded-xl border border-line p-3.5 text-[14px] text-ink outline-none resize-y transition"
+            />
+            {drafting && (
+              <div className="absolute inset-0 rounded-xl bg-white/70 flex items-center justify-center">
+                <span className="inline-flex items-center gap-2 text-[13px] font-medium text-primary">
+                  <span className="w-4 h-4 border-2 border-emerald-200 rounded-full border-t-primary animate-spin-slow" />
+                  Writing…
+                </span>
+              </div>
+            )}
+          </div>
+        </section>
+
+        {/* 3. Category */}
+        <section>
+          <h2 className="font-semibold text-ink text-[15px] mb-3">3. Category</h2>
           <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
             {CATEGORIES.map((c) => {
               const Icon = CATEGORY_ICONS[c.categoryId] || IconMoreHorizontal;
@@ -214,10 +438,10 @@ export default function ReportIssue() {
                   key={c.categoryId}
                   onClick={() => setCategoryId(c.categoryId)}
                   title={c.name}
-                  className={`flex flex-col items-center gap-2 py-4 px-2 rounded-xl border text-[13px] font-medium transition-colors ${
+                  className={`focus-ring flex flex-col items-center gap-2 py-4 px-2 rounded-xl border text-[13px] font-medium transition-colors ${
                     active
                       ? 'border-primary bg-emerald-50 text-primary'
-                      : 'border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50'
+                      : 'border-line text-ink-body hover:border-slate-300 hover:bg-slate-50'
                   }`}
                 >
                   <Icon size={22} />
@@ -227,195 +451,122 @@ export default function ReportIssue() {
             })}
           </div>
           {selected && (
-            <p className="text-[12px] text-slate-400 mt-2">
-              Routes to the {selected.department} department.
-            </p>
+            <p className="text-[12px] text-ink-faint mt-2">Routes to the {selected.department} department.</p>
           )}
-        </section>
-
-        {/* 2. Description */}
-        <section>
-          <h2 className="font-semibold text-slate-800 text-[15px] mb-3">2. Describe the Issue</h2>
-          <textarea
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            rows={4}
-            placeholder="Provide details about the issue…"
-            className="w-full rounded-xl border border-slate-200 p-3.5 text-[14px] text-slate-800 outline-none resize-y focus:border-primary focus:ring-2 focus:ring-emerald-100 transition"
-          />
-        </section>
-
-        {/* 3. Image */}
-        <section>
-          <h2 className="font-semibold text-slate-800 text-[15px] mb-3">
-            3. Upload Image <span className="font-normal text-slate-400 text-[13px]">(optional)</span>
-          </h2>
-          <div className="flex items-start gap-4 flex-wrap">
-            <label
-              onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
-              onDragLeave={() => setDragging(false)}
-              onDrop={handleDrop}
-              className={`flex-1 min-w-[240px] cursor-pointer rounded-xl border-2 border-dashed p-6 flex flex-col items-center justify-center text-center transition-colors ${
-                dragging ? 'border-primary bg-emerald-50' : 'border-slate-300 hover:border-primary hover:bg-slate-50'
-              }`}
-            >
-              <input
-                ref={fileRef}
-                type="file"
-                accept="image/png,image/jpeg"
-                className="hidden"
-                onChange={(e) => acceptFile(e.target.files?.[0])}
-              />
-              <span className="w-10 h-10 rounded-full bg-emerald-50 text-primary flex items-center justify-center mb-2">
-                <IconUpload size={20} />
-              </span>
-              <span className="text-[13px] font-medium text-slate-700">Click to upload or drag &amp; drop</span>
-              <span className="text-[12px] text-slate-400 mt-0.5">JPG, PNG up to {MAX_IMAGE_MB}MB</span>
-            </label>
-
-            {preview && (
-              <div className="relative">
-                <img src={preview} alt="Preview" className="w-28 h-28 object-cover rounded-xl border border-slate-200" />
-                <button
-                  type="button"
-                  onClick={removeImage}
-                  className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-red-500 text-white flex items-center justify-center shadow"
-                  aria-label="Remove image"
-                >
-                  <IconX size={14} />
-                </button>
-              </div>
-            )}
-          </div>
         </section>
 
         {/* 4. Location */}
         <section>
-          <h2 className="font-semibold text-slate-800 text-[15px] mb-3">4. Location</h2>
-          <div className="flex items-center gap-2 rounded-xl border border-slate-200 px-3 focus-within:border-primary focus-within:ring-2 focus-within:ring-emerald-100 transition">
+          <h2 className="font-semibold text-ink text-[15px] mb-3">4. Location</h2>
+          <div className="flex items-center gap-2 rounded-xl border border-line px-3 focus-within:border-primary focus-within:ring-2 focus-within:ring-emerald-100 transition">
             <IconMapPin size={18} className="text-primary shrink-0" />
             <input
               value={address}
               onChange={(e) => setAddress(e.target.value)}
-              placeholder="Street address or landmark"
-              className="flex-1 py-3 text-[14px] text-slate-800 outline-none bg-transparent"
+              placeholder={geocoding ? 'Looking up address…' : 'Street address or landmark'}
+              className="flex-1 py-3 text-[14px] text-ink outline-none bg-transparent"
             />
             <button
               type="button"
               onClick={captureLocation}
               disabled={locating}
-              className="shrink-0 inline-flex items-center gap-1 text-[12px] font-semibold text-primary hover:underline disabled:opacity-60"
+              className="focus-ring shrink-0 inline-flex items-center gap-1 text-[12px] font-semibold text-primary hover:underline disabled:opacity-60"
             >
               <IconCrosshair size={14} /> {locating ? 'Locating…' : 'Use Current Location'}
             </button>
           </div>
-          <p className={`text-[12px] mt-2 ${coords ? 'text-slate-400' : 'text-amber-700'}`}>
+          <p className={`text-[12px] mt-2 ${coords ? 'text-ink-faint' : 'text-amber-700'}`}>
             {coords
-              ? `GPS captured: ${coords.latitude.toFixed(5)}, ${coords.longitude.toFixed(5)}`
+              ? `GPS captured: ${coords.latitude.toFixed(5)}, ${coords.longitude.toFixed(5)}${geocoding ? ' · finding address…' : ''}`
               : 'GPS coordinates are required — tap "Use Current Location" to capture them.'}
           </p>
         </section>
 
-        {/* 5. AI preview — runs while you type, applies nothing */}
-        <section>
-          <div className="flex items-center gap-2 mb-3">
-            <h2 className="font-semibold text-slate-800 text-[15px]">5. AI Preview</h2>
-            {triaging && (
-              <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-violet-700 bg-violet-50 px-2 py-0.5 rounded-full">
-                <IconSparkles size={12} className="animate-pulse-dot" /> Analysing…
-              </span>
-            )}
-            {!triaging && triage?.source && (
-              <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
-                <IconSparkles size={12} /> {triage.source === 'gemini' ? 'Model' : 'Rules engine'}
-              </span>
-            )}
-          </div>
+        {/* 5. Live AI assessment */}
+        {(triaging || triage) && (
+          <section className="rounded-xl border border-line bg-slate-50 p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <IconSparkles size={14} className="text-primary" />
+              <h2 className="font-semibold text-ink text-[14px]">AI assessment</h2>
+              {triaging && <span className="text-[11px] text-ink-faint">checking…</span>}
+              {!triaging && triage?.source && (
+                <span className="text-[10px] text-ink-faint ml-auto">
+                  {triage.source === 'rules' ? 'Rules engine' : 'Model'}
+                </span>
+              )}
+            </div>
 
-          {!triage && !triaging && (
-            <p className="text-[13px] text-slate-500 leading-relaxed">
-              Describe the issue above and we'll suggest a category and severity, and check whether
-              it has already been reported nearby.
-            </p>
-          )}
-
-          {triage && (
-            <div className="space-y-3 animate-rise-in">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="rounded-xl border border-slate-200 p-3.5">
-                  <div className="text-[11px] uppercase tracking-wide text-slate-400">Suggested category</div>
-                  <div className="font-semibold text-slate-800 mt-0.5">
-                    {suggestedCategory?.label || '—'}
-                  </div>
-                  {suggestedCategory && suggestedCategory.categoryId !== categoryId && (
-                    <button
-                      type="button"
-                      onClick={() => setCategoryId(suggestedCategory.categoryId)}
-                      className="focus-ring mt-2 text-[12px] font-semibold text-primary hover:underline"
-                    >
-                      Use this instead
-                    </button>
-                  )}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="bg-white rounded-lg border border-line p-3">
+                <div className="text-[11px] text-ink-faint">Suggested category</div>
+                <div className="text-[14px] font-semibold text-ink mt-0.5">
+                  {suggestedCategory?.label || '—'}
                 </div>
-                <div className="rounded-xl border border-slate-200 p-3.5">
-                  <div className="text-[11px] uppercase tracking-wide text-slate-400">Likely severity</div>
-                  <div className="font-semibold text-slate-800 mt-0.5">
-                    {triage.severity?.severity
-                      ? triage.severity.severity.charAt(0) + triage.severity.severity.slice(1).toLowerCase()
-                      : '—'}
+                {suggestedCategory && suggestedCategory.categoryId !== categoryId && (
+                  <button
+                    type="button"
+                    onClick={() => setCategoryId(suggestedCategory.categoryId)}
+                    className="focus-ring mt-2 text-[12px] font-semibold text-primary hover:underline"
+                  >
+                    Use this instead
+                  </button>
+                )}
+                {suggestedCategory && suggestedCategory.categoryId === categoryId && (
+                  <div className="mt-1.5 inline-flex items-center gap-1 text-[11px] text-primary">
+                    <IconCheckCircle size={12} /> matches your choice
                   </div>
-                  {triage.severity?.reason && (
-                    <div className="text-[12px] text-slate-500 mt-1 leading-snug">{triage.severity.reason}</div>
-                  )}
-                </div>
+                )}
               </div>
 
-              {/* Duplicate warning. This is the point of running triage before
-                  submit — catching a repeat costs the citizen nothing here, and
-                  saves an officer a merge later. */}
-              {triage.duplicates?.isDuplicate && triage.duplicates.candidates?.length > 0 && (
-                <div className="rounded-xl border border-amber-200 bg-amber-50 p-3.5">
-                  <div className="flex items-start gap-2">
-                    <IconAlertTriangle size={16} className="text-amber-600 shrink-0 mt-0.5" />
-                    <div className="min-w-0">
-                      <div className="text-[13px] font-semibold text-amber-900">
-                        This may already have been reported
-                      </div>
-                      <ul className="mt-2 space-y-1.5">
-                        {triage.duplicates.candidates.slice(0, 3).map((d) => (
-                          <li key={d.complaintId} className="text-[12px] text-amber-900">
-                            <Link
-                              to={`/complaints/${d.complaintId}`}
-                              className="font-mono underline hover:no-underline"
-                            >
-                              {d.complaintId}
-                            </Link>
-                            {typeof d.distanceKm === 'number' && ` · ${d.distanceKm.toFixed(1)} km away`}
-                            {typeof d.similarity === 'number' && ` · ${Math.round(d.similarity * 100)}% match`}
-                            {d.reason && <div className="text-amber-800/80 mt-0.5">{d.reason}</div>}
-                          </li>
-                        ))}
-                      </ul>
-                      <p className="text-[12px] text-amber-800 mt-2">
-                        You can still submit — officers will merge duplicates if needed.
-                      </p>
-                    </div>
-                  </div>
+              <div className="bg-white rounded-lg border border-line p-3">
+                <div className="text-[11px] text-ink-faint">Predicted severity</div>
+                <div className="text-[14px] font-semibold text-ink mt-0.5">
+                  {triage?.severity?.severity
+                    ? triage.severity.severity.charAt(0) + triage.severity.severity.slice(1).toLowerCase()
+                    : '—'}
                 </div>
-              )}
-
-              <p className="text-[12px] text-slate-400">
-                Suggestions only. Your chosen category is what gets filed.
-              </p>
+                {triage?.severity?.reason && (
+                  <p className="text-[11px] text-ink-muted mt-1 leading-snug">{triage.severity.reason}</p>
+                )}
+              </div>
             </div>
-          )}
-        </section>
 
-        {/* Submit */}
+            {/* Catching a duplicate here costs the citizen nothing and saves an
+                officer a merge later. It never blocks submission — the issue
+                nearby may genuinely be a different one. */}
+            {duplicates.length > 0 && (
+              <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3">
+                <div className="flex items-center gap-1.5 text-[12px] font-semibold text-amber-900 mb-2">
+                  <IconAlertTriangle size={13} />
+                  Someone may have reported this already
+                </div>
+                <ul className="space-y-1.5">
+                  {duplicates.slice(0, 3).map((d) => (
+                    <li key={d.complaintId} className="flex items-center gap-2 text-[12px]">
+                      <Link to={`/complaints/${d.complaintId}`} className="font-mono text-primary hover:underline">
+                        {d.complaintId}
+                      </Link>
+                      <span className="text-ink-muted truncate flex-1">{d.description}</span>
+                      {typeof d.distanceKm === 'number' && (
+                        <span className="text-ink-faint whitespace-nowrap">
+                          {d.distanceKm < 1 ? `${Math.round(d.distanceKm * 1000)}m` : `${d.distanceKm.toFixed(1)}km`}
+                        </span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+                <p className="text-[11px] text-amber-800 mt-2">
+                  Still different? Carry on — reporting it again helps us see how widespread it is.
+                </p>
+              </div>
+            )}
+          </section>
+        )}
+
         <button
           type="submit"
           disabled={loading}
-          className="w-full inline-flex items-center justify-center gap-2 bg-primary hover:bg-emerald-600 disabled:opacity-60 disabled:cursor-not-allowed text-white font-semibold text-[15px] py-3.5 rounded-xl shadow-btn transition-colors"
+          className="focus-ring w-full inline-flex items-center justify-center gap-2 bg-primary hover:bg-emerald-600 disabled:opacity-60 disabled:cursor-not-allowed text-white font-semibold text-[15px] py-3.5 rounded-xl shadow-btn transition-colors"
         >
           {loading ? (
             <span className="w-[18px] h-[18px] border-2 border-white/40 rounded-full border-t-white animate-spin-slow" />

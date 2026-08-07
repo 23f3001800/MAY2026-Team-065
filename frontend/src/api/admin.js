@@ -72,3 +72,18 @@ export function resetUserPassword(userId, newPassword) {
     body: { newPassword },
   });
 }
+
+/**
+ * POST /admin/sla/sweep
+ *
+ * Scans for complaints that have breached their expected resolution window and
+ * raises a notification for each. This is the "alert officers when complaints
+ * breach expected resolution timelines" requirement.
+ *
+ * It is a manual trigger, which is worth being honest about in the UI: nothing
+ * runs it on a schedule yet, so breaches are only detected when somebody
+ * presses the button.
+ */
+export function runSlaSweep() {
+  return apiRequest('/admin/sla/sweep', { method: 'POST' });
+}
