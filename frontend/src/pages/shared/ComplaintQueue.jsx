@@ -21,6 +21,7 @@ import { analyzeComplaint } from '../../api/ai';
 import { listFieldWorkers } from '../../api/workers';
 import { CATEGORIES, ASSIGNABLE_STATUSES } from '../../api/mappers';
 import useAsync from '../../hooks/useAsync';
+import { getCurrentUser } from '../../api/auth';
 import ComplaintMap from '../../components/map/ComplaintMap';
 
 function formatDate(iso) {
@@ -354,6 +355,7 @@ export default function ComplaintQueue({ title, subtitle }) {
           onAssign={handleAssign}
           onStatusChange={handleStatusChange}
           onAnalyse={handleAnalyse}
+          role={getCurrentUser()?.role}
           onOverrideSeverity={handleOverrideSeverity}
           onMerge={handleMerge}
           onOpenComplaint={(id) => setSelectedId(id)}
