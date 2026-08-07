@@ -144,6 +144,35 @@ export function aiDisagrees(complaint) {
   return categoryDiffers || severityDiffers;
 }
 
+// ── Status history ────────────────────────────────────────────────
+// GET /complaints/{id}/history. This is the audit trail the complaint detail
+// timeline was previously faking from createdAt/updatedAt.
+export function fromApiHistory(h) {
+  if (!h) return null;
+  return {
+    id: h.historyId,
+    status: fromApiStatus(h.status),
+    remarks: h.remarks || '',
+    at: h.timestamp,
+  };
+}
+
+// ── Media attachments ─────────────────────────────────────────────
+// GET /complaints/{id}/media. `fileUrl` is a server-relative path such as
+// "/uploads/CMP-1_ab12cd.jpg", so it has to be joined to the API origin rather
+// than used as-is — the frontend is served from a different port in dev.
+export function fromApiMedia(m, baseUrl = '') {
+  if (!m) return null;
+  const url = m.fileUrl || '';
+  return {
+    id: m.mediaId,
+    url: /^https?:\/\//i.test(url) ? url : `${baseUrl}${url}`,
+    contentType: m.type || '',
+    uploadedBy: m.uploadedBy || null,
+    uploadedAt: m.uploadedAt || null,
+  };
+}
+
 // ── Field workers ─────────────────────────────────────────────────
 const AVAILABILITY_FROM_API = {
   AVAILABLE: 'Available',
