@@ -46,6 +46,30 @@ _ADDED_COLUMNS: List[Tuple[str, str, str]] = [
 # about, but it also has no ADD COLUMN IF NOT EXISTS, so it needs the manual path.
 _SQLITE_TYPE_OVERRIDES = {"DOUBLE PRECISION": "REAL", "TIMESTAMP": "DATETIME"}
 
+# PostgreSQL stores StatusEnum as a real enum type. create_all() creates it once
+# and never revisits it, so members added to the Python enum later are missing
+# from the database type and every write using them fails with InvalidTextRepr.
+#
+# SQLite has no enum type (it stores VARCHAR), so this whole step is a no-op there.
+_ENUM_VALUES: List[Tuple[str, List[str]]] = [
+    (
+        "statusenum",
+        [
+            "PENDING",
+            "UNDER_REVIEW",
+            "ASSIGNED",
+            "IN_PROGRESS",
+            "ON_HOLD",
+            "ESCALATED",
+            "RESOLVED",
+            "VERIFIED",
+            "REOPENED",
+            "REJECTED",
+        ],
+    ),
+    ("severityenum", ["LOW", "MEDIUM", "HIGH", "CRITICAL"]),
+]
+
 
 async def _column_exists(conn: AsyncConnection, table: str, column: str) -> bool:
     """Return True if ``table.column`` already exists, dialect-aware."""
@@ -79,6 +103,73 @@ async def _table_exists(conn: AsyncConnection, table: str) -> bool:
             {"table": table},
         )
     return result.first() is not None
+
+
+async def _existing_enum_labels(conn: AsyncConnection, type_name: str) -> List[str]:
+    """Return the labels currently defined on a PostgreSQL enum type."""
+    result = await conn.execute(
+        text(
+            "SELECT e.enumlabel FROM pg_type t "
+            "JOIN pg_enum e ON e.enumtypid = t.oid "
+            "WHERE t.typname = :name ORDER BY e.enumsortorder"
+        ),
+        {"name": type_name},
+    )
+    return [row[0] for row in result.fetchall()]
+
+
+async def _add_missing_enum_values(engine: AsyncEngine) -> int:
+    """Add any enum members missing from the database type.
+
+    Runs on its own AUTOCOMMIT connection, not the migration transaction:
+    PostgreSQL forbids using a value added by ALTER TYPE within the same
+    transaction that added it, and older versions reject the statement inside a
+    transaction block entirely.
+
+    Additive only. PostgreSQL cannot drop an enum label without recreating the
+    type, so removing a member from StatusEnum is deliberately not handled here.
+    """
+    if engine.dialect.name == "sqlite":
+        return 0  # SQLite stores enums as VARCHAR; nothing to alter.
+
+    added = 0
+    async with engine.connect() as conn:
+        await conn.execution_options(isolation_level="AUTOCOMMIT")
+
+        for type_name, wanted in _ENUM_VALUES:
+            current = await _existing_enum_labels(conn, type_name)
+            if not current:
+                # Type does not exist yet; create_all() will build it complete.
+                continue
+
+            for index, value in enumerate(wanted):
+                if value in current:
+                    continue
+
+                # Insert in lifecycle position rather than appending, so the
+                # database type sorts the way the Python enum reads. Anchor on
+                # the next wanted value that already exists.
+                successor = next(
+                    (later for later in wanted[index + 1:] if later in current), None
+                )
+
+                # Identifiers and values come from the hardcoded table above,
+                # never from user input.
+                clause = f"ALTER TYPE {type_name} ADD VALUE IF NOT EXISTS '{value}'"
+                if successor:
+                    clause += f" BEFORE '{successor}'"
+
+                await conn.execute(text(clause))
+
+                if successor:
+                    current.insert(current.index(successor), value)
+                else:
+                    current.append(value)
+
+                logger.info("migration: added enum value %s.%s", type_name, value)
+                added += 1
+
+    return added
 
 
 async def _add_missing_columns(conn: AsyncConnection) -> int:
@@ -153,13 +244,22 @@ async def run_migrations(engine: AsyncEngine) -> None:
     so failing loudly at boot is the kinder outcome.
     """
     try:
+        # Enum values first, and outside the transaction below: a column default
+        # or backfill referencing a new label would otherwise fail in the same
+        # transaction that created it.
+        enum_values_added = await _add_missing_enum_values(engine)
+
         async with engine.begin() as conn:
             added = await _add_missing_columns(conn)
             await _backfill_notification_recipients(conn)
             await _backfill_notification_defaults(conn)
 
-        if added:
-            logger.info("migration: schema update complete (%d column(s) added)", added)
+        if added or enum_values_added:
+            logger.info(
+                "migration: schema update complete (%d column(s), %d enum value(s) added)",
+                added,
+                enum_values_added,
+            )
         else:
             logger.debug("migration: schema already up to date")
     except Exception:

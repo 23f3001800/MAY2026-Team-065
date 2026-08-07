@@ -73,6 +73,10 @@ class AISettings:
     duplicate_radius_km: float = 0.3
     duplicate_window_days: int = 30
     duplicate_similarity_threshold: float = 0.55
+    # Stricter than the display threshold above: this one decides whether a
+    # duplicate is *recorded* on the complaint, which hides the second citizen's
+    # report behind the first. A false merge costs more than a missed one.
+    duplicate_autolink_threshold: float = 0.75
 
     @property
     def gemini_configured(self) -> bool:
@@ -112,4 +116,5 @@ def load_settings() -> AISettings:
         duplicate_radius_km=_env_float("AI_DUPLICATE_RADIUS_KM", 0.3),
         duplicate_window_days=_env_int("AI_DUPLICATE_WINDOW_DAYS", 30),
         duplicate_similarity_threshold=_env_float("AI_DUPLICATE_THRESHOLD", 0.55),
+        duplicate_autolink_threshold=_env_float("AI_DUPLICATE_AUTOLINK_THRESHOLD", 0.75),
     )
