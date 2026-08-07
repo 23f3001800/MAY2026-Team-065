@@ -34,8 +34,6 @@ import WorkerMap from './pages/worker/WorkerMap';
 import WorkerHistory from './pages/worker/WorkerHistory';
 import WorkerProfile from './pages/worker/WorkerProfile';
 import Profile from './pages/shared/Profile';
-import RoleActivity from './pages/shared/RoleActivity';
-import { listComplaints, listMyTasks } from './api/complaints';
 import { getCurrentUser, homePathForRole } from './api/auth';
 
 // Gate for an authenticated area. Sends signed-out visitors to /login, and
@@ -115,6 +113,7 @@ function App() {
           <Route path="/admin/categories" element={<AdminCategories />} />
           <Route path="/admin/analytics" element={<AdminAnalytics />} />
           <Route path="/admin/reports" element={<AdminReports />} />
+          <Route path="/admin/notifications" element={<Notifications />} />
           <Route path="/admin/profile" element={<Profile />} />
           <Route path="/admin/settings" element={<Navigate to="/admin/profile" replace />} />
         </Route>
@@ -131,16 +130,7 @@ function App() {
           <Route path="/officer/complaints" element={<OfficerComplaints />} />
           <Route path="/officer/workers" element={<OfficerWorkers />} />
           <Route path="/officer/analytics" element={<OfficerAnalytics />} />
-          <Route
-            path="/officer/notifications"
-            element={
-              <RoleActivity
-                fetchComplaints={listComplaints}
-                viewHref="/officer/complaints"
-                emptyMessage="Complaints you're tied to will show up here once there's activity."
-              />
-            }
-          />
+          <Route path="/officer/notifications" element={<Notifications />} />
           <Route path="/officer/profile" element={<Profile />} />
           <Route path="/officer/settings" element={<Navigate to="/officer/profile" replace />} />
         </Route>
@@ -157,16 +147,7 @@ function App() {
           <Route path="/worker/tasks" element={<WorkerTasks />} />
           <Route path="/worker/map" element={<WorkerMap />} />
           <Route path="/worker/history" element={<WorkerHistory />} />
-          <Route
-            path="/worker/notifications"
-            element={
-              <RoleActivity
-                fetchComplaints={listMyTasks}
-                viewHref="/worker/tasks"
-                emptyMessage="Tasks assigned to you will show up here once there's activity."
-              />
-            }
-          />
+          <Route path="/worker/notifications" element={<Notifications />} />
           <Route path="/worker/profile" element={<WorkerProfile />} />
           <Route path="/worker/settings" element={<Navigate to="/worker/profile" replace />} />
         </Route>
