@@ -13,9 +13,10 @@ import StatusBadge from '../components/dashboard/StatusBadge';
 import SeverityBadge from '../components/dashboard/SeverityBadge';
 import { LoadingPanel, ErrorPanel } from '../components/dashboard/AsyncStates';
 import PhotoGrid from '../components/dashboard/PhotoGrid';
+import ReportSlipModal from '../components/dashboard/ReportSlipModal';
 import {
   IconArrowLeft, IconMapPin, IconInbox, IconStar, IconBuilding, IconSend,
-  IconCheckCircle,
+  IconCheckCircle, IconReport as IconFileText,
 } from '../components/dashboard/icons';
 import { getComplaint, getComplaintHistory, getComplaintMedia, submitFeedback } from '../api/complaints';
 import useAsync from '../hooks/useAsync';
@@ -89,6 +90,7 @@ export default function ComplaintDetails() {
   const [comments, setComments] = useState('');
   const [feedbackError, setFeedbackError] = useState('');
   const [saving, setSaving] = useState(false);
+  const [slipOpen, setSlipOpen] = useState(false);
 
   // History and media load beside the complaint rather than as part of it, so
   // one failing does not take out the page.
@@ -204,7 +206,17 @@ export default function ComplaintDetails() {
             <SeverityBadge severity={complaint.severity} />
           </div>
         </div>
+
+        {/* The digital acknowledgement the citizen is entitled to on filing. */}
+        <button
+          onClick={() => setSlipOpen(true)}
+          className="focus-ring lift inline-flex items-center gap-2 bg-white border border-line text-ink-body hover:border-primary hover:text-primary font-semibold text-[13px] px-3.5 py-2 rounded-xl shadow-sm transition-all"
+        >
+          <IconFileText size={15} /> Acknowledgement slip
+        </button>
       </div>
+
+      {slipOpen && <ReportSlipModal complaintId={complaint.id} onDismiss={() => setSlipOpen(false)} />}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 items-start">
         <div className="lg:col-span-2 space-y-5">
