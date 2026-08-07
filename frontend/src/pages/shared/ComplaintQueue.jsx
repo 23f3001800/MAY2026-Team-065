@@ -13,11 +13,16 @@ import ComplaintDrawer from '../../components/officer/ComplaintDrawer';
 import { LoadingPanel, ErrorPanel, EmptyPanel } from '../../components/dashboard/AsyncStates';
 import { IconSearch, IconChevronDown } from '../../components/dashboard/icons';
 import Toast from '../../components/dashboard/Toast';
-import { listComplaints, assignFieldWorker, updateComplaintStatus, recategoriseComplaint } from '../../api/complaints';
+import {
+  listComplaints, assignFieldWorker, updateComplaintStatus, recategoriseComplaint,
+  overrideSeverity, mergeComplaint,
+} from '../../api/complaints';
 import { analyzeComplaint } from '../../api/ai';
 import { listFieldWorkers } from '../../api/workers';
 import { CATEGORIES, ASSIGNABLE_STATUSES } from '../../api/mappers';
 import useAsync from '../../hooks/useAsync';
+import { getCurrentUser } from '../../api/auth';
+import ComplaintMap from '../../components/map/ComplaintMap';
 
 function formatDate(iso) {
   const d = new Date(iso);
@@ -67,6 +72,8 @@ export default function ComplaintQueue({ title, subtitle }) {
   const [category, setCategory] = useState('All');
   const [severity, setSeverity] = useState('All');
   const [since, setSince] = useState('');
+  // Table for triage, map for spotting clusters — the same filtered set either way.
+  const [view, setView] = useState('table');
 
   useEffect(() => {
     let cancelled = false;
@@ -136,6 +143,26 @@ export default function ComplaintQueue({ title, subtitle }) {
 
   const handleStatusChange = (id, next, remarks) =>
     runAction(() => updateComplaintStatus(id, next, remarks), `${id} marked as ${next}.`);
+
+  const handleOverrideSeverity = (id, next, remarks) =>
+    runAction(() => overrideSeverity(id, next, remarks), `${id} severity set to ${next}.`);
+
+  // A merge changes both complaints -- the duplicate closes and the target
+  // gains a link -- so refetch rather than patching a single row.
+  const handleMerge = useCallback(async (id, intoId, remarks) => {
+    setBusy(true);
+    setActionError('');
+    try {
+      await mergeComplaint(id, intoId, remarks);
+      setData(await listComplaints());
+      setToast(`${id} merged into ${intoId}.`);
+      setSelectedId(null);
+    } catch (err) {
+      if (err.name !== 'SessionExpiredError') setActionError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }, [setData]);
 
   // POST /ai/complaints/{id}/analyze returns the triage result, not the
   // complaint, so refetch the row rather than trying to patch it from a
@@ -212,6 +239,20 @@ export default function ComplaintQueue({ title, subtitle }) {
           aria-label="Reported on or after"
           className="bg-white rounded-xl border border-slate-200 px-3 py-2.5 text-[14px] text-slate-700 outline-none focus:border-primary cursor-pointer"
         />
+        <div className="flex rounded-xl border border-slate-200 overflow-hidden bg-white" role="group" aria-label="View">
+          {['table', 'map'].map((v) => (
+            <button
+              key={v}
+              onClick={() => setView(v)}
+              aria-pressed={view === v}
+              className={`focus-ring px-3.5 py-2.5 text-[13px] font-medium capitalize transition-colors ${
+                view === v ? 'bg-primary text-white' : 'text-slate-600 hover:bg-slate-50'
+              }`}
+            >
+              {v}
+            </button>
+          ))}
+        </div>
       </div>
 
       {loading ? (
@@ -229,6 +270,12 @@ export default function ComplaintQueue({ title, subtitle }) {
             </button>
           )}
         </EmptyPanel>
+      ) : view === 'map' ? (
+        <ComplaintMap
+          complaints={filtered}
+          height="520px"
+          onSelect={(c) => setSelectedId(c.id)}
+        />
       ) : (
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
           <div className="hidden lg:block overflow-x-auto">
@@ -308,6 +355,9 @@ export default function ComplaintQueue({ title, subtitle }) {
           onAssign={handleAssign}
           onStatusChange={handleStatusChange}
           onAnalyse={handleAnalyse}
+          role={getCurrentUser()?.role}
+          onOverrideSeverity={handleOverrideSeverity}
+          onMerge={handleMerge}
           onOpenComplaint={(id) => setSelectedId(id)}
         />
       )}

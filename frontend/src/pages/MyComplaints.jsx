@@ -13,6 +13,7 @@ import { IconSearch, IconChevronDown, IconEye, IconReport } from '../components/
 import { STATUS_FILTERS, CATEGORY_FILTERS } from '../data/filters';
 import { listComplaints } from '../api/complaints';
 import useAsync from '../hooks/useAsync';
+import ComplaintMap from '../components/map/ComplaintMap';
 
 function formatDate(iso) {
   const d = new Date(iso);
@@ -26,6 +27,7 @@ export default function MyComplaints() {
   const [status, setStatus] = useState('All');
   const [category, setCategory] = useState('All');
   const [query, setQuery] = useState('');
+  const [view, setView] = useState('table');
 
   const { data, error, loading, refetch } = useAsync(() => listComplaints(), []);
   const complaints = useMemo(() => data || [], [data]);
@@ -107,6 +109,20 @@ export default function MyComplaints() {
           </select>
           <IconChevronDown size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
         </div>
+        <div className="flex rounded-xl border border-slate-200 overflow-hidden bg-white" role="group" aria-label="View">
+          {['table', 'map'].map((v) => (
+            <button
+              key={v}
+              onClick={() => setView(v)}
+              aria-pressed={view === v}
+              className={`focus-ring px-3.5 py-2.5 text-[13px] font-medium capitalize transition-colors ${
+                view === v ? 'bg-primary text-white' : 'text-slate-600 hover:bg-slate-50'
+              }`}
+            >
+              {v}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Result set */}
@@ -123,6 +139,8 @@ export default function MyComplaints() {
               : 'Try changing the filters, or report a new issue.'
           }
         />
+      ) : view === 'map' ? (
+        <ComplaintMap complaints={filtered} height="480px" onSelect={(c) => navigate(`/complaints/${c.id}`)} />
       ) : (
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
           {/* Desktop table */}

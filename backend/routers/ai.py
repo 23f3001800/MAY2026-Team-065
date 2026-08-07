@@ -349,7 +349,12 @@ async def analyze_existing_complaint(
     )
 
     previous_severity = str(getattr(complaint.severity, "name", complaint.severity))
-    triage_service.apply_triage(complaint, triage_result)
+    triage_service.apply_triage(
+        complaint,
+        triage_result,
+        db=db,
+        autolink_threshold=service.settings.duplicate_autolink_threshold,
+    )
 
     # Escalating past HIGH is worth interrupting the department for.
     if triage_result.severity.severity in {"HIGH", "CRITICAL"} and (
