@@ -6,6 +6,7 @@ import Sidebar from '../components/dashboard/Sidebar';
 import Topbar from '../components/dashboard/Topbar';
 import { OFFICER_NAV } from '../components/officer/officerNav';
 import { getCurrentUser, clearSession } from '../api/auth';
+import AssistantWidget from '../components/ai/AssistantWidget';
 
 export default function OfficerLayout() {
   const navigate = useNavigate();
@@ -33,6 +34,7 @@ export default function OfficerLayout() {
           <Outlet />
         </main>
       </div>
+      <AssistantWidget role="municipal_officer" />
     </div>
   );
 }

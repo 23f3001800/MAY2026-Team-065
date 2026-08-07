@@ -6,6 +6,7 @@ import Sidebar from '../components/dashboard/Sidebar';
 import Topbar from '../components/dashboard/Topbar';
 import { ADMIN_NAV } from '../components/admin/adminNav';
 import { getCurrentUser, clearSession } from '../api/auth';
+import AssistantWidget from '../components/ai/AssistantWidget';
 
 export default function AdminLayout() {
   const navigate = useNavigate();
@@ -33,6 +34,7 @@ export default function AdminLayout() {
           <Outlet />
         </main>
       </div>
+      <AssistantWidget role="admin" />
     </div>
   );
 }
