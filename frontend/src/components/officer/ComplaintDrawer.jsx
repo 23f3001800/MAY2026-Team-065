@@ -1,22 +1,42 @@
-// Side panel an officer works a single complaint in: review AI triage,
-// recategorise, assign a field worker, and move its status.
+// The panel an officer, admin or field worker works a single complaint in.
 //
-// AI output here is ADVISORY. The backend stores it on the complaint but never
-// applies it, so this panel shows the suggestion, flags when it disagrees with
-// the record, and offers a one-click accept. The officer decides.
+// Split into two tabs rather than one long scroll. It had grown to six stacked
+// forms — category, assign, status, severity, merge, AI — which buried the
+// complaint itself under a wall of controls. Now "Overview" answers *what am I
+// looking at* (description, photos, map, history, AI) and "Actions" answers
+// *what do I do about it*.
 //
-// Severity override is still absent: the backend exposes PATCH for category
-// only, so severity can only change via a triage run.
+// Evidence is the important addition: officers are asked to verify resolution
+// photos, and until now this panel showed none.
+//
+// AI output is ADVISORY. The backend stores it but never applies it, so this
+// shows the suggestion, flags disagreement, and offers a one-click accept.
 import React, { useEffect, useState } from 'react';
 import StatusBadge from '../dashboard/StatusBadge';
 import SeverityBadge from '../dashboard/SeverityBadge';
+import PhotoGrid from '../dashboard/PhotoGrid';
+import ComplaintMap from '../map/ComplaintMap';
 import {
   IconX, IconMapPin, IconClock, IconCheckCircle, IconAlertTriangle, IconSparkles,
+  IconRefresh, IconArrowRight, IconImage,
 } from '../dashboard/icons';
-import { CATEGORIES, ASSIGNABLE_STATUSES, aiDisagrees } from '../../api/mappers';
+import { CATEGORIES, ALL_STATUSES, statusesSettableBy, aiDisagrees } from '../../api/mappers';
+import { getComplaintHistory, getComplaintMedia } from '../../api/complaints';
 
-// Backend SeverityEnum, in ascending order.
 const SEVERITY_LEVELS = ['Low', 'Medium', 'High', 'Critical'];
+
+const DOT = {
+  'New': 'bg-emerald-500', 'Under Review': 'bg-sky-500', 'Assigned': 'bg-amber-500',
+  'In Progress': 'bg-blue-500', 'On Hold': 'bg-slate-400', 'Escalated': 'bg-orange-500',
+  'Resolved': 'bg-violet-500', 'Verified': 'bg-teal-600', 'Reopened': 'bg-rose-500',
+  'Rejected': 'bg-red-500',
+};
+
+const AVAILABILITY_STYLES = {
+  Available: 'bg-emerald-50 text-emerald-700',
+  Busy: 'bg-amber-50 text-amber-700',
+  'Off Duty': 'bg-slate-100 text-slate-500',
+};
 
 function formatStamp(iso) {
   const d = new Date(iso);
@@ -26,36 +46,44 @@ function formatStamp(iso) {
   });
 }
 
-const AVAILABILITY_STYLES = {
-  Available: 'bg-emerald-50 text-emerald-700',
-  Busy: 'bg-amber-50 text-amber-700',
-  'Off Duty': 'bg-slate-100 text-slate-500',
-};
-
-function Section({ title, badge, children }) {
+function Card({ title, badge, children, tone = '' }) {
   return (
-    <section className="border-t border-slate-100 pt-5">
-      <div className="flex items-center gap-2 mb-3">
-        <h3 className="font-semibold text-slate-800 text-[14px]">{title}</h3>
-        {badge}
-      </div>
+    <section className={`rounded-xl border p-4 ${tone || 'border-line bg-white'}`}>
+      {title && (
+        <div className="flex items-center gap-2 mb-3">
+          <h3 className="font-semibold text-ink text-[13px]">{title}</h3>
+          {badge}
+        </div>
+      )}
       {children}
     </section>
   );
 }
 
+function Label({ children }) {
+  return <span className="block text-[11px] font-medium uppercase tracking-wide text-ink-faint mb-1">{children}</span>;
+}
+
+const selectCls =
+  'focus-ring w-full bg-white rounded-lg border border-line px-2.5 py-2 text-[13px] text-ink-body outline-none cursor-pointer transition';
+
 export default function ComplaintDrawer({
-  complaint, workers, workersError, busy, onDismiss, onRecategorise, onAssign, onStatusChange,
+  complaint, workers, workersError, busy, role = 'municipal_officer',
+  onDismiss, onRecategorise, onAssign, onStatusChange,
   onAnalyse, onOpenComplaint, onOverrideSeverity, onMerge,
 }) {
   const ai = complaint.ai;
   const disagrees = aiDisagrees(complaint);
 
+  const [tab, setTab] = useState('overview');
   const [categoryId, setCategoryId] = useState(complaint.categoryId || '');
   const [status, setStatus] = useState(complaint.status);
   const [remarks, setRemarks] = useState('');
   const [severity, setSeverity] = useState(complaint.severity);
   const [mergeInto, setMergeInto] = useState('');
+
+  const [history, setHistory] = useState([]);
+  const [media, setMedia] = useState([]);
 
   useEffect(() => {
     setCategoryId(complaint.categoryId || '');
@@ -63,7 +91,23 @@ export default function ComplaintDrawer({
     setSeverity(complaint.severity);
     setRemarks('');
     setMergeInto('');
+    setTab('overview');
   }, [complaint.id, complaint.categoryId, complaint.status, complaint.severity]);
+
+  // Evidence and audit trail, fetched per complaint. allSettled so one failing
+  // does not cost us the other.
+  useEffect(() => {
+    let alive = true;
+    setHistory([]);
+    setMedia([]);
+    Promise.allSettled([getComplaintHistory(complaint.id), getComplaintMedia(complaint.id)])
+      .then(([h, m]) => {
+        if (!alive) return;
+        if (h.status === 'fulfilled') setHistory(h.value);
+        if (m.status === 'fulfilled') setMedia(m.value);
+      });
+    return () => { alive = false; };
+  }, [complaint.id]);
 
   useEffect(() => {
     const onKey = (e) => e.key === 'Escape' && onDismiss();
@@ -73,13 +117,17 @@ export default function ComplaintDrawer({
 
   const categoryChanged = categoryId && categoryId !== complaint.categoryId;
   const statusChanged = status !== complaint.status;
+  const severityChanged = severity !== complaint.severity;
 
-  // The backend rejects an assignment unless the complaint category's
-  // department appears inside the worker's skillSet string. Checking here means
-  // the officer sees why a worker is unavailable instead of getting a 400.
+  // The backend rejects an assignment unless the category's department appears
+  // in the worker's skillSet. Checking here shows the officer why a worker is
+  // unavailable instead of handing them a 400.
   const department = complaint.department || '';
-  const canTake = (worker) =>
-    Boolean(department) && String(worker.skill || '').toLowerCase().includes(department.toLowerCase());
+  const canTake = (w) =>
+    Boolean(department) && String(w.skill || '').toLowerCase().includes(department.toLowerCase());
+
+  const settable = statusesSettableBy(role);
+  const timeline = [...history].sort((a, b) => new Date(a.at) - new Date(b.at));
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
@@ -89,323 +137,355 @@ export default function ComplaintDrawer({
         role="dialog"
         aria-modal="true"
         aria-label={`Complaint ${complaint.id}`}
-        className="relative w-full max-w-[480px] h-full bg-white shadow-xl overflow-y-auto animate-drawer-in"
+        className="relative w-full max-w-[560px] h-full bg-surface-sunken shadow-xl flex flex-col animate-drawer-in"
       >
-        <div className="sticky top-0 bg-white border-b border-slate-200 px-5 py-4 flex items-start justify-between gap-3 z-10">
-          <div className="min-w-0">
-            <h2 className="font-display font-bold text-slate-900 text-[17px] leading-snug">{complaint.issue}</h2>
-            <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-              <span className="text-[12px] font-mono text-slate-400">{complaint.id}</span>
-              <StatusBadge status={complaint.status} />
-              <SeverityBadge severity={complaint.severity} />
+        {/* Hero */}
+        <div className="bg-white border-b border-line shrink-0">
+          <div className="px-5 pt-4 pb-3 flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 mb-1.5">
+                <span className="text-[11px] font-mono text-ink-faint">{complaint.id}</span>
+                {complaint.duplicateOfComplaintId && (
+                  <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-slate-100 text-slate-600">
+                    duplicate
+                  </span>
+                )}
+              </div>
+              <h2 className="font-display font-bold text-ink text-[18px] leading-snug">{complaint.issue}</h2>
+              <div className="flex items-center gap-2 mt-2 flex-wrap">
+                <StatusBadge status={complaint.status} />
+                <SeverityBadge severity={complaint.severity} />
+                <span className="text-[12px] text-ink-faint">{complaint.category}</span>
+              </div>
             </div>
+            <button
+              onClick={onDismiss}
+              aria-label="Close panel"
+              className="focus-ring shrink-0 w-8 h-8 rounded-lg text-ink-faint hover:bg-slate-100 hover:text-ink-body flex items-center justify-center transition-colors"
+            >
+              <IconX size={18} />
+            </button>
           </div>
-          <button
-            onClick={onDismiss}
-            aria-label="Close panel"
-            className="shrink-0 w-8 h-8 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 flex items-center justify-center transition-colors"
-          >
-            <IconX size={18} />
-          </button>
+
+          <div className="px-5 flex gap-1" role="tablist">
+            {[['overview', 'Overview'], ['actions', 'Actions']].map(([key, label]) => (
+              <button
+                key={key}
+                role="tab"
+                aria-selected={tab === key}
+                onClick={() => setTab(key)}
+                className={`focus-ring relative px-3.5 py-2.5 text-[13px] font-semibold transition-colors ${
+                  tab === key ? 'text-primary' : 'text-ink-muted hover:text-ink-body'
+                }`}
+              >
+                {label}
+                <span
+                  className={`absolute left-0 right-0 -bottom-px h-0.5 rounded-full transition-all ${
+                    tab === key ? 'bg-primary' : 'bg-transparent'
+                  }`}
+                />
+              </button>
+            ))}
+          </div>
         </div>
 
-        <div className="px-5 py-5 space-y-5">
-          <p className="text-[14px] text-slate-600 leading-relaxed whitespace-pre-line">{complaint.description}</p>
-
-          <div className="grid grid-cols-2 gap-3 text-[13px]">
-            <div className="flex items-start gap-2">
-              <IconMapPin size={15} className="text-slate-400 mt-0.5 shrink-0" />
-              <span className="text-slate-700">{complaint.location}</span>
-            </div>
-            <div className="flex items-start gap-2">
-              <IconClock size={15} className="text-slate-400 mt-0.5 shrink-0" />
-              <span className="text-slate-700">{formatStamp(complaint.reportedAt)}</span>
-            </div>
-          </div>
-
-          {/* Category */}
-          <Section title="Category">
-            <p className="text-[12px] text-slate-500 mb-2">
-              Currently <span className="font-semibold text-slate-700">{complaint.category}</span>
-              {department && <> · routed to {department}</>}
-            </p>
-            <select
-              value={categoryId}
-              onChange={(e) => setCategoryId(e.target.value)}
-              aria-label="Category"
-              className="w-full bg-white rounded-lg border border-slate-200 px-2.5 py-2 text-[13px] text-slate-700 outline-none focus:border-primary cursor-pointer"
-            >
-              {CATEGORIES.map((c) => (
-                <option key={c.categoryId} value={c.categoryId}>{c.label} — {c.department}</option>
-              ))}
-            </select>
-            <button
-              onClick={() => onRecategorise(complaint.id, categoryId)}
-              disabled={!categoryChanged || busy}
-              className="mt-3 w-full inline-flex items-center justify-center gap-2 bg-slate-900 hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold text-[13px] py-2.5 rounded-lg transition-colors"
-            >
-              {categoryChanged ? 'Save category' : 'No changes to save'}
-            </button>
-          </Section>
-
-          {/* Assignment */}
-          <Section title="Assign Field Worker">
-            {workersError ? (
-              <p className="flex items-start gap-2 text-[12px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                <IconAlertTriangle size={14} className="mt-0.5 shrink-0" />
-                Could not load field workers: {workersError}
-              </p>
-            ) : workers.length === 0 ? (
-              <p className="text-[13px] text-slate-500">No field workers are registered yet.</p>
-            ) : (
-              <ul className="space-y-2">
-                {workers.map((w) => {
-                  const eligible = canTake(w);
-                  const offDuty = w.availability === 'Off Duty';
-                  return (
-                    <li key={w.id} className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 px-3 py-2.5">
-                      <div className="min-w-0">
-                        <div className="text-[13px] font-medium text-slate-800 flex items-center gap-2">
-                          {w.name}
-                          <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${AVAILABILITY_STYLES[w.availability] || 'bg-slate-100 text-slate-500'}`}>
-                            {w.availability}
-                          </span>
-                        </div>
-                        <div className="text-[12px] text-slate-400 mt-0.5">{w.skill}</div>
-                        {!eligible && (
-                          <div className="text-[11px] text-amber-700 mt-0.5">
-                            Skills do not cover {department || 'this department'}
-                          </div>
-                        )}
-                      </div>
-                      <button
-                        onClick={() => onAssign(complaint.id, w)}
-                        disabled={offDuty || !eligible || busy}
-                        className="shrink-0 text-[12px] font-semibold px-3 py-1.5 rounded-lg bg-primary hover:bg-emerald-600 disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed text-white transition-colors"
-                      >
-                        Assign
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </Section>
-
-          {/* Status */}
-          <Section title="Update Status">
-            <select
-              value={status}
-              onChange={(e) => setStatus(e.target.value)}
-              aria-label="Status"
-              className="w-full bg-white rounded-lg border border-slate-200 px-2.5 py-2 text-[13px] text-slate-700 outline-none focus:border-primary cursor-pointer"
-            >
-              {ASSIGNABLE_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
-            </select>
-            <textarea
-              value={remarks}
-              onChange={(e) => setRemarks(e.target.value)}
-              rows={2}
-              placeholder="Remarks (recorded in the status history)…"
-              className="mt-2 w-full rounded-lg border border-slate-200 p-2.5 text-[13px] text-slate-800 outline-none resize-y focus:border-primary transition"
-            />
-            <button
-              onClick={() => onStatusChange(complaint.id, status, remarks)}
-              disabled={!statusChanged || busy}
-              className="mt-2 w-full inline-flex items-center justify-center gap-2 bg-primary hover:bg-emerald-600 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold text-[13px] py-2.5 rounded-lg shadow-btn transition-colors"
-            >
-              <IconCheckCircle size={16} /> {statusChanged ? `Mark as ${status}` : 'No change to apply'}
-            </button>
-            <p className="text-[11px] text-slate-400 mt-2">
-              Changing status notifies the citizen automatically.
-            </p>
-          </Section>
-
-          {/* Severity override. Separate endpoint from status because the
-              backend audits it as its own action. */}
-          <Section title="Severity">
-            <p className="text-[12px] text-slate-500 mb-2">
-              Currently <span className="font-semibold text-slate-700">{complaint.severity}</span>.
-              Raising this moves the complaint up the queue for everyone.
-            </p>
-            <select
-              value={severity}
-              onChange={(e) => setSeverity(e.target.value)}
-              aria-label="Severity"
-              className="w-full bg-white rounded-lg border border-slate-200 px-2.5 py-2 text-[13px] text-slate-700 outline-none focus:border-primary cursor-pointer"
-            >
-              {SEVERITY_LEVELS.map((sv) => <option key={sv} value={sv}>{sv}</option>)}
-            </select>
-            <button
-              onClick={() => onOverrideSeverity?.(complaint.id, severity, remarks)}
-              disabled={severity === complaint.severity || busy || !onOverrideSeverity}
-              className="mt-2 w-full inline-flex items-center justify-center gap-2 bg-slate-900 hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold text-[13px] py-2.5 rounded-lg transition-colors"
-            >
-              {severity === complaint.severity ? 'No change to apply' : `Set severity to ${severity}`}
-            </button>
-          </Section>
-
-          {/* Merge. Deliberately requires typing the target id rather than
-              offering a dropdown: merging is destructive-ish and hard to
-              explain to the citizen whose complaint disappeared, so a moment of
-              friction is the point. */}
-          <Section title="Merge Duplicate">
-            <p className="text-[12px] text-slate-500 mb-2">
-              Folds this complaint into another one that reports the same issue.
-              {' '}<span className="font-semibold text-slate-700">{complaint.id}</span> will be
-              closed as a duplicate.
-            </p>
-            <input
-              value={mergeInto}
-              onChange={(e) => setMergeInto(e.target.value.trim().toUpperCase())}
-              placeholder="Target complaint ID, e.g. CMP-A1B2C3"
-              aria-label="Merge into complaint ID"
-              className="w-full rounded-lg border border-slate-200 px-2.5 py-2 text-[13px] font-mono text-slate-800 outline-none focus:border-primary transition"
-            />
-            <button
-              onClick={() => onMerge?.(complaint.id, mergeInto, remarks)}
-              disabled={!mergeInto || mergeInto === complaint.id || busy || !onMerge}
-              className="mt-2 w-full inline-flex items-center justify-center gap-2 bg-amber-600 hover:bg-amber-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold text-[13px] py-2.5 rounded-lg transition-colors"
-            >
-              {mergeInto === complaint.id
-                ? 'Cannot merge into itself'
-                : `Merge into ${mergeInto || '…'}`}
-            </button>
-          </Section>
-
-          {/* AI triage — advisory only. Nothing here has been applied to the
-              record; the officer decides. */}
-          <Section
-            title="AI Triage"
-            badge={
-              ai ? (
-                <span
-                  className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full ${
-                    ai.source === 'gemini'
-                      ? 'bg-violet-50 text-violet-700'
-                      : 'bg-slate-100 text-slate-600'
-                  }`}
-                  title={
-                    ai.source === 'gemini'
-                      ? 'Produced by a language model'
-                      : 'Produced by the deterministic rules engine'
-                  }
-                >
-                  <IconSparkles size={12} /> {ai.source === 'gemini' ? 'Model' : 'Rules engine'}
-                </span>
-              ) : (
-                <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">
-                  <IconSparkles size={12} /> Not analysed
-                </span>
-              )
-            }
-          >
-            {!ai ? (
-              <div className="space-y-3">
-                <p className="text-[12px] text-slate-500 leading-relaxed">
-                  This complaint has not been triaged. It may predate AI triage, or triage may have
-                  been switched off when it was filed.
+        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
+          {tab === 'overview' ? (
+            <>
+              <Card>
+                <p className="text-[14px] text-ink-body leading-relaxed whitespace-pre-line">
+                  {complaint.description}
                 </p>
-                <button
-                  onClick={() => onAnalyse?.(complaint.id)}
-                  disabled={busy || !onAnalyse}
-                  className="focus-ring w-full inline-flex items-center justify-center gap-2 bg-slate-900 hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold text-[13px] py-2.5 rounded-lg transition-colors"
-                >
-                  <IconSparkles size={14} /> Run triage now
-                </button>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {ai.summary && (
-                  <p className="text-[13px] text-slate-600 leading-relaxed bg-slate-50 rounded-lg p-3 border border-slate-100">
-                    {ai.summary}
-                  </p>
-                )}
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="rounded-lg border border-slate-200 p-2.5">
-                    <div className="text-[10px] uppercase tracking-wide text-slate-400">Suggested category</div>
-                    <div className="text-[13px] font-semibold text-slate-800 mt-0.5">
-                      {ai.suggestedCategory || '—'}
-                    </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 mt-4 pt-3 border-t border-slate-100 text-[13px]">
+                  <div className="flex items-start gap-2">
+                    <IconMapPin size={15} className="text-ink-faint mt-0.5 shrink-0" />
+                    <span className="text-ink-body">{complaint.location}</span>
                   </div>
-                  <div className="rounded-lg border border-slate-200 p-2.5">
-                    <div className="text-[10px] uppercase tracking-wide text-slate-400">Suggested severity</div>
-                    <div className="text-[13px] font-semibold text-slate-800 mt-0.5">
-                      {ai.severity || '—'}
-                    </div>
+                  <div className="flex items-start gap-2">
+                    <IconClock size={15} className="text-ink-faint mt-0.5 shrink-0" />
+                    <span className="text-ink-body">{formatStamp(complaint.reportedAt)}</span>
                   </div>
                 </div>
+              </Card>
 
-                {typeof ai.confidence === 'number' && (
-                  <div>
-                    <div className="flex items-center justify-between text-[11px] text-slate-500 mb-1">
-                      <span>Confidence</span>
-                      <span className="font-semibold tnum">{Math.round(ai.confidence * 100)}%</span>
-                    </div>
-                    {/* A bar, not just a number — relative certainty is easier
-                        to judge by length than by reading two decimals. */}
-                    <div className="h-1.5 rounded-full bg-slate-100 overflow-hidden">
-                      <div
-                        className={`h-full rounded-full origin-left animate-grow-x ${
-                          ai.confidence < 0.6 ? 'bg-amber-400' : 'bg-primary'
-                        }`}
-                        style={{ width: `${Math.round(ai.confidence * 100)}%` }}
-                      />
-                    </div>
-                    {ai.confidence < 0.6 && (
-                      <p className="text-[11px] text-amber-700 mt-1.5">
-                        Low confidence — confirm before assigning.
-                      </p>
-                    )}
-                  </div>
-                )}
-
-                {disagrees && (
-                  <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
-                    <p className="text-[12px] text-amber-900 leading-snug">
-                      The AI suggestion differs from what this complaint is set to.
-                    </p>
-                    {ai.suggestedCategoryId && ai.suggestedCategoryId !== complaint.categoryId && (
-                      <button
-                        onClick={() => onRecategorise(complaint.id, ai.suggestedCategoryId)}
-                        disabled={busy}
-                        className="focus-ring mt-2 w-full inline-flex items-center justify-center gap-1.5 text-[12px] font-semibold text-amber-900 bg-amber-100 hover:bg-amber-200 disabled:opacity-40 py-2 rounded-lg transition-colors"
-                      >
-                        Accept “{ai.suggestedCategory}”
-                      </button>
-                    )}
-                  </div>
-                )}
-
-                <p className="text-[11px] text-slate-400 leading-relaxed">
-                  Advisory only — nothing above has been applied to the record.
-                </p>
-              </div>
-            )}
-          </Section>
-
-          {/* Duplicate flag, set by the backend's similarity check. */}
-          {complaint.duplicateOfComplaintId && (
-            <Section
-              title="Possible Duplicate"
-              badge={
-                <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700">
-                  <IconAlertTriangle size={12} /> Flagged
-                </span>
-              }
-            >
-              <p className="text-[13px] text-slate-600 leading-snug">
-                This looks like the same issue as{' '}
-                <span className="font-mono text-slate-800">{complaint.duplicateOfComplaintId}</span>.
-              </p>
-              <button
-                onClick={() => onOpenComplaint?.(complaint.duplicateOfComplaintId)}
-                className="focus-ring mt-2 w-full inline-flex items-center justify-center gap-1.5 text-[12px] font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 py-2 rounded-lg transition-colors"
+              {/* Evidence — the thing an officer is asked to verify. */}
+              <Card
+                title="Evidence"
+                badge={
+                  <span className="text-[11px] text-ink-faint ml-auto">
+                    {media.length} photo{media.length === 1 ? '' : 's'}
+                  </span>
+                }
               >
-                Open {complaint.duplicateOfComplaintId}
-              </button>
-            </Section>
+                {media.length > 0 ? (
+                  <PhotoGrid photos={media} columns="sm:grid-cols-3" />
+                ) : (
+                  <p className="flex items-center gap-2 text-[13px] text-ink-muted">
+                    <IconImage size={15} className="text-ink-faint" /> No photos attached.
+                  </p>
+                )}
+              </Card>
+
+              {complaint.coords && (
+                <Card title="Location">
+                  <ComplaintMap complaints={[complaint]} height="200px" />
+                </Card>
+              )}
+
+              {/* AI triage */}
+              {ai ? (
+                <Card
+                  title="AI triage"
+                  tone={disagrees ? 'border-amber-200 bg-amber-50/60' : 'border-line bg-white'}
+                  badge={
+                    <span className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full ${
+                      ai.source === 'gemini' ? 'bg-violet-50 text-violet-700' : 'bg-slate-100 text-slate-600'
+                    }`}>
+                      <IconSparkles size={11} /> {ai.source === 'gemini' ? 'Model' : 'Rules engine'}
+                    </span>
+                  }
+                >
+                  {ai.summary && (
+                    <p className="text-[13px] text-ink-body leading-relaxed mb-3">{ai.summary}</p>
+                  )}
+
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <div className="bg-white rounded-lg border border-line p-2.5">
+                      <Label>Suggested category</Label>
+                      <div className="text-[13px] font-semibold text-ink">{ai.suggestedCategory || '—'}</div>
+                    </div>
+                    <div className="bg-white rounded-lg border border-line p-2.5">
+                      <Label>Suggested severity</Label>
+                      <div className="text-[13px] font-semibold text-ink">{ai.severity || '—'}</div>
+                    </div>
+                  </div>
+
+                  {typeof ai.confidence === 'number' && (
+                    <div className="mt-3">
+                      <div className="flex items-center justify-between text-[11px] text-ink-muted mb-1">
+                        <span>Confidence</span>
+                        <span className="font-semibold tnum">{Math.round(ai.confidence * 100)}%</span>
+                      </div>
+                      <div className="h-1.5 bg-slate-200 rounded-full overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all ${ai.confidence < 0.6 ? 'bg-amber-400' : 'bg-primary'}`}
+                          style={{ width: `${Math.round(ai.confidence * 100)}%` }}
+                        />
+                      </div>
+                      {ai.confidence < 0.6 && (
+                        <p className="text-[11px] text-amber-800 mt-1.5">
+                          Low confidence — confirm the category before assigning.
+                        </p>
+                      )}
+                    </div>
+                  )}
+
+                  {disagrees && (
+                    <div className="mt-3 pt-3 border-t border-amber-200">
+                      <p className="text-[12px] text-amber-900 mb-2">
+                        This differs from the record. Nothing has been applied.
+                      </p>
+                      <div className="flex gap-2 flex-wrap">
+                        {ai.suggestedCategoryId && ai.suggestedCategoryId !== complaint.categoryId && (
+                          <button
+                            onClick={() => onRecategorise(complaint.id, ai.suggestedCategoryId)}
+                            disabled={busy}
+                            className="focus-ring text-[12px] font-semibold text-white bg-slate-900 hover:bg-slate-800 disabled:opacity-40 px-2.5 py-1.5 rounded-lg transition"
+                          >
+                            Accept category
+                          </button>
+                        )}
+                        {ai.severity && ai.severity !== complaint.severity && onOverrideSeverity && (
+                          <button
+                            onClick={() => onOverrideSeverity(complaint.id, ai.severity, 'Accepted AI severity')}
+                            disabled={busy}
+                            className="focus-ring text-[12px] font-semibold text-white bg-slate-900 hover:bg-slate-800 disabled:opacity-40 px-2.5 py-1.5 rounded-lg transition"
+                          >
+                            Accept severity
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  <p className="text-[11px] text-ink-faint mt-3">Analysed {formatStamp(ai.analyzedAt)}</p>
+                </Card>
+              ) : (
+                <Card title="AI triage">
+                  <p className="text-[13px] text-ink-muted mb-3">
+                    This complaint has not been analysed — it was filed before triage existed, or
+                    while it was switched off.
+                  </p>
+                  <button
+                    onClick={() => onAnalyse?.(complaint.id)}
+                    disabled={busy || !onAnalyse}
+                    className="focus-ring inline-flex items-center gap-1.5 text-[12px] font-semibold text-primary bg-emerald-50 hover:bg-emerald-100 disabled:opacity-40 px-2.5 py-1.5 rounded-lg transition"
+                  >
+                    <IconRefresh size={13} /> Run triage now
+                  </button>
+                </Card>
+              )}
+
+              {complaint.duplicateOfComplaintId && (
+                <Card title="Duplicate" tone="border-slate-200 bg-slate-100">
+                  <p className="text-[13px] text-ink-body">
+                    Merged into <span className="font-mono font-semibold">{complaint.duplicateOfComplaintId}</span>.
+                  </p>
+                  <button
+                    onClick={() => onOpenComplaint?.(complaint.duplicateOfComplaintId)}
+                    className="focus-ring mt-2 inline-flex items-center gap-1 text-[12px] font-semibold text-primary hover:underline"
+                  >
+                    Open {complaint.duplicateOfComplaintId} <IconArrowRight size={12} />
+                  </button>
+                </Card>
+              )}
+
+              <Card title="History">
+                {timeline.length === 0 ? (
+                  <p className="text-[13px] text-ink-muted">No transitions recorded yet.</p>
+                ) : (
+                  <ol className="relative">
+                    {timeline.map((h, i) => (
+                      <li key={h.id} className="relative pl-6 pb-4 last:pb-0">
+                        {i < timeline.length - 1 && (
+                          <span className="absolute left-[6px] top-4 bottom-0 w-px bg-slate-200" aria-hidden="true" />
+                        )}
+                        <span className={`absolute left-0 top-1 w-[13px] h-[13px] rounded-full border-2 border-white ring-2 ring-slate-100 ${DOT[h.status] || 'bg-slate-400'}`} />
+                        <div className="text-[12px] font-semibold text-ink">{h.status}</div>
+                        <div className="text-[11px] text-ink-faint">{formatStamp(h.at)}</div>
+                        {h.remarks && <p className="text-[12px] text-ink-body mt-0.5 leading-snug">{h.remarks}</p>}
+                      </li>
+                    ))}
+                  </ol>
+                )}
+              </Card>
+            </>
+          ) : (
+            <>
+              {/* Status */}
+              <Card title="Update status">
+                <select value={status} onChange={(e) => setStatus(e.target.value)} aria-label="Status" className={selectCls}>
+                  {ALL_STATUSES.map((s) => (
+                    <option key={s} value={s} disabled={!settable.includes(s) && s !== complaint.status}>
+                      {s}{!settable.includes(s) && s !== complaint.status ? ' — not yours to set' : ''}
+                    </option>
+                  ))}
+                </select>
+                <textarea
+                  value={remarks}
+                  onChange={(e) => setRemarks(e.target.value)}
+                  rows={2}
+                  placeholder="Remarks (recorded in the history)…"
+                  className="focus-ring mt-2 w-full rounded-lg border border-line p-2.5 text-[13px] text-ink outline-none resize-y transition"
+                />
+                <button
+                  onClick={() => onStatusChange(complaint.id, status, remarks)}
+                  disabled={!statusChanged || busy}
+                  className="focus-ring mt-2 w-full inline-flex items-center justify-center gap-2 bg-primary hover:bg-emerald-600 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold text-[13px] py-2.5 rounded-lg shadow-btn transition-colors"
+                >
+                  <IconCheckCircle size={16} /> {statusChanged ? `Mark as ${status}` : 'No change to apply'}
+                </button>
+                <p className="text-[11px] text-ink-faint mt-2">The citizen is notified automatically.</p>
+              </Card>
+
+              {/* Category + severity */}
+              <Card title="Classification">
+                <Label>Category</Label>
+                <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)} aria-label="Category" className={selectCls}>
+                  {CATEGORIES.map((c) => (
+                    <option key={c.categoryId} value={c.categoryId}>{c.label} — {c.department}</option>
+                  ))}
+                </select>
+                <button
+                  onClick={() => onRecategorise(complaint.id, categoryId)}
+                  disabled={!categoryChanged || busy}
+                  className="focus-ring mt-2 w-full bg-slate-900 hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold text-[13px] py-2 rounded-lg transition-colors"
+                >
+                  {categoryChanged ? 'Save category' : 'No change to save'}
+                </button>
+
+                <div className="mt-4 pt-3 border-t border-slate-100">
+                  <Label>Severity</Label>
+                  <select value={severity} onChange={(e) => setSeverity(e.target.value)} aria-label="Severity" className={selectCls}>
+                    {SEVERITY_LEVELS.map((sv) => <option key={sv} value={sv}>{sv}</option>)}
+                  </select>
+                  <button
+                    onClick={() => onOverrideSeverity?.(complaint.id, severity, remarks)}
+                    disabled={!severityChanged || busy || !onOverrideSeverity}
+                    className="focus-ring mt-2 w-full bg-slate-900 hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold text-[13px] py-2 rounded-lg transition-colors"
+                  >
+                    {severityChanged ? `Set severity to ${severity}` : 'No change to apply'}
+                  </button>
+                  <p className="text-[11px] text-ink-faint mt-1.5">Raising this moves the complaint up the queue for everyone.</p>
+                </div>
+              </Card>
+
+              {/* Assignment */}
+              <Card title="Assign field worker">
+                {workersError ? (
+                  <p className="flex items-start gap-2 text-[12px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                    <IconAlertTriangle size={14} className="mt-0.5 shrink-0" />
+                    Could not load field workers: {workersError}
+                  </p>
+                ) : workers.length === 0 ? (
+                  <p className="text-[13px] text-ink-muted">No field workers are registered yet.</p>
+                ) : (
+                  <ul className="space-y-2">
+                    {workers.map((w) => {
+                      const eligible = canTake(w);
+                      const offDuty = w.availability === 'Off Duty';
+                      return (
+                        <li key={w.id} className="flex items-center justify-between gap-3 rounded-lg border border-line px-3 py-2.5 bg-white">
+                          <div className="min-w-0">
+                            <div className="text-[13px] font-medium text-ink flex items-center gap-2">
+                              {w.name}
+                              <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${AVAILABILITY_STYLES[w.availability] || 'bg-slate-100 text-slate-500'}`}>
+                                {w.availability}
+                              </span>
+                            </div>
+                            <div className="text-[12px] text-ink-faint mt-0.5">{w.skill}</div>
+                            {!eligible && (
+                              <div className="text-[11px] text-amber-700 mt-0.5">
+                                Skills do not cover {department || 'this department'}
+                              </div>
+                            )}
+                          </div>
+                          <button
+                            onClick={() => onAssign(complaint.id, w)}
+                            disabled={offDuty || !eligible || busy}
+                            className="focus-ring shrink-0 text-[12px] font-semibold px-3 py-1.5 rounded-lg bg-primary hover:bg-emerald-600 disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed text-white transition-colors"
+                          >
+                            Assign
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </Card>
+
+              {/* Merge */}
+              <Card title="Merge duplicate" tone="border-amber-200 bg-amber-50/50">
+                <p className="text-[12px] text-ink-body mb-2">
+                  Folds this into another complaint reporting the same issue.
+                  {' '}<span className="font-mono font-semibold">{complaint.id}</span> is closed as a duplicate.
+                </p>
+                <input
+                  value={mergeInto}
+                  onChange={(e) => setMergeInto(e.target.value.trim().toUpperCase())}
+                  placeholder="Target ID, e.g. CMP-A1B2C3"
+                  aria-label="Merge into complaint ID"
+                  className="focus-ring w-full rounded-lg border border-line px-2.5 py-2 text-[13px] font-mono text-ink outline-none bg-white transition"
+                />
+                <button
+                  onClick={() => onMerge?.(complaint.id, mergeInto, remarks)}
+                  disabled={!mergeInto || mergeInto === complaint.id || busy || !onMerge}
+                  className="focus-ring mt-2 w-full bg-amber-600 hover:bg-amber-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold text-[13px] py-2 rounded-lg transition-colors"
+                >
+                  {mergeInto === complaint.id ? 'Cannot merge into itself' : `Merge into ${mergeInto || '…'}`}
+                </button>
+              </Card>
+            </>
           )}
         </div>
       </aside>
