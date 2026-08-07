@@ -37,6 +37,9 @@ TYPE_FEEDBACK = "FEEDBACK"
 TYPE_ESCALATION = "ESCALATION"
 TYPE_DUPLICATE = "DUPLICATE_FLAGGED"
 TYPE_RECATEGORIZED = "RECATEGORIZED"
+# Emitted once per complaint that overruns its resolution target. The type is
+# also what the SLA sweep deduplicates on, so it must not be reused elsewhere.
+TYPE_SLA_BREACH = "SLA_BREACH"
 
 # --- Priorities ---------------------------------------------------------
 PRIORITY_LOW = "LOW"
@@ -182,6 +185,31 @@ async def notify_new_complaint(
     return created
 
 
+# How each lifecycle status is presented, as (type, priority, citizen wording).
+#
+# A table rather than an if/elif chain: adding a member to StatusEnum becomes a
+# one-line change here, and the wording stays reviewable by non-developers.
+_STATUS_RULES = {
+    "PENDING":      (TYPE_STATUS_UPDATE, PRIORITY_NORMAL, "is awaiting review"),
+    "UNDER_REVIEW": (TYPE_STATUS_UPDATE, PRIORITY_NORMAL, "is being reviewed by an officer"),
+    "ASSIGNED":     (TYPE_ASSIGNMENT,    PRIORITY_NORMAL, "has been assigned to a field worker"),
+    "IN_PROGRESS":  (TYPE_STATUS_UPDATE, PRIORITY_NORMAL, "is being worked on right now"),
+    "ON_HOLD":      (TYPE_STATUS_UPDATE, PRIORITY_NORMAL, "has been put on hold"),
+    # Escalation means the job turned out bigger or more dangerous than expected,
+    # so it outranks a routine update in everyone's inbox.
+    "ESCALATED":    (TYPE_ESCALATION,    PRIORITY_HIGH,   "has been escalated for specialist attention"),
+    "RESOLVED":     (TYPE_RESOLUTION,    PRIORITY_NORMAL, "has been marked resolved"),
+    "VERIFIED":     (TYPE_RESOLUTION,    PRIORITY_LOW,    "has been verified and closed"),
+    # Reopening means the fix did not hold; the team needs to see it.
+    "REOPENED":     (TYPE_STATUS_UPDATE, PRIORITY_HIGH,   "has been reopened"),
+    "REJECTED":     (TYPE_STATUS_UPDATE, PRIORITY_NORMAL, "has been rejected"),
+}
+
+# Statuses the owning officer is told about: outcomes and problems, not routine
+# progress reports from the worker.
+_OFFICER_INTEREST = {"RESOLVED", "VERIFIED", "REOPENED", "ESCALATED", "ON_HOLD"}
+
+
 def notify_status_change(
     db: AsyncSession,
     complaint: models.ComplaintModel,
@@ -190,51 +218,67 @@ def notify_status_change(
     remarks: Optional[str] = None,
     actor: Optional[models.UserModel] = None,
 ) -> List[models.NotificationModel]:
-    """Notify the citizen, and the assigned worker when someone else moved it."""
+    """Fan a status change out to everyone with a stake in the complaint.
+
+    Recipients: the citizen who filed it, the assigned field worker, and -- for
+    outcomes rather than routine progress -- the owning officer. Whoever
+    performed the change is never notified about their own action.
+    """
     status_name = _status_name(new_status)
     created: List[models.NotificationModel] = []
 
     detail = f" Remarks: {remarks}" if remarks else ""
 
-    citizen_note = add_notification(
-        db,
-        recipientId=complaint.citizenId,
-        complaintId=complaint.complaintId,
-        message=(
-            f"Your complaint ({complaint.complaintId}) is now marked as {status_name}.{detail}"
-        ),
-        type=TYPE_RESOLUTION if status_name == "RESOLVED" else TYPE_STATUS_UPDATE,
-        priority=PRIORITY_NORMAL,
+    # Look up how this status should be presented. Unknown statuses still get a
+    # notification with neutral wording rather than being silently dropped.
+    notif_type, priority, phrasing = _STATUS_RULES.get(
+        status_name,
+        (TYPE_STATUS_UPDATE, PRIORITY_NORMAL, f"is now marked as {status_name}"),
     )
-    if citizen_note:
-        created.append(citizen_note)
 
-    # The worker only needs telling if they weren't the one who changed it.
     actor_id = actor.userId if actor else None
+
+    # 1. The citizen who filed it. Skipped when they made the change themselves
+    #    -- under the expanded lifecycle a citizen can set VERIFIED / REOPENED.
+    if complaint.citizenId != actor_id:
+        citizen_note = add_notification(
+            db,
+            recipientId=complaint.citizenId,
+            complaintId=complaint.complaintId,
+            message=f"Your complaint ({complaint.complaintId}) {phrasing}.{detail}",
+            type=notif_type,
+            priority=priority,
+        )
+        if citizen_note:
+            created.append(citizen_note)
+
+    # 2. The assigned field worker, if somebody else moved it.
     if complaint.fieldWorkerId and complaint.fieldWorkerId != actor_id:
         worker_note = add_notification(
             db,
             recipientId=complaint.fieldWorkerId,
             complaintId=complaint.complaintId,
-            message=(
-                f"Complaint {complaint.complaintId} assigned to you was updated "
-                f"to {status_name}.{detail}"
-            ),
-            type=TYPE_STATUS_UPDATE,
-            priority=PRIORITY_NORMAL,
+            message=f"Complaint {complaint.complaintId} assigned to you {phrasing}.{detail}",
+            type=notif_type,
+            priority=priority,
         )
         if worker_note:
             created.append(worker_note)
 
-    # Closing the loop for the officer who owns it.
-    if status_name == "RESOLVED" and complaint.officerId and complaint.officerId != actor_id:
+    # 3. The owning officer -- only for outcomes and problems. They do not need
+    #    a ping every time a worker toggles IN_PROGRESS.
+    if (
+        status_name in _OFFICER_INTEREST
+        and complaint.officerId
+        and complaint.officerId != actor_id
+    ):
         officer_note = add_notification(
             db,
             recipientId=complaint.officerId,
             complaintId=complaint.complaintId,
-            message=f"Complaint {complaint.complaintId} was marked RESOLVED.{detail}",
-            type=TYPE_RESOLUTION,
-            priority=PRIORITY_NORMAL,
+            message=f"Complaint {complaint.complaintId} {phrasing}.{detail}",
+            type=notif_type,
+            priority=priority,
         )
         if officer_note:
             created.append(officer_note)
@@ -316,6 +360,47 @@ async def notify_escalation(
     return created
 
 
+async def notify_sla_breach(
+    db: AsyncSession,
+    complaint: models.ComplaintModel,
+    *,
+    severity: str,
+    overdue_hours: int,
+    target_hours: int,
+) -> List[models.NotificationModel]:
+    """Alert the owning department that a complaint has overrun its SLA.
+
+    Sent to the officer assigned to the complaint if there is one, otherwise to
+    every officer in the responsible department -- an overdue complaint with no
+    owner is precisely the case that needs escalating.
+    """
+    if complaint.officerId:
+        recipients = [complaint.officerId]
+    else:
+        department = complaint.category.department if complaint.category else None
+        officers = await _officers_for_department(db, department)
+        recipients = [officer.userId for officer in officers]
+
+    created: List[models.NotificationModel] = []
+    for recipient_id in recipients:
+        note = add_notification(
+            db,
+            recipientId=recipient_id,
+            complaintId=complaint.complaintId,
+            message=(
+                f"SLA breached: complaint {complaint.complaintId} ({severity}) is "
+                f"{overdue_hours}h past its {target_hours}h resolution target and "
+                f"is still open."
+            ),
+            type=TYPE_SLA_BREACH,
+            priority=priority_for_severity(severity),
+        )
+        if note:
+            created.append(note)
+
+    return created
+
+
 def notify_feedback(
     db: AsyncSession, complaint: models.ComplaintModel, *, rating: int, comments: Optional[str]
 ) -> List[models.NotificationModel]:
@@ -338,6 +423,58 @@ def notify_feedback(
         )
         if notification:
             created.append(notification)
+
+    return created
+
+
+def notify_merge(
+    db: AsyncSession,
+    *,
+    source: models.ComplaintModel,
+    target: models.ComplaintModel,
+    actor: Optional[models.UserModel] = None,
+    remarks: Optional[str] = None,
+) -> List[models.NotificationModel]:
+    """Tell both citizens what happened when two reports are merged.
+
+    The citizen whose report was merged away is the one who most needs this --
+    without it their complaint simply appears to have been rejected, which is
+    the failure mode the frontend specifically warned about.
+    """
+    created: List[models.NotificationModel] = []
+    detail = f" ({remarks})" if remarks else ""
+
+    # The person whose report was closed: point them at the surviving one.
+    source_note = add_notification(
+        db,
+        recipientId=source.citizenId,
+        complaintId=source.complaintId,
+        message=(
+            f"Your complaint ({source.complaintId}) reports the same issue as "
+            f"{target.complaintId}, so the two have been merged. Track progress "
+            f"on {target.complaintId}.{detail}"
+        ),
+        type=TYPE_DUPLICATE,
+        priority=PRIORITY_NORMAL,
+    )
+    if source_note:
+        created.append(source_note)
+
+    # The surviving report's owner, unless it is the same person.
+    if target.citizenId and target.citizenId != source.citizenId:
+        target_note = add_notification(
+            db,
+            recipientId=target.citizenId,
+            complaintId=target.complaintId,
+            message=(
+                f"Another resident reported the same issue as your complaint "
+                f"({target.complaintId}). The reports have been merged."
+            ),
+            type=TYPE_DUPLICATE,
+            priority=PRIORITY_LOW,
+        )
+        if target_note:
+            created.append(target_note)
 
     return created
 
