@@ -9,11 +9,13 @@ import React, { useMemo } from 'react';
 import { LoadingPanel, ErrorPanel } from '../../components/dashboard/AsyncStates';
 import UnavailableNote from '../../components/dashboard/UnavailableNote';
 import { IconTag, IconBuilding } from '../../components/dashboard/icons';
-import { CATEGORIES } from '../../api/mappers';
+import useCategories from '../../hooks/useCategories';
 import { listComplaints } from '../../api/complaints';
 import useAsync from '../../hooks/useAsync';
 
 export default function AdminCategories() {
+  const { categories: CATEGORIES } = useCategories();
+
   const { data, error, loading, refetch } = useAsync(() => listComplaints(), []);
   const complaints = useMemo(() => data || [], [data]);
 
