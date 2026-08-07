@@ -55,20 +55,33 @@ export default function Sidebar({ open, onNavigate, onLogout, items = NAV_ITEMS,
               to={to}
               onClick={onNavigate}
               className={({ isActive }) =>
-                `flex items-center gap-3 px-3 py-2.5 rounded-lg text-[14px] font-medium transition-colors ${
+                `group relative flex items-center gap-3 px-3 py-2.5 rounded-lg text-[14px] font-medium
+                 focus-ring transition-all duration-200 ${
                   isActive
                     ? 'bg-primary text-white shadow-[0_6px_16px_-6px_rgba(16,185,129,0.6)]'
-                    : 'text-slate-400 hover:text-white hover:bg-white/5'
+                    : 'text-slate-400 hover:text-white hover:bg-white/5 hover:translate-x-0.5'
                 }`
               }
             >
-              <Icon size={18} />
-              <span className="flex-1">{label}</span>
-              {badge ? (
-                <span className="min-w-5 h-5 px-1.5 rounded-full bg-red-500 text-white text-[11px] font-bold flex items-center justify-center">
-                  {badge}
-                </span>
-              ) : null}
+              {({ isActive }) => (
+                <>
+                  {/* Active marker on the rail edge. Gives the eye a fixed
+                      anchor for "where am I" that survives scrolling the list. */}
+                  <span
+                    aria-hidden="true"
+                    className={`absolute -left-3 top-1/2 -translate-y-1/2 w-1 rounded-r-full bg-primary transition-all duration-200 ${
+                      isActive ? 'h-6 opacity-100' : 'h-0 opacity-0'
+                    }`}
+                  />
+                  <Icon size={18} className={isActive ? '' : 'transition-transform duration-200 group-hover:scale-110'} />
+                  <span className="flex-1">{label}</span>
+                  {badge ? (
+                    <span className="min-w-5 h-5 px-1.5 rounded-full bg-red-500 text-white text-[11px] font-bold flex items-center justify-center tnum">
+                      {badge}
+                    </span>
+                  ) : null}
+                </>
+              )}
             </NavLink>
           ))}
         </nav>

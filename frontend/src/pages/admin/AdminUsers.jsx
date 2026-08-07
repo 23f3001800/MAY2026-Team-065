@@ -124,7 +124,7 @@ export default function AdminUsers() {
       </div>
 
       {loading ? (
-        <LoadingPanel label="Loading users…" />
+        <LoadingPanel label="Loading users…" variant="table" />
       ) : error ? (
         <ErrorPanel error={error} onRetry={refetch} />
       ) : users.length === 0 ? (

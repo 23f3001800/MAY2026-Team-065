@@ -37,7 +37,7 @@ export default function WorkerHistory() {
       </div>
 
       {loading ? (
-        <LoadingPanel label="Loading history…" />
+        <LoadingPanel label="Loading history…" variant="table" />
       ) : error ? (
         <ErrorPanel error={error} onRetry={refetch} />
       ) : closed.length === 0 ? (
