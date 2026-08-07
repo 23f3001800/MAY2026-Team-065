@@ -3,12 +3,13 @@ import React from 'react';
 import { NavLink } from 'react-router-dom';
 import {
   IconGrid, IconReport, IconList, IconTrack, IconMapPin, IconBell,
-  IconStar, IconUserCircle, IconLogout,
+  IconStar, IconUserCircle, IconLogout, IconArrowRight,
 } from './icons';
 
 // Nav items shown to a citizen. `badge` renders a small count pill.
 export const NAV_ITEMS = [
   { to: '/dashboard', label: 'Dashboard', icon: IconGrid },
+  { to: '/report', label: 'Report Issue', icon: IconReport },
   { to: '/my-complaints', label: 'My Complaints', icon: IconList },
   { to: '/track', label: 'Track Complaints', icon: IconTrack },
   { to: '/nearby', label: 'Nearby Issues', icon: IconMapPin },
@@ -43,24 +44,6 @@ export default function Sidebar({ open, onNavigate, onLogout, items = NAV_ITEMS,
             <div className="text-[10px] text-slate-500">Report. Resolve. Rebuild.</div>
           </div>
         </div>
-
-        {/* Primary action. Filing a complaint is the whole point of the
-            citizen app, so it sits above the nav as a button rather than
-            competing with nine other rows for attention. */}
-        {showCta && (
-          <div className="px-3 pt-4 shrink-0">
-            <NavLink
-              to="/report"
-              onClick={onNavigate}
-              className="focus-ring group flex items-center justify-center gap-2 w-full px-3 py-2.5 rounded-xl
-                         bg-primary hover:bg-emerald-600 text-white font-semibold text-[14px]
-                         shadow-[0_8px_20px_-8px_rgba(16,185,129,0.7)] transition-all duration-200 hover:-translate-y-px"
-            >
-              <IconReport size={17} className="transition-transform duration-200 group-hover:scale-110" />
-              Report an Issue
-            </NavLink>
-          </div>
-        )}
 
         {/* Nav */}
         <nav className="flex-1 overflow-y-auto px-3 py-4 flex flex-col gap-1">
@@ -100,6 +83,24 @@ export default function Sidebar({ open, onNavigate, onLogout, items = NAV_ITEMS,
             </NavLink>
           ))}
         </nav>
+
+        {/* CTA card (citizen only) */}
+        {showCta && (
+          <div className="px-3 pb-3 shrink-0">
+            <div className="rounded-xl p-4 bg-gradient-to-br from-primary/20 to-secondary/20 border border-white/5">
+              <div className="text-white text-[13px] font-semibold leading-snug mb-3">
+                Let's make our city better together!
+              </div>
+              <NavLink
+                to="/report"
+                onClick={onNavigate}
+                className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-primary hover:text-white transition-colors"
+              >
+                Report an issue <IconArrowRight size={14} />
+              </NavLink>
+            </div>
+          </div>
+        )}
 
         {/* Logout */}
         <div className="px-3 pb-4 shrink-0">
