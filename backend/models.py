@@ -183,6 +183,44 @@ class NotificationModel(Base):
     complaint: Mapped["ComplaintModel"] = relationship(back_populates="notifications")
     recipient: Mapped[Optional["UserModel"]] = relationship("UserModel", foreign_keys=[recipientId])
 
+class AIClassificationLogModel(Base):
+    """Audit trail of AI triage decisions and the human overrides that followed.
+
+    The complaint row only ever holds the *current* values, so once an officer
+    corrects a severity the AI's original call is gone -- and that comparison is
+    exactly what is needed to measure classification accuracy. Each row here
+    records what the AI said, what it was changed to, and by whom.
+
+    Rows are written on triage (actorId NULL) and on override (actorId set), so
+    joining the two gives a labelled dataset for free.
+    """
+
+    __tablename__ = "ai_classification_logs"
+
+    logId: Mapped[str] = mapped_column(String, primary_key=True)
+    complaintId: Mapped[str] = mapped_column(ForeignKey("complaints.complaintId"), index=True)
+
+    # Which prediction this row is about: "category" or "severity".
+    field: Mapped[str] = mapped_column(String, nullable=False)
+
+    # What the AI predicted, and how sure it was.
+    aiValue: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    aiConfidence: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    aiSource: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+
+    # The transition actually applied. On a triage row these match the AI value;
+    # on an override row newValue is the human's decision.
+    previousValue: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    newValue: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+
+    # NULL when the AI wrote the row; set to the user who overrode it.
+    actorId: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    remarks: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    createdAt: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    complaint: Mapped["ComplaintModel"] = relationship()
+
+
 class FeedbackModel(Base):
     __tablename__ = "feedbacks"
     feedbackId: Mapped[str] = mapped_column(String, primary_key=True)

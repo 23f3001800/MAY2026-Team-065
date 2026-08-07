@@ -163,8 +163,28 @@ Interactive docs: **`http://localhost:8000/docs`**
 | PATCH  | `/complaints/{complaintId}/status`   | Update complaint status (with history log)         | Officer, Admin, Field Worker (if assigned)  |
 | PATCH  | `/complaints/{complaintId}/assign`   | Assign a field worker to a complaint               | Officer, Administrator                      |
 | PATCH  | `/complaints/{complaintId}/category` | Recategorize a complaint                           | Officer, Administrator                      |
-| POST   | `/complaints/{complaintId}/image`    | Upload an image attachment                         | Citizen (owner), Field Worker (assigned)    |
+| PATCH  | `/complaints/{complaintId}/severity` | Override severity (logged for accuracy review)     | Officer, Administrator                      |
+| POST   | `/complaints/{complaintId}/merge`    | Merge a duplicate into another complaint           | Officer, Administrator                      |
+| POST   | `/complaints/{complaintId}/images`   | Upload one or more photos (runs vision analysis)   | Citizen (owner), Field Worker (assigned)    |
+| POST   | `/complaints/{complaintId}/image`    | Upload a single image (**deprecated** — use `/images`) | Citizen (owner), Field Worker (assigned) |
 | POST   | `/complaints/{complaintId}/feedback` | Submit rating & feedback for a resolved complaint  | Citizen (owner)                             |
+| GET    | `/complaints/{complaintId}/history`  | Status timeline, oldest first                      | Citizen (own), Officer, Admin, assigned Worker |
+| GET    | `/complaints/{complaintId}/media`    | Photos attached to a complaint                     | Citizen (own), Officer, Admin, assigned Worker |
+| GET    | `/complaints/{complaintId}/feedback` | Feedback submitted for a complaint                 | Citizen (own), Officer, Admin, assigned Worker |
+| GET    | `/complaints/{complaintId}/report-slip` | Printable summary of a complaint                | Citizen (own), Officer, Admin, assigned Worker |
+
+### 🗂️ Categories
+
+| Method | Endpoint      | Description                                | Roles Allowed     |
+|--------|---------------|--------------------------------------------|-------------------|
+| GET    | `/categories` | List all categories and their departments  | All authenticated |
+
+### 🙋 Citizen self-service
+
+| Method | Endpoint                  | Description                                   | Roles Allowed |
+|--------|---------------------------|-----------------------------------------------|---------------|
+| PATCH  | `/citizens/me/profile`    | Update own name, phone or address (partial)   | Citizen       |
+| PATCH  | `/citizens/me/password`   | Change own password (verifies the old one)    | Citizen       |
 
 ---
 
@@ -228,6 +248,7 @@ Whoever performed an action is never notified about their own change. Priority
 | Method | Endpoint                         | Description                                           | Roles Allowed |
 |--------|----------------------------------|-------------------------------------------------------|---------------|
 | GET    | `/admin/analytics`               | City-wide complaint statistics (by status & severity) | Administrator |
+| POST   | `/admin/sla/sweep`               | Run the SLA breach sweep now                          | Administrator |
 | POST   | `/admin/users/official`          | Create a Municipal Officer account                    | Administrator |
 | GET    | `/admin/users`                   | Search/list all users (filter by name, email, role)   | Administrator |
 | PATCH  | `/admin/users/{user_id}`         | Update user account (suspend, edit skills/dept)       | Administrator |
@@ -258,6 +279,7 @@ UserModel (base)
 | `MediaAttachmentModel` | File uploads (images) linked to a complaint      |
 | `FeedbackModel`        | Citizen rating (1–5) + comments after resolution |
 | `NotificationModel`    | In-app notification addressed to a `recipientId` |
+| `AIClassificationLogModel` | What the AI predicted vs. what a human changed it to |
 
 `ComplaintModel` also carries advisory AI fields — `aiSuggestedCategoryId`,
 `aiSeverity`, `aiConfidence`, `aiSummary`, `aiSource`, `aiAnalyzedAt` and
@@ -265,10 +287,96 @@ UserModel (base)
 
 ### Enums
 
-| Enum           | Values                                        |
-|----------------|-----------------------------------------------|
-| `StatusEnum`   | `PENDING`, `ASSIGNED`, `RESOLVED`, `REJECTED` |
-| `SeverityEnum` | `LOW`, `MEDIUM`, `HIGH`, `CRITICAL`           |
+| Enum           | Values                              |
+|----------------|-------------------------------------|
+| `SeverityEnum` | `LOW`, `MEDIUM`, `HIGH`, `CRITICAL` |
+
+---
+
+## 🔄 Complaint Lifecycle
+
+Ten statuses across three phases.
+
+**1. Intake & triage**
+
+| Status | Meaning |
+|---|---|
+| `PENDING` | Submitted, untouched by staff |
+| `UNDER_REVIEW` | An officer is validating it and choosing a department |
+
+**2. Action & dispatch**
+
+| Status | Meaning |
+|---|---|
+| `ASSIGNED` | Delegated to a field worker, not started |
+| `IN_PROGRESS` | The worker is on site and working |
+| `ON_HOLD` | Paused — waiting on materials, weather, another department |
+| `ESCALATED` | Bigger or more dangerous than expected; needs specialists |
+
+**3. Closure & validation**
+
+| Status | Meaning |
+|---|---|
+| `RESOLVED` | The worker says the job is done |
+| `VERIFIED` | Confirmed fixed and permanently closed |
+| `REOPENED` | The fix did not hold — back into the queue |
+| `REJECTED` | Invalid, a prank, out of jurisdiction, or merged away |
+
+### Who may set what
+
+Permission depends on the **target status**, not just the role — the full matrix
+is in [`services/lifecycle.py`](services/lifecycle.py).
+
+| Role | May set |
+|---|---|
+| Citizen (own complaint) | `VERIFIED`, `REOPENED` |
+| Assigned field worker | `IN_PROGRESS`, `ON_HOLD`, `RESOLVED`, `ESCALATED` |
+| Officer / Administrator | all ten |
+
+Verification is deliberately the citizen's call: they are the only party who can
+confirm the problem is actually gone.
+
+### Automatic transitions
+
+- **Auto-reopen.** Feedback at or below `REOPEN_ON_RATING` (default 2 stars) on a
+  `RESOLVED` complaint flips it to `REOPENED`, logs the reason, and tells the
+  officer and worker. Set to `0` to disable.
+- **Merge.** Merging a duplicate closes the source as `REJECTED`, links it via
+  `duplicateOfComplaintId`, and notifies **both** citizens — so the person whose
+  report was merged is never left wondering where it went.
+
+### Feedback rules
+
+One rating per resolution cycle. A second submission returns `409`; but if the
+complaint is reopened and fixed again, the citizen can rate the new attempt.
+
+### ⚠️ Adding a status
+
+`StatusEnum` is a real PostgreSQL enum type. `create_all()` creates it once and
+never revisits it, so adding a member in Python is **not** enough — add it to
+`_ENUM_VALUES` in [`migrations.py`](migrations.py) too, which issues
+`ALTER TYPE ... ADD VALUE` in the right position. Also add wording to
+`_STATUS_RULES` in [`services/notifications.py`](services/notifications.py),
+or the status falls back to generic phrasing.
+
+---
+
+## ⏱️ SLA Monitoring
+
+Each severity has a resolution target. A complaint still open past its target is
+"breached", and the owning officers are alerted **once** — deduplicated against
+the notifications table, so restarts do not re-alert.
+
+| Severity | Default target |
+|---|---|
+| `CRITICAL` | 4 hours |
+| `HIGH` | 24 hours |
+| `MEDIUM` | 72 hours |
+| `LOW` | 168 hours (1 week) |
+
+A background task sweeps every `SLA_SWEEP_MINUTES` (default 15). Running several
+API instances means several sweepers, so in that case set `SLA_ENABLED=false` and
+drive `POST /admin/sla/sweep` from cron instead.
 
 ### Schema migrations
 
@@ -335,6 +443,18 @@ Runs offline, costs nothing, and returns identical output for identical input.
   answers better than embeddings over stale snapshots. Retrieval is scoped by
   role **inside the query**, so a prompt injected into a complaint description
   cannot widen what the model can read — those rows are never fetched.
+- **Two duplicate thresholds, not one.** `AI_DUPLICATE_THRESHOLD` (0.55) decides
+  what is *shown* as a possible duplicate; `AI_DUPLICATE_AUTOLINK_THRESHOLD`
+  (0.75) decides what is actually *linked*. Showing a weak match costs an officer
+  a glance; recording one makes a second citizen's report look swallowed.
+- **Every prediction and override is logged** to `ai_classification_logs`. The
+  complaint row holds only current values, so once an officer corrects a severity
+  the AI's original call would otherwise be lost — and that comparison is exactly
+  what measures accuracy.
+- **Photos feed triage.** Uploading to `/complaints/{id}/images` runs vision
+  analysis on the first photo and may raise severity, so triage uses image
+  evidence and not just the citizen's text. Best-effort: an upload never fails
+  because the model was unavailable.
 - **Vision prompts steer away from PII.** Street photos routinely contain
   bystanders and number plates; the system prompt forbids describing people or
   registration numbers, which is both the right privacy posture and fewer
