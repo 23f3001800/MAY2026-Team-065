@@ -14,7 +14,7 @@ import {
 } from '../components/dashboard/icons';
 import { createComplaint } from '../api/complaints';
 import { triage as runTriage } from '../api/ai';
-import { CATEGORIES } from '../api/mappers';
+import useCategories from '../hooks/useCategories';
 
 // Icon per seeded category, keyed by the backend's categoryId.
 const CATEGORY_ICONS = {
@@ -28,6 +28,10 @@ const CATEGORY_ICONS = {
 const MAX_IMAGE_MB = 5;
 
 export default function ReportIssue() {
+  // Fetched from GET /categories rather than the static mirror of seed.py, so
+  // the ids we submit are always the ones the backend actually has.
+  const { categories: CATEGORIES } = useCategories();
+
   const navigate = useNavigate();
   const fileRef = useRef(null);
 
