@@ -1,19 +1,23 @@
 // Complaint Details — the full record behind one complaint.
 //
-// Backed by GET /complaints/{id}. Note what that response does NOT include:
-// status history, media, assigned worker, or existing feedback. The backend
-// stores status history and media, but exposes no endpoint to read them, so
-// those sections are honestly marked unavailable rather than faked.
-// TODO(raja-api): GET /complaints/{id}/history, /media, /feedback.
-import React, { useMemo, useState } from 'react';
+// Three requests: GET /complaints/{id} for the record, /history for the audit
+// trail, and /media for the photos. History and media load independently of the
+// complaint, so a failure in either degrades that one panel instead of blanking
+// the page.
+//
+// Still not readable from the backend: existing feedback. A rating submitted
+// here shows until reload and then disappears, which the form says out loud.
+import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import StatusBadge from '../components/dashboard/StatusBadge';
 import SeverityBadge from '../components/dashboard/SeverityBadge';
 import { LoadingPanel, ErrorPanel } from '../components/dashboard/AsyncStates';
+import PhotoGrid from '../components/dashboard/PhotoGrid';
 import {
-  IconArrowLeft, IconMapPin, IconInbox, IconStar, IconBuilding, IconSend, IconClock,
+  IconArrowLeft, IconMapPin, IconInbox, IconStar, IconBuilding, IconSend,
+  IconCheckCircle,
 } from '../components/dashboard/icons';
-import { getComplaint, submitFeedback } from '../api/complaints';
+import { getComplaint, getComplaintHistory, getComplaintMedia, submitFeedback } from '../api/complaints';
 import useAsync from '../hooks/useAsync';
 
 function formatStamp(iso) {
@@ -54,6 +58,16 @@ function StarRating({ value, onChange, readOnly = false }) {
   );
 }
 
+// Dot colour per lifecycle stage, matching StatusBadge's palette.
+const DOT = {
+  'New': 'bg-emerald-500',
+  'Assigned': 'bg-amber-500',
+  'In Progress': 'bg-blue-500',
+  'Resolved': 'bg-violet-500',
+  'Rejected': 'bg-red-500',
+  'Closed': 'bg-slate-500',
+};
+
 function SummaryRow({ icon: Icon, label, children }) {
   return (
     <div className="flex items-start gap-3 py-2.5">
@@ -76,16 +90,51 @@ export default function ComplaintDetails() {
   const [feedbackError, setFeedbackError] = useState('');
   const [saving, setSaving] = useState(false);
 
-  // What the response does tell us about timing, presented as a two-point
-  // timeline rather than a fabricated lifecycle.
-  const timeline = useMemo(() => {
-    if (!complaint) return [];
-    const entries = [{ label: 'Reported', at: complaint.reportedAt }];
-    if (complaint.updatedAt && complaint.updatedAt !== complaint.reportedAt) {
-      entries.push({ label: `Updated — now ${complaint.status}`, at: complaint.updatedAt });
+  // History and media load beside the complaint rather than as part of it, so
+  // one failing does not take out the page.
+  const [history, setHistory] = useState([]);
+  const [media, setMedia] = useState([]);
+  const [sideError, setSideError] = useState('');
+
+  useEffect(() => {
+    let alive = true;
+    Promise.allSettled([getComplaintHistory(id), getComplaintMedia(id)])
+      .then(([h, m]) => {
+        if (!alive) return;
+        if (h.status === 'fulfilled') setHistory(h.value);
+        if (m.status === 'fulfilled') setMedia(m.value);
+        const failed = [h, m].filter((r) => r.status === 'rejected'
+          && r.reason?.name !== 'SessionExpiredError');
+        if (failed.length) setSideError(failed[0].reason?.message || 'Could not load attachments.');
+      });
+    return () => { alive = false; };
+  }, [id]);
+
+  // Oldest first — a timeline reads top-down in the order things happened.
+  const timeline = useMemo(
+    () => [...history].sort((a, b) => new Date(a.at) - new Date(b.at)),
+    [history],
+  );
+
+  // Photos uploaded at or after the complaint was marked Resolved are the field
+  // worker's completion evidence. Splitting on the resolution timestamp is a
+  // heuristic, but the media response carries no role — only an uploader id we
+  // cannot resolve to a name — so this is the honest signal available.
+  const resolvedAt = useMemo(() => {
+    const entry = history.find((h) => h.status === 'Resolved');
+    return entry ? new Date(entry.at).getTime() : null;
+  }, [history]);
+
+  const { reportPhotos, resolutionPhotos } = useMemo(() => {
+    const report = [];
+    const resolution = [];
+    for (const m of media) {
+      const at = m.uploadedAt ? new Date(m.uploadedAt).getTime() : 0;
+      if (resolvedAt && at >= resolvedAt) resolution.push(m);
+      else report.push(m);
     }
-    return entries;
-  }, [complaint]);
+    return { reportPhotos: report, resolutionPhotos: resolution };
+  }, [media, resolvedAt]);
 
   if (loading) {
     return <div className="max-w-[1200px] mx-auto"><LoadingPanel label="Loading complaint…" variant="detail" /></div>;
@@ -162,7 +211,31 @@ export default function ComplaintDetails() {
           <section className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
             <h2 className="font-semibold text-slate-800 text-[15px] mb-2">Description</h2>
             <p className="text-[14px] text-slate-600 leading-relaxed whitespace-pre-line">{complaint.description}</p>
+
+            {reportPhotos.length > 0 && (
+              <>
+                <h3 className="font-semibold text-slate-800 text-[15px] mt-6 mb-3">Photo Evidence</h3>
+                <PhotoGrid photos={reportPhotos} />
+              </>
+            )}
           </section>
+
+          {/* Resolution evidence — the field worker's completion proof. */}
+          {resolutionPhotos.length > 0 && (
+            <section className="bg-white rounded-2xl border border-emerald-200 shadow-sm p-6">
+              <div className="flex items-center gap-2 mb-3">
+                <span className="text-primary"><IconCheckCircle size={18} /></span>
+                <h2 className="font-semibold text-slate-800 text-[15px]">Resolution Evidence</h2>
+              </div>
+              <PhotoGrid photos={resolutionPhotos} />
+            </section>
+          )}
+
+          {sideError && (
+            <p className="text-[12px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+              Some attachments could not be loaded: {sideError}
+            </p>
+          )}
 
           {/* Feedback — the backend accepts it only for RESOLVED complaints. */}
           {complaint.status === 'Resolved' && (
@@ -228,24 +301,34 @@ export default function ComplaintDetails() {
           </section>
 
           <section className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
-            <h2 className="font-semibold text-slate-800 text-[15px] mb-4">Timeline</h2>
-            <ol className="relative">
-              {timeline.map((entry, i) => (
-                <li key={entry.label} className="relative pl-7 pb-5 last:pb-0">
-                  {i < timeline.length - 1 && (
-                    <span className="absolute left-[7px] top-4 bottom-0 w-px bg-slate-200" aria-hidden="true" />
-                  )}
-                  <span className="absolute left-0 top-1 w-[15px] h-[15px] rounded-full border-2 border-white ring-2 ring-slate-100 bg-primary" />
-                  <div className="text-[13px] font-semibold text-slate-800">{entry.label}</div>
-                  <div className="text-[12px] text-slate-400">{formatStamp(entry.at)}</div>
-                </li>
-              ))}
-            </ol>
-            <p className="flex items-start gap-2 text-[12px] text-slate-400 border-t border-slate-100 pt-3 mt-1">
-              <IconClock size={13} className="mt-0.5 shrink-0" />
-              The full transition history is recorded by the backend but not yet readable, so only
-              the first and last events are shown.
-            </p>
+            <h2 className="font-semibold text-slate-800 text-[15px] mb-4">Status Timeline</h2>
+
+            {timeline.length === 0 ? (
+              <p className="text-[13px] text-slate-500">
+                No transitions recorded yet — this complaint has not moved since it was filed
+                on {formatStamp(complaint.reportedAt)}.
+              </p>
+            ) : (
+              <ol className="relative">
+                {timeline.map((entry, i) => (
+                  <li
+                    key={entry.id}
+                    style={{ '--i': i }}
+                    className="relative pl-7 pb-5 last:pb-0 animate-rise-in stagger"
+                  >
+                    {i < timeline.length - 1 && (
+                      <span className="absolute left-[7px] top-4 bottom-0 w-px bg-slate-200" aria-hidden="true" />
+                    )}
+                    <span className={`absolute left-0 top-1 w-[15px] h-[15px] rounded-full border-2 border-white ring-2 ring-slate-100 ${DOT[entry.status] || 'bg-slate-400'}`} />
+                    <div className="text-[13px] font-semibold text-slate-800">{entry.status}</div>
+                    <div className="text-[12px] text-slate-400">{formatStamp(entry.at)}</div>
+                    {entry.remarks && (
+                      <p className="text-[13px] text-slate-600 mt-1 leading-snug">{entry.remarks}</p>
+                    )}
+                  </li>
+                ))}
+              </ol>
+            )}
           </section>
         </div>
       </div>
