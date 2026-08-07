@@ -118,7 +118,7 @@ export default function Feedback() {
       </div>
 
       {loading ? (
-        <LoadingPanel label="Loading resolved complaints…" />
+        <LoadingPanel label="Loading resolved complaints…" variant="cards" />
       ) : error ? (
         <ErrorPanel error={error} onRetry={refetch} />
       ) : resolved.length === 0 ? (

@@ -1,10 +1,9 @@
 // Notifications — every status change on the citizen's complaints, newest
 // first, with unread filtering.
 //
-// Backed by GET /notifications/me. Read state is client-side only: the backend
-// stores isRead but exposes no endpoint to set it, so marking something read
-// does not survive a reload.
-// TODO(raja-api): PATCH /notifications/{id} { isRead }.
+// Backed by GET /notifications/me. Read state now persists via
+// PATCH /notifications/{id}/read and POST /notifications/me/read-all, applied
+// optimistically and rolled back if the write fails.
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { LoadingPanel, ErrorPanel, EmptyPanel } from '../components/dashboard/AsyncStates';
@@ -12,7 +11,8 @@ import {
   IconBell, IconCheckCircle, IconClock, IconInbox, IconAlertTriangle, IconArrowRight,
 } from '../components/dashboard/icons';
 import { NOTIFICATION_FILTERS } from '../data/filters';
-import { listMyNotifications } from '../api/notifications';
+import Toast from '../components/dashboard/Toast';
+import { listMyNotifications, markNotificationRead, markAllNotificationsRead } from '../api/notifications';
 import useAsync from '../hooks/useAsync';
 
 // Icon + accent per notification type.
@@ -41,6 +41,7 @@ export default function Notifications() {
   const { data, error, loading, refetch } = useAsync(() => listMyNotifications(), []);
   const [items, setItems] = useState([]);
   const [filter, setFilter] = useState('All');
+  const [writeError, setWriteError] = useState('');
 
   // Mirror fetched data into local state so read toggles can be applied
   // optimistically without a refetch.
@@ -52,10 +53,32 @@ export default function Notifications() {
     [items, filter],
   );
 
-  const markRead = (id) =>
+  // Optimistic: flip locally first so the row responds instantly, then persist.
+  // If the write fails, roll the row back and say so — silently reverting would
+  // look like the click did nothing.
+  const markRead = async (id) => {
+    const before = items;
     setItems((list) => list.map((n) => (n.id === id ? { ...n, isRead: true } : n)));
+    try {
+      await markNotificationRead(id, true);
+    } catch (err) {
+      if (err.name === 'SessionExpiredError') return;
+      setItems(before);
+      setWriteError('Could not mark that as read. Please try again.');
+    }
+  };
 
-  const markAllRead = () => setItems((list) => list.map((n) => ({ ...n, isRead: true })));
+  const markAllRead = async () => {
+    const before = items;
+    setItems((list) => list.map((n) => ({ ...n, isRead: true })));
+    try {
+      await markAllNotificationsRead();
+    } catch (err) {
+      if (err.name === 'SessionExpiredError') return;
+      setItems(before);
+      setWriteError('Could not mark everything as read. Please try again.');
+    }
+  };
 
   return (
     <div className="max-w-[860px] mx-auto space-y-5">
@@ -75,6 +98,8 @@ export default function Notifications() {
           </button>
         )}
       </div>
+
+      <Toast message={writeError} tone="error" onDismiss={() => setWriteError('')} autoHideMs={0} />
 
       <div className="flex gap-2">
         {NOTIFICATION_FILTERS.map((f) => {
@@ -99,7 +124,7 @@ export default function Notifications() {
       </div>
 
       {loading ? (
-        <LoadingPanel label="Loading notifications…" />
+        <LoadingPanel label="Loading notifications…" variant="cards" />
       ) : error ? (
         <ErrorPanel error={error} onRetry={refetch} />
       ) : visible.length === 0 ? (
