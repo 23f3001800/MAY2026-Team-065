@@ -13,7 +13,10 @@ import ComplaintDrawer from '../../components/officer/ComplaintDrawer';
 import { LoadingPanel, ErrorPanel, EmptyPanel } from '../../components/dashboard/AsyncStates';
 import { IconSearch, IconChevronDown } from '../../components/dashboard/icons';
 import Toast from '../../components/dashboard/Toast';
-import { listComplaints, assignFieldWorker, updateComplaintStatus, recategoriseComplaint } from '../../api/complaints';
+import {
+  listComplaints, assignFieldWorker, updateComplaintStatus, recategoriseComplaint,
+  overrideSeverity, mergeComplaint,
+} from '../../api/complaints';
 import { analyzeComplaint } from '../../api/ai';
 import { listFieldWorkers } from '../../api/workers';
 import { CATEGORIES, ASSIGNABLE_STATUSES } from '../../api/mappers';
@@ -136,6 +139,26 @@ export default function ComplaintQueue({ title, subtitle }) {
 
   const handleStatusChange = (id, next, remarks) =>
     runAction(() => updateComplaintStatus(id, next, remarks), `${id} marked as ${next}.`);
+
+  const handleOverrideSeverity = (id, next, remarks) =>
+    runAction(() => overrideSeverity(id, next, remarks), `${id} severity set to ${next}.`);
+
+  // A merge changes both complaints -- the duplicate closes and the target
+  // gains a link -- so refetch rather than patching a single row.
+  const handleMerge = useCallback(async (id, intoId, remarks) => {
+    setBusy(true);
+    setActionError('');
+    try {
+      await mergeComplaint(id, intoId, remarks);
+      setData(await listComplaints());
+      setToast(`${id} merged into ${intoId}.`);
+      setSelectedId(null);
+    } catch (err) {
+      if (err.name !== 'SessionExpiredError') setActionError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }, [setData]);
 
   // POST /ai/complaints/{id}/analyze returns the triage result, not the
   // complaint, so refetch the row rather than trying to patch it from a
@@ -308,6 +331,8 @@ export default function ComplaintQueue({ title, subtitle }) {
           onAssign={handleAssign}
           onStatusChange={handleStatusChange}
           onAnalyse={handleAnalyse}
+          onOverrideSeverity={handleOverrideSeverity}
+          onMerge={handleMerge}
           onOpenComplaint={(id) => setSelectedId(id)}
         />
       )}
