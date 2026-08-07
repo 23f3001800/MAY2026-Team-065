@@ -5,6 +5,7 @@ import { Outlet, useNavigate } from 'react-router-dom';
 import Sidebar from '../components/dashboard/Sidebar';
 import Topbar from '../components/dashboard/Topbar';
 import { getCurrentUser, clearSession } from '../api/auth';
+import AssistantWidget from '../components/ai/AssistantWidget';
 
 export default function CitizenLayout() {
   const navigate = useNavigate();
@@ -30,6 +31,7 @@ export default function CitizenLayout() {
           <Outlet />
         </main>
       </div>
+      <AssistantWidget role="citizen" />
     </div>
   );
 }

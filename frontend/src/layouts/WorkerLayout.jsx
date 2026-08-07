@@ -6,6 +6,7 @@ import Sidebar from '../components/dashboard/Sidebar';
 import Topbar from '../components/dashboard/Topbar';
 import { WORKER_NAV } from '../components/worker/workerNav';
 import { getCurrentUser, clearSession } from '../api/auth';
+import AssistantWidget from '../components/ai/AssistantWidget';
 
 export default function WorkerLayout() {
   const navigate = useNavigate();
@@ -33,6 +34,7 @@ export default function WorkerLayout() {
           <Outlet />
         </main>
       </div>
+      <AssistantWidget role="field_worker" />
     </div>
   );
 }
