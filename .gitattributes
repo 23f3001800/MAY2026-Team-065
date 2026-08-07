@@ -1,0 +1,32 @@
+# Normalise line endings.
+#
+# This repo lives on a WSL path and is edited from both Windows and Linux
+# tooling. Without this, a save from the Windows side rewrites a whole file
+# from LF to CRLF; git then sees every line as changed, which has produced
+# 13,000-line diffs containing no actual change and phantom merge conflicts
+# across files nobody touched.
+#
+# `text=auto` tells git to detect text files and store them with LF in the
+# repository; `eol=lf` checks them out as LF everywhere, including Windows.
+# Modern editors handle LF on Windows without complaint.
+* text=auto eol=lf
+
+# Binary files: never touch these, or they get corrupted.
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.ico   binary
+*.pdf   binary
+*.woff  binary
+*.woff2 binary
+*.ttf   binary
+*.eot   binary
+*.zip   binary
+*.db    binary
+*.sqlite3 binary
+
+# Generated files — collapse them in diffs and exclude from language stats so
+# they do not drown out real changes in a review.
+package-lock.json  -diff linguist-generated
+backend/openapi.yaml linguist-generated
