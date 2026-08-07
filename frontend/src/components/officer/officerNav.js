@@ -1,8 +1,7 @@
 // Sidebar navigation items for the municipal officer area.
 import {
   IconGrid, IconClipboard, IconUsers, IconChart, IconBell,
-  IconUserCircle, IconSettings,
-} from '../dashboard/icons';
+  IconUserCircle, } from '../dashboard/icons';
 
 export const OFFICER_NAV = [
   { to: '/officer/dashboard', label: 'Dashboard', icon: IconGrid },
@@ -11,5 +10,4 @@ export const OFFICER_NAV = [
   { to: '/officer/analytics', label: 'Analytics', icon: IconChart },
   { to: '/officer/notifications', label: 'Notifications', icon: IconBell, badge: 5 },
   { to: '/officer/profile', label: 'Profile', icon: IconUserCircle },
-  { to: '/officer/settings', label: 'Settings', icon: IconSettings },
 ];
