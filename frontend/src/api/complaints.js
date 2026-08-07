@@ -8,17 +8,18 @@ import {
 } from './mappers';
 
 /**
- * Files a complaint, then uploads the photo if there is one.
+ * Files a complaint, then uploads its photos.
  *
  * The backend takes these as two calls -- POST /complaints/ is JSON only, and
- * the image goes to a separate endpoint keyed by the new complaint id. They are
- * not in one transaction, so the photo can fail after the complaint is safely
- * filed. Rather than hide that, the image error comes back alongside the
- * complaint and the caller decides how to word it.
+ * images go to a separate endpoint keyed by the new complaint id. They are not
+ * in one transaction, so photos can fail after the complaint is safely filed.
+ * Rather than hide that, the image error comes back alongside the complaint and
+ * the caller decides how to word it.
  *
+ * @param {File[]} [images] any number of photos, sent in one batch request
  * @returns {{ complaint: object, imageError: string|null }}
  */
-export async function createComplaint({ description, categoryId, latitude, longitude, address, image }) {
+export async function createComplaint({ description, categoryId, latitude, longitude, address, images = [] }) {
   const created = await apiRequest('/complaints/', {
     method: 'POST',
     body: {
@@ -29,10 +30,11 @@ export async function createComplaint({ description, categoryId, latitude, longi
   });
 
   const complaint = fromApiComplaint(created);
-  if (!image) return { complaint, imageError: null };
+  const files = Array.from(images || []).filter(Boolean);
+  if (!files.length) return { complaint, imageError: null };
 
   try {
-    await uploadComplaintImage(complaint.id, image);
+    await uploadComplaintImages(complaint.id, files);
     return { complaint, imageError: null };
   } catch (err) {
     return { complaint, imageError: err.message };
