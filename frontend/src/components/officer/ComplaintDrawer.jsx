@@ -25,6 +25,12 @@ import { getComplaintHistory, getComplaintMedia } from '../../api/complaints';
 import { splitEvidence } from '../../lib/evidence';
 import AiVerificationPanel from './AiVerificationPanel';
 
+// States where a field worker has submitted completed work and it is sitting
+// with the officer. 'Under Review' is where a submission actually lands;
+// 'Resolved' is included because an officer often reopens the drawer on work
+// they have already accepted but the citizen has not yet confirmed.
+const AWAITING_SIGN_OFF = ['Under Review', 'Resolved'];
+
 const SEVERITY_LEVELS = ['Low', 'Medium', 'High', 'Critical'];
 
 const DOT = {
@@ -120,7 +126,7 @@ export default function ComplaintDrawer({
   // Split by uploader, not by the RESOLVED timestamp — the worker screen
   // uploads before moving status, so a timestamp split files every completion
   // photo under "before". See lib/evidence.js.
-  const { before: beforePhotos, after: afterPhotos } = splitEvidence(media, complaint.reportedAt);
+  const { before: beforePhotos, after: afterPhotos } = splitEvidence(media, complaint.reportedAt, complaint.citizenId);
 
   const categoryChanged = categoryId && categoryId !== complaint.categoryId;
   const statusChanged = status !== complaint.status;
@@ -256,8 +262,12 @@ export default function ComplaintDrawer({
                 )}
 
                 {/* AI assistance sits with the evidence and above the decision,
-                    so it informs the choice rather than second-guessing it. */}
-                {complaint.status === 'Resolved' && (
+                    so it informs the choice rather than second-guessing it.
+                    Gated on AWAITING_SIGN_OFF, not on Resolved alone: a worker
+                    submitting completed work moves the complaint to Under
+                    Review, so gating on Resolved meant the panel never appeared
+                    on the one state where an officer actually needs it. */}
+                {AWAITING_SIGN_OFF.includes(complaint.status) && (
                   <AiVerificationPanel
                     complaint={complaint}
                     beforePhotos={beforePhotos}
@@ -268,23 +278,33 @@ export default function ComplaintDrawer({
 
                 {/* The verification decision, where the evidence is — not
                     buried in the status dropdown further down. */}
-                {complaint.status === 'Resolved' && (
+                {AWAITING_SIGN_OFF.includes(complaint.status) && (
                   <div className="mt-3 rounded-lg border border-civic-100 bg-civic-50/60 p-3">
                     <p className="text-[12px] text-ink-body leading-snug mb-2.5">
-                      A field worker has submitted this as complete. Confirm the work matches the
-                      report, or send it back.
+                      {complaint.status === 'Under Review'
+                        ? 'A field worker has submitted this as complete. Accept the work, or send it back for more.'
+                        : 'You have accepted this work. Closing it is the reporter’s call — this only overrides that.'}
                     </p>
                     <div className="flex gap-2">
                       <button
-                        onClick={() => onStatusChange(complaint.id, 'Verified', 'Evidence verified by officer.')}
+                        onClick={() => onStatusChange(
+                          complaint.id,
+                          complaint.status === 'Under Review' ? 'Resolved' : 'Verified',
+                          'Evidence verified by officer.',
+                        )}
                         disabled={busy || afterPhotos.length === 0}
                         title={afterPhotos.length === 0 ? 'No completion evidence to verify' : undefined}
                         className="focus-ring flex-1 inline-flex items-center justify-center gap-1.5 bg-teal-600 hover:bg-teal-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold text-[12px] py-2 rounded-lg transition-colors"
                       >
-                        <IconCheckCircle size={14} /> Verify &amp; close
+                        <IconCheckCircle size={14} />
+                        {complaint.status === 'Under Review' ? 'Accept the work' : 'Verify & close'}
                       </button>
                       <button
-                        onClick={() => onStatusChange(complaint.id, 'Reopened', 'Sent back — work not accepted.')}
+                        onClick={() => onStatusChange(
+                          complaint.id,
+                          complaint.status === 'Under Review' ? 'In Progress' : 'Reopened',
+                          'Sent back — work not accepted.',
+                        )}
                         disabled={busy}
                         className="focus-ring flex-1 bg-surface border border-line hover:border-caution-500 text-caution-700 font-semibold text-[12px] py-2 rounded-lg transition-colors disabled:opacity-40"
                       >
