@@ -23,6 +23,7 @@ import {
 import { CATEGORIES, ALL_STATUSES, statusesSettableBy, aiDisagrees } from '../../api/mappers';
 import { getComplaintHistory, getComplaintMedia } from '../../api/complaints';
 import { splitEvidence } from '../../lib/evidence';
+import AiVerificationPanel from './AiVerificationPanel';
 
 const SEVERITY_LEVELS = ['Low', 'Medium', 'High', 'Critical'];
 
@@ -252,6 +253,17 @@ export default function ComplaintDrawer({
                   <p className="flex items-center gap-2 text-[13px] text-ink-muted">
                     <IconImage size={15} className="text-ink-faint" /> No photos attached.
                   </p>
+                )}
+
+                {/* AI assistance sits with the evidence and above the decision,
+                    so it informs the choice rather than second-guessing it. */}
+                {complaint.status === 'Resolved' && (
+                  <AiVerificationPanel
+                    complaint={complaint}
+                    beforePhotos={beforePhotos}
+                    afterPhotos={afterPhotos}
+                    busy={busy}
+                  />
                 )}
 
                 {/* The verification decision, where the evidence is — not
