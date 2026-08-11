@@ -138,6 +138,34 @@ auto-links duplicates above `duplicate_autolink_threshold`. The frontend's
 "Run triage now" button is therefore a re-run, not the only way to populate
 the AI fields.
 
+## Image comparison for evidence verification
+
+Officers verify a fix by comparing the citizen's photo against the field
+worker's completion photo. There is no endpoint for that: `/ai/duplicates`
+compares text and location, and `/ai/analyze-image` looks at one image at a
+time.
+
+**What the frontend does instead:** re-runs `/ai/analyze-image` on the
+completion photo and compares what the model reports against the complaint's
+own category — "reported as Pothole, now reads as no clear issue". That answers
+the real question, which a similarity score does not:
+
+| Similarity | Could mean | Could also mean |
+|---|---|---|
+| Very high | nothing changed | same angle, small fix |
+| Very low | problem is gone | a photo of somewhere else |
+
+Both ends are ambiguous, so the number is a supporting signal only, computed
+in-browser with a difference hash.
+
+**Two things that would improve this:**
+
+1. `POST /ai/compare-images` taking two images and returning a structured
+   verdict — same scene? problem still present? — rather than a bare distance.
+2. CORS headers on `/uploads`. The in-browser comparison needs
+   `crossOrigin="anonymous"` to read pixels; without the header the canvas is
+   tainted and the frontend degrades to "cannot be compared in the browser".
+
 ## What the frontend will not do
 
 Per the spec's data-integrity rules, and worth stating so nobody "fixes" these
