@@ -56,8 +56,22 @@ class ComplaintResponse(BaseModel):
     severity: SeverityEnum
     createdAt: datetime
     updatedAt: datetime
+
+    # When the complaint first entered RESOLVED. Null if it never has, or if it
+    # predates the column and had no RESOLVED history entry to backfill from.
+    # Consumers must treat null as "unknown", never as zero.
+    resolvedAt: Optional[datetime] = None
+
     location: LocationResponse
     category: CategoryResponse
+
+    # Who is involved. These columns already existed on the model; exposing them
+    # lets the UI show "assigned to", build per-worker performance views, and
+    # attribute uploaded photos to the reporter rather than inferring it from
+    # upload order.
+    citizenId: Optional[str] = None
+    officerId: Optional[str] = None
+    fieldWorkerId: Optional[str] = None
 
     # Advisory AI triage output. All optional: complaints filed before AI triage
     # existed, or filed while it was disabled, simply leave these null.
