@@ -8,16 +8,24 @@
 // leaflet.heat. Overlapping translucent circles accumulate into the same
 // visual density, and it avoids a second dependency for one screen. The
 // trade-off is that it is a density plot, not a true gaussian heat map — good
-// enough to answer "where is the pressure", and it degrades honestly at low
-// counts instead of painting a dramatic blob over three complaints.
+// enough to answer "where is the pressure".
+//
+// A pin is ALSO drawn for every complaint, on top of the halos. The halos alone
+// were the right answer at city scale and the wrong one at five complaints: a
+// handful of translucent blobs spread across a country reads as an empty map,
+// and someone who knows there are five complaints wants to see five marks. The
+// pins make the count legible; the halos still do the density work underneath
+// once the volume is there to produce any.
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
+import { SEVERITY_COLOR, pinIcon, escapeHtml, plottable } from './pin';
 
-// Cool → hot. Deliberately not the civic navy: this ramp encodes intensity,
+// The density shading. Deliberately not the civic navy: this encodes pressure,
 // and reusing the brand anchor would make a quiet area look "on brand" rather
-// than simply quiet.
-const RAMP = ['#2a6396', '#12a184', '#d97706', '#b42318'];
+// than simply quiet. Severity is carried by the pins (see pin.js), so this is
+// one colour rather than a ramp — two colour scales on one map compete.
+const HALO = '#12a184';
 
 // Weight by severity — a Critical complaint should register more strongly than
 // a Low one, because that is what the map is being read for.
@@ -32,12 +40,7 @@ export default function ComplaintHeatMap({ complaints = [], height = '460px' }) 
   const layerRef = useRef(null);
   const [ready, setReady] = useState(false);
 
-  const plotted = useMemo(
-    () => complaints.filter((c) => c?.coords
-      && typeof c.coords.latitude === 'number'
-      && typeof c.coords.longitude === 'number'),
-    [complaints],
-  );
+  const plotted = useMemo(() => plottable(complaints), [complaints]);
 
   useEffect(() => {
     if (mapRef.current || !containerRef.current) return undefined;
@@ -75,21 +78,24 @@ export default function ComplaintHeatMap({ complaints = [], height = '460px' }) 
 
     for (const c of plotted) {
       const w = WEIGHT[c.severity] || 1;
-      // Two stacked circles: a broad soft halo plus a tighter core. Where
-      // complaints overlap the halos compound, which is what produces the
-      // hot spots.
-      L.circleMarker([c.coords.latitude, c.coords.longitude], {
-        radius: 22 * w, stroke: false, fillColor: RAMP[1], fillOpacity: 0.10,
+      const at = [c.coords.latitude, c.coords.longitude];
+
+      // The density halo. Broad and very faint, so overlapping complaints
+      // compound into a hot spot while a lone one stays quiet.
+      L.circleMarker(at, {
+        radius: 22 * w, stroke: false, fillColor: HALO, fillOpacity: 0.10,
       }).addTo(layer);
-      L.circleMarker([c.coords.latitude, c.coords.longitude], {
-        radius: 7 * w,
-        stroke: false,
-        fillColor: RAMP[Math.min(RAMP.length - 1, Math.round(w) )],
-        fillOpacity: 0.5,
-      })
+
+      // The pin. One per complaint, always, so the map answers "how many and
+      // where" even when there are too few for any density to show.
+      L.marker(at, { icon: pinIcon(c.severity), title: c.issue })
         .bindPopup(
-          `<strong style="font-size:13px">${c.severity}</strong><br/>` +
-          `<span style="font-size:12px;color:#5c6a78">${c.category} · ${c.status}</span>`,
+          `<div style="min-width:170px">` +
+          `<div style="font-weight:600;font-size:13px;color:#0f172a;line-height:1.35">${escapeHtml(c.issue || 'Complaint')}</div>` +
+          `<div style="font-family:ui-monospace,monospace;font-size:11px;color:#94a3b8;margin-top:2px">${escapeHtml(c.id || '')}</div>` +
+          `<div style="font-size:12px;color:#475569;margin-top:6px">${escapeHtml(c.severity)} · ${escapeHtml(c.status)}</div>` +
+          `<div style="font-size:12px;color:#64748b;margin-top:2px">${escapeHtml(c.category || '')}</div>` +
+          `</div>`,
         )
         .addTo(layer);
     }
@@ -123,13 +129,19 @@ export default function ComplaintHeatMap({ complaints = [], height = '460px' }) 
 
       {plotted.length > 0 && (
         <div className="absolute bottom-3 left-3 z-[400] bg-surface/95 backdrop-blur rounded-lg border border-line shadow-sm px-3 py-2">
-          <div className="text-[10px] font-semibold uppercase tracking-wide text-ink-muted mb-1">
-            Intensity by severity
+          <div className="text-[10px] font-semibold uppercase tracking-wide text-ink-muted mb-1.5">
+            {plotted.length} plotted · by severity
           </div>
-          <div className="flex items-center gap-2">
-            <span className="text-[10px] text-ink-faint">Low</span>
-            <span className="h-2 w-24 rounded-full" style={{ background: `linear-gradient(90deg, ${RAMP.join(',')})` }} />
-            <span className="text-[10px] text-ink-faint">Critical</span>
+          <div className="flex items-center gap-2.5 flex-wrap">
+            {Object.entries(SEVERITY_COLOR).map(([label, color]) => (
+              <span key={label} className="inline-flex items-center gap-1 text-[10px] font-medium text-ink-body">
+                <span className="w-2.5 h-2.5 rounded-full border border-white" style={{ background: color }} />
+                {label}
+              </span>
+            ))}
+          </div>
+          <div className="text-[9.5px] text-ink-faint mt-1.5">
+            Shading shows where complaints cluster.
           </div>
         </div>
       )}
