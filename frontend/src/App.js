@@ -21,6 +21,7 @@ import OfficerLayout from './layouts/OfficerLayout';
 import OfficerDashboard from './pages/officer/OfficerDashboard';
 import OfficerComplaints from './pages/officer/OfficerComplaints';
 import OfficerWorkers from './pages/officer/OfficerWorkers';
+import OfficerVerification from './pages/officer/OfficerVerification';
 import WorkerLayout from './layouts/WorkerLayout';
 import WorkerDashboard from './pages/worker/WorkerDashboard';
 import WorkerTasks from './pages/worker/WorkerTasks';
@@ -104,6 +105,7 @@ function App() {
           <Route path="/admin/dashboard" element={<AdminDashboard />} />
           <Route path="/admin/users" element={<AdminUsers />} />
           <Route path="/admin/complaints" element={<AdminComplaints />} />
+          <Route path="/admin/complaints/:id" element={<ComplaintDetails />} />
           <Route path="/admin/departments" element={<Navigate to="/admin/dashboard" replace />} />
           <Route path="/admin/categories" element={<Navigate to="/admin/dashboard" replace />} />
           <Route path="/admin/analytics" element={<Navigate to="/admin/dashboard" replace />} />
@@ -123,6 +125,11 @@ function App() {
         >
           <Route path="/officer/dashboard" element={<OfficerDashboard />} />
           <Route path="/officer/complaints" element={<OfficerComplaints />} />
+          {/* Same detail view the citizen sees, inside the officer's layout.
+              /complaints/:id is guarded to citizens, so linking an officer
+              there bounced them to their dashboard. */}
+          <Route path="/officer/complaints/:id" element={<ComplaintDetails />} />
+          <Route path="/officer/verification" element={<OfficerVerification />} />
           <Route path="/officer/workers" element={<OfficerWorkers />} />
           <Route path="/officer/analytics" element={<Navigate to="/officer/dashboard" replace />} />
           <Route path="/officer/notifications" element={<Notifications />} />
