@@ -7,11 +7,9 @@ import Register from './pages/Register';
 import CitizenLayout from './layouts/CitizenLayout';
 import CitizenDashboard from './pages/CitizenDashboard';
 import ReportIssue from './pages/ReportIssue';
-import MyComplaints from './pages/MyComplaints';
+import Complaints from './pages/Complaints';
 import ComplaintDetails from './pages/ComplaintDetails';
 import Notifications from './pages/Notifications';
-import NearbyIssues from './pages/NearbyIssues';
-import TrackComplaints from './pages/TrackComplaints';
 import AIAssistant from './pages/AIAssistant';
 import Feedback from './pages/Feedback';
 import AdminLayout from './layouts/AdminLayout';
@@ -27,7 +25,6 @@ import WorkerLayout from './layouts/WorkerLayout';
 import WorkerDashboard from './pages/worker/WorkerDashboard';
 import WorkerTasks from './pages/worker/WorkerTasks';
 import WorkerTaskDetail from './pages/worker/WorkerTaskDetail';
-import WorkerHistory from './pages/worker/WorkerHistory';
 import WorkerProfile from './pages/worker/WorkerProfile';
 import Profile from './pages/shared/Profile';
 import { getCurrentUser, homePathForRole } from './api/auth';
@@ -83,10 +80,11 @@ function App() {
         >
           <Route path="/dashboard" element={<CitizenDashboard />} />
           <Route path="/report" element={<ReportIssue />} />
-          <Route path="/my-complaints" element={<MyComplaints />} />
+          <Route path="/complaints" element={<Complaints />} />
+          <Route path="/my-complaints" element={<Navigate to="/complaints" replace />} />
           <Route path="/complaints/:id" element={<ComplaintDetails />} />
-          <Route path="/track" element={<TrackComplaints />} />
-          <Route path="/nearby" element={<NearbyIssues />} />
+          <Route path="/track" element={<Navigate to="/complaints" replace />} />
+          <Route path="/nearby" element={<Navigate to="/complaints" replace />} />
           <Route path="/notifications" element={<Notifications />} />
           <Route path="/ai-assistant" element={<AIAssistant />} />
           <Route path="/feedback" element={<Feedback />} />
@@ -143,7 +141,7 @@ function App() {
           <Route path="/worker/tasks" element={<WorkerTasks />} />
           <Route path="/worker/tasks/:id" element={<WorkerTaskDetail />} />
           <Route path="/worker/map" element={<Navigate to="/worker/tasks" replace />} />
-          <Route path="/worker/history" element={<WorkerHistory />} />
+          <Route path="/worker/history" element={<Navigate to="/worker/tasks" replace />} />
           <Route path="/worker/notifications" element={<Notifications />} />
           <Route path="/worker/profile" element={<WorkerProfile />} />
           <Route path="/worker/settings" element={<Navigate to="/worker/profile" replace />} />

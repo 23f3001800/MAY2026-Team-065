@@ -228,6 +228,9 @@ export default function WorkerTasks() {
   // List or map over the SAME open tasks. This was a separate page, which meant
   // leaving your task list to find out where the tasks were.
   const [view, setView] = useState('list');
+  // History was its own page. It is the same query and the same cards — only
+  // the filter differs — so it is a scope here instead of a route.
+  const [scope, setScope] = useState('active');
 
   // Severity first, then oldest — the two things that decide what a worker
   // should do next.
@@ -286,6 +289,20 @@ export default function WorkerTasks() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <div className="flex rounded-lg border border-line overflow-hidden bg-surface" role="group" aria-label="Scope">
+            {[['active', 'Active'], ['history', 'History']].map(([k, label]) => (
+              <button
+                key={k}
+                onClick={() => setScope(k)}
+                aria-pressed={scope === k}
+                className={`focus-ring px-3.5 py-2.5 text-[13px] font-semibold transition-colors ${
+                  scope === k ? 'bg-civic-700 text-white' : 'text-ink-body hover:bg-surface-inset'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
           <div className="flex rounded-lg border border-line overflow-hidden bg-surface" role="group" aria-label="View">
             {['list', 'map'].map((v) => (
               <button
@@ -327,6 +344,33 @@ export default function WorkerTasks() {
           title="All caught up"
           message={`Nothing open. ${groups.awaiting.length} awaiting review, ${groups.done.length} closed.`}
         />
+      ) : scope === 'history' ? (
+        groups.done.length === 0 && groups.awaiting.length === 0 ? (
+          <EmptyPanel
+            icon={IconCheckCircle}
+            title="No finished work yet"
+            message="Tasks you submit or close will be listed here."
+          />
+        ) : (
+          <div className="space-y-6">
+            <Group
+              title="Awaiting review"
+              hint="Submitted — an officer or the citizen confirms it"
+              tasks={groups.awaiting}
+              busy={busy}
+              onQuick={handleQuick}
+              onOpen={(tid) => navigate(`/worker/tasks/${tid}`)}
+            />
+            <Group
+              title="Closed"
+              hint="Verified or rejected"
+              tasks={groups.done}
+              busy={busy}
+              onQuick={handleQuick}
+              onOpen={(tid) => navigate(`/worker/tasks/${tid}`)}
+            />
+          </div>
+        )
       ) : view === 'map' ? (
         <ComplaintMap
           complaints={[...groups.active, ...groups.next]}
@@ -353,42 +397,9 @@ export default function WorkerTasks() {
             onQuick={handleQuick}
             onOpen={(tid) => navigate(`/worker/tasks/${tid}`)}
           />
-          <Group
-            title="Awaiting review"
-            hint="Submitted — an officer or the citizen confirms it"
-            tasks={groups.awaiting}
-            busy={busy}
-            onQuick={handleQuick}
-            onOpen={(tid) => navigate(`/worker/tasks/${tid}`)}
-          />
         </div>
       )}
 
-      {/* Completed work stays reachable but out of the way — it is reference,
-          not a to-do. */}
-      {groups.done.length > 0 && (
-        <details className="bg-surface rounded-xl border border-line shadow-sm">
-          <summary className="focus-ring cursor-pointer px-4 py-3 text-[13px] font-semibold text-ink-body hover:bg-surface-inset transition-colors rounded-xl">
-            Completed ({groups.done.length})
-          </summary>
-          <ul className="border-t border-line divide-y divide-line">
-            {groups.done.slice(0, 10).map((t) => (
-              <li key={t.id}>
-                <button
-                  onClick={() => navigate(`/worker/tasks/${t.id}`)}
-                  className="focus-ring w-full text-left px-4 py-3 hover:bg-surface-inset transition-colors flex items-center gap-3"
-                >
-                  <div className="min-w-0 flex-1">
-                    <div className="text-[13px] font-medium text-ink truncate">{t.issue}</div>
-                    <div className="text-[11px] text-ink-faint font-mono mt-0.5">{t.id}</div>
-                  </div>
-                  <StatusBadge status={t.status} />
-                </button>
-              </li>
-            ))}
-          </ul>
-        </details>
-      )}
 
     </div>
   );
