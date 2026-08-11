@@ -9,7 +9,7 @@ export default function Topbar({ user, onMenu, showLocation = true, notification
   const initial = (user?.name?.[0] || 'U').toUpperCase();
 
   return (
-    <header className="sticky top-0 z-20 h-[68px] bg-white border-b border-slate-200 flex items-center gap-3 px-4 sm:px-6">
+    <header className="sticky top-0 z-20 h-[68px] bg-surface/90 backdrop-blur border-b border-line flex items-center gap-3 px-4 sm:px-6">
       {/* Mobile menu toggle */}
       <button
         onClick={onMenu}
