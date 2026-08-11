@@ -24,7 +24,8 @@ import { getCurrentUser } from '../../api/auth';
 import { listComplaints } from '../../api/complaints';
 import { listFieldWorkers } from '../../api/workers';
 import useAsync from '../../hooks/useAsync';
-import { computeMetrics, ranked } from '../../lib/complaintMetrics';
+import { computeMetrics, ranked, volumeSeries } from '../../lib/complaintMetrics';
+import { BarList, TrendLine, Donut } from '../../components/charts';
 
 const AVAILABILITY = {
   Available: { text: 'text-teal-700', dot: 'bg-teal-500' },
@@ -75,6 +76,7 @@ export default function OfficerDashboard() {
   }, [data]);
 
   const topCategories = useMemo(() => ranked(metrics.byCategory, 5), [metrics]);
+  const trend = useMemo(() => volumeSeries(data?.complaints, 30), [data]);
 
   const firstName = (user?.name || 'there').split(' ')[0];
   const asOf = data?.loadedAt
@@ -124,16 +126,16 @@ export default function OfficerDashboard() {
         </div>
       </header>
 
-      {/* Metrics. Resolution rate carries its own arithmetic; the two the data
-          cannot support pass null and render the insufficient state. */}
+      {/* Metrics. Each carries a visual, not just a figure: a bare number tells
+          you the value but not whether it is large, moving, or most of a whole. */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
         <MetricCard
           label="Total Complaints"
           value={metrics.total}
           provenance="derived"
           tone="neutral"
-          footnote="Counted from the full record set"
-          formula={`${metrics.total} complaints returned by GET /complaints/`}
+          series={trend.points}
+          footnote="Last 30 days"
         />
         <MetricCard
           label="Open"
@@ -141,14 +143,20 @@ export default function OfficerDashboard() {
           context={`${metrics.untriaged} awaiting triage`}
           provenance="derived"
           tone={metrics.open > metrics.closed ? 'caution' : 'neutral'}
-          formula={`${metrics.total} total − ${metrics.closed} closed (Verified or Rejected) = ${metrics.open} open`}
+          split={[
+            { label: '0-2d', value: metrics.ageBuckets['0-2 days'], color: '#0e7c66' },
+            { label: '3-7d', value: metrics.ageBuckets['3-7 days'], color: '#12a184' },
+            { label: '8-30d', value: metrics.ageBuckets['8-30 days'], color: '#b45309' },
+            { label: '30d+', value: metrics.ageBuckets['30+ days'], color: '#b42318' },
+          ]}
         />
         <MetricCard
           label="Resolved"
           value={metrics.resolved}
           provenance="derived"
           tone="positive"
-          formula={`Complaints with status Resolved or Verified = ${metrics.resolved}`}
+          share={metrics.total ? metrics.resolved / metrics.total : 0}
+          context={`of ${metrics.total} total`}
         />
         <MetricCard
           label="Resolution Rate"
@@ -157,15 +165,47 @@ export default function OfficerDashboard() {
           context={metrics.resolutionRate === null ? null : `${metrics.resolved} / ${metrics.total}`}
           provenance="derived"
           tone="positive"
-          formula={
-            metrics.resolutionRate === null
-              ? undefined
-              : `${metrics.resolved} resolved ÷ ${metrics.total} total × 100 = ${metrics.resolutionRate.toFixed(1)}%`
-          }
+          share={metrics.resolutionRate === null ? undefined : metrics.resolutionRate / 100}
         />
       </div>
 
       <OperationsBrief metrics={metrics} />
+
+      {/* Absorbed from the old Analytics page — the same dataset, so splitting
+          it across two screens only made an officer navigate to compare. */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+        <section className="bg-surface rounded-xl border border-line shadow-sm p-5 lg:col-span-2">
+          <h3 className="font-display text-[15px] font-bold text-ink mb-1">Intake over time</h3>
+          <p className="text-[12px] text-ink-muted mb-3">
+            Last 30 days · {trend.counted} of {trend.total} complaints fall in this window
+          </p>
+          <TrendLine points={trend.points} height={150} />
+        </section>
+        <section className="bg-surface rounded-xl border border-line shadow-sm p-5">
+          <h3 className="font-display text-[15px] font-bold text-ink mb-3">Status</h3>
+          <Donut data={ranked(metrics.byStatus, 6).top} centerLabel="complaints" />
+        </section>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        <section className="bg-surface rounded-xl border border-line shadow-sm p-5">
+          <h3 className="font-display text-[15px] font-bold text-ink mb-1">Open complaints by age</h3>
+          <p className="text-[12px] text-ink-muted mb-3">Open only — a closed complaint is not ageing.</p>
+          <BarList
+            data={Object.entries(metrics.ageBuckets)}
+            total={metrics.open}
+            emptyMessage="Nothing is open right now."
+          />
+        </section>
+        <section className="bg-surface rounded-xl border border-line shadow-sm p-5">
+          <h3 className="font-display text-[15px] font-bold text-ink mb-3">Departments</h3>
+          <BarList
+            data={ranked(metrics.byDepartment, 6).top}
+            total={metrics.total}
+            emptyMessage="No complaint carries a department yet."
+          />
+        </section>
+      </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 items-start">
         {/* Recent intake */}
