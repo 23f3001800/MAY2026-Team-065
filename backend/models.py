@@ -98,6 +98,12 @@ class ComplaintModel(Base):
     severity: Mapped[SeverityEnum] = mapped_column(Enum(SeverityEnum), default=SeverityEnum.LOW)
     createdAt: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updatedAt: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # When the complaint FIRST entered RESOLVED. Distinct from updatedAt, which
+    # moves on any edit -- a recategorisation months later would otherwise make
+    # this look like a months-long resolution. Set once and never overwritten,
+    # so a reopen-and-fix-again cycle still reports the original turnaround.
+    resolvedAt: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     
     # Foreign Keys
     locationId: Mapped[int] = mapped_column(ForeignKey("locations.locationId"))
