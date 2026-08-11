@@ -132,6 +132,16 @@ export function fromApiComplaint(c) {
     date: c.createdAt,
     reportedAt: c.createdAt,
     updatedAt: c.updatedAt,
+    // When it FIRST entered Resolved. Null means unknown — either it never has,
+    // or it predates the column and had no history entry to backfill from.
+    // Never treat null as zero.
+    resolvedAt: c.resolvedAt || null,
+
+    // The people on the record. citizenId in particular turns the before/after
+    // photo split from an inference into a fact (see lib/evidence.js).
+    citizenId: c.citizenId || null,
+    officerId: c.officerId || null,
+    fieldWorkerId: c.fieldWorkerId || null,
 
     // Advisory AI triage. All nullable: complaints filed before triage existed,
     // or while it was switched off, carry none of it. `ai` is null rather than
