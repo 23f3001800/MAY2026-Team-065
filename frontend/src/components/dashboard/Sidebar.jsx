@@ -2,17 +2,14 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
 import {
-  IconGrid, IconReport, IconList, IconTrack, IconMapPin,
-  IconStar, IconUserCircle, IconLogout, IconArrowRight,
+  IconGrid, IconReport, IconList, IconStar, IconUserCircle, IconLogout, IconArrowRight,
 } from './icons';
 
 // Nav items shown to a citizen. `badge` renders a small count pill.
 export const NAV_ITEMS = [
   { to: '/dashboard', label: 'Dashboard', icon: IconGrid },
   { to: '/report', label: 'Report Issue', icon: IconReport },
-  { to: '/my-complaints', label: 'My Complaints', icon: IconList },
-  { to: '/track', label: 'Track Complaints', icon: IconTrack },
-  { to: '/nearby', label: 'Nearby Issues', icon: IconMapPin },
+  { to: '/complaints', label: 'Complaints', icon: IconList },
   { to: '/feedback', label: 'Feedback', icon: IconStar },
   { to: '/profile', label: 'Profile', icon: IconUserCircle },
 ];
@@ -29,7 +26,7 @@ export default function Sidebar({ open, onNavigate, onLogout, items = NAV_ITEMS,
       />
 
       <aside
-        className={`fixed lg:sticky top-0 left-0 z-40 h-screen w-[260px] shrink-0 bg-[#0b1220] border-r border-white/5 flex flex-col transition-transform duration-300 ${
+        className={`fixed lg:sticky top-0 left-0 z-40 h-screen w-[260px] shrink-0 bg-civic-950 border-r border-white/[0.06] flex flex-col transition-transform duration-300 ${
           open ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
         }`}
       >
