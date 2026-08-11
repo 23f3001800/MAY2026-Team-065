@@ -19,7 +19,7 @@ export default function AdminLayout() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 flex">
+    <div className="min-h-screen bg-surface-sunken flex">
       <Sidebar
         open={sidebarOpen}
         items={ADMIN_NAV}
@@ -30,7 +30,7 @@ export default function AdminLayout() {
 
       <div className="flex-1 min-w-0 flex flex-col">
         <Topbar user={user} notificationsHref="/admin/notifications" showLocation={false} onMenu={() => setSidebarOpen(true)} />
-        <main className="flex-1 p-4 sm:p-6 lg:p-8">
+        <main className="flex-1 p-4 sm:p-6 lg:p-8 bg-gradient-to-b from-civic-50/40 to-transparent bg-no-repeat [background-size:100%_260px]">
           <Outlet />
         </main>
       </div>

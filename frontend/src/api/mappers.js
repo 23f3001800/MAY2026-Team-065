@@ -146,8 +146,11 @@ export function fromApiComplaint(c) {
               || c.aiSuggestedCategoryId
             : null,
           severity: c.aiSeverity ? fromApiSeverity(c.aiSeverity) : null,
+          // aiSummary is deliberately not carried through. It restated the
+          // description without adding anything an officer could act on, and
+          // every extra line in the drawer competes with the decisions that
+          // matter. The field still exists on the wire and on the report slip.
           confidence: typeof c.aiConfidence === 'number' ? c.aiConfidence : null,
-          summary: c.aiSummary || null,
           // 'rules' (deterministic engine) or 'gemini' (model call).
           source: c.aiSource || null,
           analyzedAt: c.aiAnalyzedAt || null,

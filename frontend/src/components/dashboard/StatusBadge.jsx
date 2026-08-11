@@ -25,6 +25,14 @@ const STYLES = {
   'Merged': { chip: 'bg-slate-100 text-slate-600 ring-slate-500/15', dot: 'bg-slate-400' },
 };
 
+// What each status is CALLED on screen, where the stored name misleads.
+// RESOLVED is the worker's report that the work is done — not the closure.
+// Verification is the citizen's call (services/lifecycle.py), so "Resolved"
+// told everyone it was finished when it was actually waiting on someone.
+const DISPLAY_LABEL = {
+  Resolved: 'Awaiting Review',
+};
+
 const FALLBACK = { chip: 'bg-slate-100 text-slate-600 ring-slate-500/15', dot: 'bg-slate-400' };
 
 // Statuses that mean "someone is working on this right now" get a live dot.
@@ -44,7 +52,7 @@ export default function StatusBadge({ status, className = '' }) {
         )}
         <span className={`relative inline-flex w-1.5 h-1.5 rounded-full ${dot}`} />
       </span>
-      {status}
+      {DISPLAY_LABEL[status] || status}
     </span>
   );
 }

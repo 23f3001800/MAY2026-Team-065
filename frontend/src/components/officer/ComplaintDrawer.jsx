@@ -22,6 +22,8 @@ import {
 } from '../dashboard/icons';
 import { CATEGORIES, ALL_STATUSES, statusesSettableBy, aiDisagrees } from '../../api/mappers';
 import { getComplaintHistory, getComplaintMedia } from '../../api/complaints';
+import { splitEvidence } from '../../lib/evidence';
+import AiVerificationPanel from './AiVerificationPanel';
 
 const SEVERITY_LEVELS = ['Low', 'Medium', 'High', 'Critical'];
 
@@ -114,6 +116,11 @@ export default function ComplaintDrawer({
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [onDismiss]);
+
+  // Split by uploader, not by the RESOLVED timestamp — the worker screen
+  // uploads before moving status, so a timestamp split files every completion
+  // photo under "before". See lib/evidence.js.
+  const { before: beforePhotos, after: afterPhotos } = splitEvidence(media, complaint.reportedAt);
 
   const categoryChanged = categoryId && categoryId !== complaint.categoryId;
   const statusChanged = status !== complaint.status;
@@ -217,12 +224,79 @@ export default function ComplaintDrawer({
                   </span>
                 }
               >
+                {/* Before and after, side by side. An officer is asked to
+                    verify completion — one undifferentiated grid makes that
+                    impossible, because you cannot tell which photo is the
+                    problem and which is the fix. */}
                 {media.length > 0 ? (
-                  <PhotoGrid photos={media} columns="sm:grid-cols-3" />
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="rounded-lg border border-line bg-surface-inset/60 p-2.5">
+                      <div className="flex items-baseline justify-between mb-2">
+                        <span className="text-[11px] font-bold uppercase tracking-wide text-ink-muted">Before</span>
+                        <span className="text-[10px] text-ink-faint tnum">{beforePhotos.length}</span>
+                      </div>
+                      {beforePhotos.length
+                        ? <PhotoGrid photos={beforePhotos} columns="grid-cols-2" />
+                        : <p className="text-[11px] text-ink-faint py-3 text-center">Nothing from the reporter.</p>}
+                    </div>
+                    <div className="rounded-lg border border-teal-100 bg-teal-50/40 p-2.5">
+                      <div className="flex items-baseline justify-between mb-2">
+                        <span className="text-[11px] font-bold uppercase tracking-wide text-teal-700">After</span>
+                        <span className="text-[10px] text-ink-faint tnum">{afterPhotos.length}</span>
+                      </div>
+                      {afterPhotos.length
+                        ? <PhotoGrid photos={afterPhotos} columns="grid-cols-2" />
+                        : <p className="text-[11px] text-ink-faint py-3 text-center">No completion evidence yet.</p>}
+                    </div>
+                  </div>
                 ) : (
                   <p className="flex items-center gap-2 text-[13px] text-ink-muted">
                     <IconImage size={15} className="text-ink-faint" /> No photos attached.
                   </p>
+                )}
+
+                {/* AI assistance sits with the evidence and above the decision,
+                    so it informs the choice rather than second-guessing it. */}
+                {complaint.status === 'Resolved' && (
+                  <AiVerificationPanel
+                    complaint={complaint}
+                    beforePhotos={beforePhotos}
+                    afterPhotos={afterPhotos}
+                    busy={busy}
+                  />
+                )}
+
+                {/* The verification decision, where the evidence is — not
+                    buried in the status dropdown further down. */}
+                {complaint.status === 'Resolved' && (
+                  <div className="mt-3 rounded-lg border border-civic-100 bg-civic-50/60 p-3">
+                    <p className="text-[12px] text-ink-body leading-snug mb-2.5">
+                      A field worker has submitted this as complete. Confirm the work matches the
+                      report, or send it back.
+                    </p>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => onStatusChange(complaint.id, 'Verified', 'Evidence verified by officer.')}
+                        disabled={busy || afterPhotos.length === 0}
+                        title={afterPhotos.length === 0 ? 'No completion evidence to verify' : undefined}
+                        className="focus-ring flex-1 inline-flex items-center justify-center gap-1.5 bg-teal-600 hover:bg-teal-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold text-[12px] py-2 rounded-lg transition-colors"
+                      >
+                        <IconCheckCircle size={14} /> Verify &amp; close
+                      </button>
+                      <button
+                        onClick={() => onStatusChange(complaint.id, 'Reopened', 'Sent back — work not accepted.')}
+                        disabled={busy}
+                        className="focus-ring flex-1 bg-surface border border-line hover:border-caution-500 text-caution-700 font-semibold text-[12px] py-2 rounded-lg transition-colors disabled:opacity-40"
+                      >
+                        Send back
+                      </button>
+                    </div>
+                    {afterPhotos.length === 0 && (
+                      <p className="text-[11px] text-caution-700 mt-2">
+                        Nothing to verify — no completion photo was attached.
+                      </p>
+                    )}
+                  </div>
                 )}
               </Card>
 
@@ -245,9 +319,6 @@ export default function ComplaintDrawer({
                     </span>
                   }
                 >
-                  {ai.summary && (
-                    <p className="text-[13px] text-ink-body leading-relaxed mb-3">{ai.summary}</p>
-                  )}
 
                   <div className="grid grid-cols-2 gap-2.5">
                     <div className="bg-white rounded-lg border border-line p-2.5">
