@@ -28,6 +28,7 @@ import {
 import { listMyTasks, updateComplaintStatus } from '../../api/complaints';
 import useAsync from '../../hooks/useAsync';
 import { TERMINAL_STATUSES } from '../../api/mappers';
+import ComplaintMap from '../../components/map/ComplaintMap';
 
 const SEVERITY_RANK = { Critical: 0, High: 1, Medium: 2, Low: 3 };
 const DAY_MS = 86400000;
@@ -197,6 +198,9 @@ export default function WorkerTasks() {
   const [toast, setToast] = useState('');
   const [toastTone, setToastTone] = useState('success');
   const [busy, setBusy] = useState(false);
+  // List or map over the SAME open tasks. This was a separate page, which meant
+  // leaving your task list to find out where the tasks were.
+  const [view, setView] = useState('list');
   const selected = items.find((t) => t.id === selectedId) || null;
 
   // Severity first, then oldest — the two things that decide what a worker
@@ -269,12 +273,28 @@ export default function WorkerTasks() {
               : `${openCount} job${openCount === 1 ? '' : 's'} to work through.`}
           </p>
         </div>
-        <button
-          onClick={refetch}
-          className="focus-ring lift inline-flex items-center gap-2 bg-surface border border-line hover:border-civic-400 text-ink-body font-semibold text-[13px] px-3.5 py-2.5 rounded-lg shadow-sm transition-all"
-        >
-          <IconRefresh size={15} /> Refresh
-        </button>
+        <div className="flex items-center gap-2">
+          <div className="flex rounded-lg border border-line overflow-hidden bg-surface" role="group" aria-label="View">
+            {['list', 'map'].map((v) => (
+              <button
+                key={v}
+                onClick={() => setView(v)}
+                aria-pressed={view === v}
+                className={`focus-ring px-3.5 py-2.5 text-[13px] font-semibold capitalize transition-colors ${
+                  view === v ? 'bg-civic-700 text-white' : 'text-ink-body hover:bg-surface-inset'
+                }`}
+              >
+                {v}
+              </button>
+            ))}
+          </div>
+          <button
+            onClick={refetch}
+            className="focus-ring lift inline-flex items-center gap-2 bg-surface border border-line hover:border-civic-400 text-ink-body font-semibold text-[13px] px-3.5 py-2.5 rounded-lg shadow-sm transition-all"
+          >
+            <IconRefresh size={15} /> Refresh
+          </button>
+        </div>
       </header>
 
       <Toast message={toast} tone={toastTone} onDismiss={() => setToast('')} autoHideMs={toastTone === 'error' ? 0 : 4000} />
@@ -294,6 +314,13 @@ export default function WorkerTasks() {
           icon={IconCheckCircle}
           title="All caught up"
           message={`Nothing open. ${groups.awaiting.length} awaiting review, ${groups.done.length} closed.`}
+        />
+      ) : view === 'map' ? (
+        <ComplaintMap
+          complaints={[...groups.active, ...groups.next]}
+          height="560px"
+          showMe
+          onSelect={(c) => setSelectedId(c.id)}
         />
       ) : (
         <div className="space-y-6">

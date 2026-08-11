@@ -14,6 +14,7 @@ import { Link } from 'react-router-dom';
 import { BarList, TrendLine, Donut } from '../../components/charts';
 import MetricCard from '../../components/metrics/MetricCard';
 import { computeMetrics, volumeSeries, ranked } from '../../lib/complaintMetrics';
+import useCategories from '../../hooks/useCategories';
 import ComplaintHeatMap from '../../components/map/ComplaintHeatMap';
 import { LoadingPanel, ErrorPanel } from '../../components/dashboard/AsyncStates';
 import { IconUserPlus } from '../../components/dashboard/icons';
@@ -52,6 +53,17 @@ export default function AdminDashboard() {
   // months later reported a months-long resolution. That tile is now the
   // honest insufficient-data state.
   const metrics = useMemo(() => computeMetrics(data?.complaints), [data]);
+  const { categories } = useCategories();
+
+  // Every seeded category, zeros included. ranked() only surfaces categories
+  // that have complaints, so a category nobody has reported disappears — and
+  // "nothing reported under Streetlight" is a finding, not an absence of one.
+  const allCategories = useMemo(
+    () => categories
+      .map((c) => [c.label, metrics.byCategory[c.label] || 0])
+      .sort((a, b) => b[1] - a[1]),
+    [categories, metrics.byCategory],
+  );
 
   // /admin/analytics IS a server aggregate, unlike everything else here, so the
   // one figure it gives us is labelled Verified rather than Derived.
@@ -139,8 +151,14 @@ export default function AdminDashboard() {
               <TrendLine points={trend.points} height={140} />
             </section>
             <section className="bg-surface rounded-xl border border-line shadow-sm p-5">
-              <h3 className="font-display text-[15px] font-bold text-ink mb-3">Top issue categories</h3>
-              <BarList data={ranked(metrics.byCategory, 6).top} total={metrics.total} />
+              <div className="flex items-baseline justify-between gap-2 mb-1">
+                <h3 className="font-display text-[15px] font-bold text-ink">Categories</h3>
+                <span className="text-[11px] text-ink-faint tnum">{allCategories.length} configured</span>
+              </div>
+              <p className="text-[12px] text-ink-muted mb-3">
+                Every category, including any with nothing reported
+              </p>
+              <BarList data={allCategories} total={metrics.total} />
             </section>
           </div>
 
