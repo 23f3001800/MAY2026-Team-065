@@ -132,7 +132,7 @@ function TaskCard({ task, busy, onQuick, onOpen, index = 0 }) {
                 </span>
               )}
             </div>
-            <h3 className="text-[16px] font-semibold text-ink leading-snug">{task.issue}</h3>
+            <h3 className="text-[17px] font-semibold text-ink leading-snug tracking-[-0.01em]">{task.issue}</h3>
           </div>
           <SeverityBadge severity={task.severity} className="shrink-0 mt-0.5" />
         </div>
@@ -150,8 +150,11 @@ function TaskCard({ task, busy, onQuick, onOpen, index = 0 }) {
           </span>
           <div className="min-w-0">
             <div className="text-[13px] font-medium text-ink leading-snug">{task.location}</div>
-            <div className="text-[11px] text-ink-faint mt-0.5">
-              {task.category} · reported {ageLabel(days)}
+            <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+              <span className="inline-flex items-center text-[10px] font-semibold uppercase tracking-wide text-ink-muted bg-surface border border-line rounded px-1.5 py-0.5">
+                {task.category}
+              </span>
+              <span className="text-[11px] text-ink-faint">reported {ageLabel(days)}</span>
             </div>
           </div>
         </div>

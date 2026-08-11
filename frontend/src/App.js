@@ -25,6 +25,7 @@ import WorkerLayout from './layouts/WorkerLayout';
 import WorkerDashboard from './pages/worker/WorkerDashboard';
 import WorkerTasks from './pages/worker/WorkerTasks';
 import WorkerTaskDetail from './pages/worker/WorkerTaskDetail';
+import WorkerPerformance from './pages/worker/WorkerPerformance';
 import WorkerProfile from './pages/worker/WorkerProfile';
 import Profile from './pages/shared/Profile';
 import { getCurrentUser, homePathForRole } from './api/auth';
@@ -143,6 +144,7 @@ function App() {
           <Route path="/worker/map" element={<Navigate to="/worker/tasks" replace />} />
           <Route path="/worker/history" element={<Navigate to="/worker/tasks" replace />} />
           <Route path="/worker/notifications" element={<Notifications />} />
+          <Route path="/worker/performance" element={<WorkerPerformance />} />
           <Route path="/worker/profile" element={<WorkerProfile />} />
           <Route path="/worker/settings" element={<Navigate to="/worker/profile" replace />} />
         </Route>
