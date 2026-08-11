@@ -40,6 +40,7 @@ _ADDED_COLUMNS: List[Tuple[str, str, str]] = [
     ("complaints", "aiSource", "VARCHAR"),
     ("complaints", "aiAnalyzedAt", "TIMESTAMP"),
     ("complaints", "duplicateOfComplaintId", "VARCHAR"),
+    ("complaints", "resolvedAt", "TIMESTAMP"),
 ]
 
 # SQLite has no DOUBLE PRECISION / TIMESTAMP spelling difference worth caring
@@ -226,6 +227,43 @@ async def _backfill_notification_recipients(conn: AsyncConnection) -> int:
     return count
 
 
+async def _backfill_resolved_at(conn: AsyncConnection) -> int:
+    """Recover ``resolvedAt`` for complaints resolved before the column existed.
+
+    ``status_histories`` already records every transition with a timestamp, so
+    the first entry into RESOLVED is the real resolution time. That is far
+    better than falling back to ``updatedAt``, which moves on any later edit and
+    would report an inflated turnaround.
+
+    Complaints with no RESOLVED history entry are left null rather than guessed
+    -- an absent figure is honest, an invented one is not.
+    """
+    if not await _table_exists(conn, "complaints"):
+        return 0
+    if not await _table_exists(conn, "status_histories"):
+        return 0
+
+    # Correlated subquery rather than UPDATE..FROM so the same statement runs on
+    # both PostgreSQL and SQLite.
+    result = await conn.execute(
+        text(
+            'UPDATE complaints SET "resolvedAt" = ('
+            '  SELECT MIN(h.timestamp) FROM status_histories h'
+            '  WHERE h."complaintId" = complaints."complaintId"'
+            "    AND CAST(h.status AS VARCHAR) = 'RESOLVED'"
+            ') WHERE "resolvedAt" IS NULL'
+            '  AND EXISTS ('
+            '    SELECT 1 FROM status_histories h2'
+            '    WHERE h2."complaintId" = complaints."complaintId"'
+            "      AND CAST(h2.status AS VARCHAR) = 'RESOLVED')"
+        )
+    )
+    count = result.rowcount or 0
+    if count:
+        logger.info("migration: backfilled resolvedAt on %d complaint(s)", count)
+    return count
+
+
 async def _backfill_notification_defaults(conn: AsyncConnection) -> None:
     """Give pre-existing rows the defaults the model now declares."""
     if not await _table_exists(conn, "notifications"):
@@ -253,6 +291,7 @@ async def run_migrations(engine: AsyncEngine) -> None:
             added = await _add_missing_columns(conn)
             await _backfill_notification_recipients(conn)
             await _backfill_notification_defaults(conn)
+            await _backfill_resolved_at(conn)
 
         if added or enum_values_added:
             logger.info(
