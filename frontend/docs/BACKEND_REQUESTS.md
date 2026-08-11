@@ -160,6 +160,63 @@ not at tens of thousands.
 
 ---
 
+## 6. User management CRUD — the admin screen is mostly read-only
+
+Admin > User Management can create accounts and reset passwords. It cannot
+meaningfully **update** or **delete** one, and each gap is a specific defect
+rather than a missing feature.
+
+### 6a. `PATCH /admin/users/{id}` writes a worker's skills to the wrong attribute
+
+`main.py` sets `field_worker.skills` and `field_worker.department`, but
+`FieldWorkerModel` (`models.py:45`) has neither — the column is **`skillSet`**,
+and there is no department column at all. SQLAlchemy accepts the assignment as
+an ordinary Python attribute, the commit saves nothing, and the endpoint still
+returns `{"message": "User updated successfully"}`.
+
+That last part is the real problem: it reports success. The frontend cannot
+tell a saved change from a discarded one, so the skills field in Edit User is
+locked rather than lying about what it did.
+
+```python
+if update_data.skills is not None:
+    field_worker.skillSet = ", ".join(update_data.skills)   # not .skills
+# drop the field_worker.department branch entirely, or add the column
+```
+
+### 6b. `isActive` has nowhere to be stored
+
+`UserModel` has no `isActive` column, so Suspend/Reactivate is accepted and
+persists nothing, and nothing blocks a suspended user from signing in. Needs a
+column plus a check in the login path — the column alone would be worse than
+nothing, because the UI would then correctly show a suspension that does not
+actually suspend.
+
+### 6c. Name, email and phone cannot be updated at all
+
+`UserUpdate` carries only `isActive`, `role`, `department`, `skills`. A
+mistyped email currently means deleting and recreating the account — except
+that deletion is not possible either (6d). Adding `name`, `email` and `phone`
+to `UserUpdate` and the handler would close this; `email` needs the same
+uniqueness check `POST /admin/users/official` already does.
+
+### 6d. There is no delete endpoint
+
+No `DELETE /admin/users/{id}` exists. Given complaints reference `citizenId`,
+`officerId` and `fieldWorkerId`, a hard delete would orphan records — so the
+right shape is almost certainly a soft delete built on 6b rather than a real
+`DELETE`.
+
+### 6e. `POST /admin/users/official` only builds an officer
+
+`SystemOfficialCreate` accepts `role`, but the handler only constructs a
+`MunicipalOfficerModel`. Any other role leaves `new_user` as `None` and
+`db.add(None)` raises a 500. The frontend works around this by sending field
+workers to `POST /workers/` instead, which is fine — but the endpoint should
+either handle the other roles or reject them with a 400 rather than a 500.
+
+---
+
 ## Already done
 
 Checked against the source; earlier versions of these docs asked for work that
