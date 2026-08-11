@@ -12,15 +12,16 @@ import { Link, useParams } from 'react-router-dom';
 import StatusBadge from '../components/dashboard/StatusBadge';
 import SeverityBadge from '../components/dashboard/SeverityBadge';
 import { LoadingPanel, ErrorPanel } from '../components/dashboard/AsyncStates';
-import PhotoGrid from '../components/dashboard/PhotoGrid';
+import EvidencePanel from '../components/dashboard/EvidencePanel';
 import ReportSlipModal from '../components/dashboard/ReportSlipModal';
 import ComplaintMap from '../components/map/ComplaintMap';
 import {
   IconArrowLeft, IconMapPin, IconInbox, IconStar, IconBuilding, IconSend,
-  IconCheckCircle, IconReport as IconFileText,
+  IconExternal, IconReport as IconFileText,
 } from '../components/dashboard/icons';
 import { getComplaint, getComplaintHistory, getComplaintMedia, submitFeedback } from '../api/complaints';
 import useAsync from '../hooks/useAsync';
+import { getCurrentUser } from '../api/auth';
 
 function formatStamp(iso) {
   const d = new Date(iso);
@@ -99,6 +100,17 @@ export default function ComplaintDetails() {
   const [media, setMedia] = useState([]);
   const [sideError, setSideError] = useState('');
 
+  const [mediaNonce, setMediaNonce] = useState(0);
+
+  // POST /complaints/{id}/images accepts the owning citizen or the ASSIGNED
+  // field worker only — an officer uploading would get a 403. The response
+  // carries no citizenId or assignee, so ownership cannot be proven here;
+  // the control is offered by role and the backend remains the authority.
+  // A citizen adds "before" context, a worker adds "after" evidence.
+  const currentUser = getCurrentUser();
+  const canUpload = currentUser?.role === 'citizen' || currentUser?.role === 'field_worker';
+  const uploadKind = currentUser?.role === 'field_worker' ? 'after' : 'before';
+
   useEffect(() => {
     let alive = true;
     Promise.allSettled([getComplaintHistory(id), getComplaintMedia(id)])
@@ -111,7 +123,7 @@ export default function ComplaintDetails() {
         if (failed.length) setSideError(failed[0].reason?.message || 'Could not load attachments.');
       });
     return () => { alive = false; };
-  }, [id]);
+  }, [id, mediaNonce]);
 
   // Oldest first — a timeline reads top-down in the order things happened.
   const timeline = useMemo(
@@ -140,12 +152,12 @@ export default function ComplaintDetails() {
   }, [media, resolvedAt]);
 
   if (loading) {
-    return <div className="max-w-[1200px] mx-auto"><LoadingPanel label="Loading complaint…" variant="detail" /></div>;
+    return <div className="max-w-[1400px] mx-auto"><LoadingPanel label="Loading complaint…" variant="detail" /></div>;
   }
 
   if (error) {
     return (
-      <div className="max-w-[1200px] mx-auto space-y-4">
+      <div className="max-w-[1400px] mx-auto space-y-4">
         <Link to="/my-complaints" className="inline-flex items-center gap-2 text-[13px] font-medium text-slate-500 hover:text-primary">
           <IconArrowLeft size={16} /> Back to My Complaints
         </Link>
@@ -156,7 +168,7 @@ export default function ComplaintDetails() {
 
   if (!complaint) {
     return (
-      <div className="max-w-[1200px] mx-auto">
+      <div className="max-w-[1400px] mx-auto">
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-12 flex flex-col items-center text-center">
           <div className="w-14 h-14 rounded-2xl bg-slate-100 text-slate-400 flex items-center justify-center mb-4">
             <IconInbox size={26} />
@@ -192,7 +204,7 @@ export default function ComplaintDetails() {
   };
 
   return (
-    <div className="max-w-[1200px] mx-auto space-y-5">
+    <div className="max-w-[1400px] mx-auto space-y-5">
       <Link to="/my-complaints" className="inline-flex items-center gap-2 text-[13px] font-medium text-slate-500 hover:text-primary transition-colors">
         <IconArrowLeft size={16} /> Back to My Complaints
       </Link>
@@ -225,31 +237,42 @@ export default function ComplaintDetails() {
             <h2 className="font-semibold text-slate-800 text-[15px] mb-2">Description</h2>
             <p className="text-[14px] text-slate-600 leading-relaxed whitespace-pre-line">{complaint.description}</p>
 
-            {reportPhotos.length > 0 && (
-              <>
-                <h3 className="font-semibold text-slate-800 text-[15px] mt-6 mb-3">Photo Evidence</h3>
-                <PhotoGrid photos={reportPhotos} />
-              </>
-            )}
           </section>
 
-          {/* Where it is. Shown to whoever can open the complaint — citizen,
-              officer, worker or admin all need to place it. */}
-          {complaint.coords && (
-            <section className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
-              <h2 className="font-semibold text-slate-800 text-[15px] mb-3">Location</h2>
-              <ComplaintMap complaints={[complaint]} height="300px" />
-            </section>
-          )}
+          <EvidencePanel
+            complaintId={complaint.id}
+            reportPhotos={reportPhotos}
+            resolutionPhotos={resolutionPhotos}
+            canUpload={canUpload}
+            uploadKind={uploadKind}
+            onUploaded={() => setMediaNonce((n) => n + 1)}
+          />
 
-          {/* Resolution evidence — the field worker's completion proof. */}
-          {resolutionPhotos.length > 0 && (
-            <section className="bg-white rounded-2xl border border-emerald-200 shadow-sm p-6">
-              <div className="flex items-center gap-2 mb-3">
-                <span className="text-primary"><IconCheckCircle size={18} /></span>
-                <h2 className="font-semibold text-slate-800 text-[15px]">Resolution Evidence</h2>
+          {/* Location. The embedded map is the primary view — this app already
+              has one, and bouncing someone to a third-party site to answer
+              "where is this?" is worse than showing it. Google Maps stays as a
+              secondary link, because it is what gives turn-by-turn directions
+              and Leaflet does not. */}
+          {complaint.coords && (
+            <section className="bg-surface rounded-xl border border-line shadow-sm p-5">
+              <div className="flex items-baseline justify-between gap-3 mb-3 flex-wrap">
+                <div>
+                  <h2 className="font-display text-[16px] font-bold text-ink">Location</h2>
+                  <p className="text-[12px] text-ink-muted mt-0.5">{complaint.location}</p>
+                </div>
+                <a
+                  href={`https://www.google.com/maps/dir/?api=1&destination=${complaint.coords.latitude},${complaint.coords.longitude}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="focus-ring inline-flex items-center gap-1.5 text-[12px] font-semibold text-ink-muted hover:text-civic-700 transition-colors"
+                >
+                  <IconExternal size={13} /> Directions
+                </a>
               </div>
-              <PhotoGrid photos={resolutionPhotos} />
+              <ComplaintMap complaints={[complaint]} height="340px" />
+              <p className="text-[11px] text-ink-faint mt-2 font-mono">
+                {complaint.coords.latitude.toFixed(5)}, {complaint.coords.longitude.toFixed(5)}
+              </p>
             </section>
           )}
 
