@@ -9,7 +9,7 @@ from sqlalchemy import select, or_
 from sqlalchemy import func
 from typing import List
 from typing import Optional
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 import jwt
 from sqlalchemy.orm import selectinload
 import os
@@ -22,7 +22,7 @@ from sqlalchemy.orm import selectin_polymorphic
 import asyncio
 import logging
 
-from database import engine, Base, AsyncSessionLocal, StatusEnum
+from database import engine, Base, AsyncSessionLocal, StatusEnum, SeverityEnum
 import models
 import schemas
 import security
@@ -38,6 +38,7 @@ from dependencies import get_current_user, get_db, oauth2_scheme, require_roles
 from ai.provider import highest_severity
 from ai.service import AIService
 from routers import ai as ai_router
+from routers import analytics as analytics_router
 from routers import notifications as notifications_router
 from services import lifecycle
 from services import notifications as notification_service
@@ -281,10 +282,25 @@ async def create_complaint(
 # Fetch complaints dynamically based on the user's role 
 @app.get("/complaints/", response_model=List[schemas.ComplaintResponse])
 async def get_complaints(
+    status_: Optional[str] = Query(None, alias="status", description="StatusEnum name"),
+    categoryId: Optional[str] = Query(None),
+    severity: Optional[str] = Query(None, description="SeverityEnum name"),
+    from_: Optional[date] = Query(None, alias="from", description="createdAt on or after"),
+    to: Optional[date] = Query(None, description="createdAt on or before (inclusive)"),
+    limit: Optional[int] = Query(None, ge=1, le=500),
+    offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
-    current_user: models.UserModel = Depends(get_current_user) 
+    current_user: models.UserModel = Depends(get_current_user)
 ):
-     
+    """List complaints, scoped by role and optionally filtered.
+
+    Every filter is optional and omitting all of them preserves the previous
+    behaviour exactly -- the frontend paginates client-side today, and breaking
+    that on deploy would empty every dashboard.
+
+    ``limit`` is capped at 500. Without a ceiling this endpoint is an accidental
+    full-table export as the complaint count grows.
+    """
     stmt = select(models.ComplaintModel).options(
         selectinload(models.ComplaintModel.location), 
         selectinload(models.ComplaintModel.category)
@@ -296,8 +312,46 @@ async def get_complaints(
         pass 
     else:
         raise HTTPException(status_code=403, detail="Unauthorized role.")
-        
+
+    # Unknown enum names are rejected rather than ignored: silently returning
+    # everything for a typo'd status looks like "there are no filters applied",
+    # which is a worse failure than a 422.
+    if status_:
+        try:
+            stmt = stmt.where(models.ComplaintModel.status == StatusEnum[status_.upper()])
+        except KeyError:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Unknown status '{status_}'. Expected one of: "
+                       + ", ".join(s.name for s in StatusEnum),
+            )
+    if severity:
+        try:
+            stmt = stmt.where(models.ComplaintModel.severity == SeverityEnum[severity.upper()])
+        except KeyError:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Unknown severity '{severity}'. Expected one of: "
+                       + ", ".join(s.name for s in SeverityEnum),
+            )
+    if categoryId:
+        stmt = stmt.where(models.ComplaintModel.categoryId == categoryId)
+    if from_:
+        stmt = stmt.where(
+            models.ComplaintModel.createdAt >= datetime.combine(from_, datetime.min.time())
+        )
+    if to:
+        # Inclusive of the whole day -- "to the 11th" means through the 11th.
+        stmt = stmt.where(
+            models.ComplaintModel.createdAt <= datetime.combine(to, datetime.max.time())
+        )
+
     stmt = stmt.order_by(models.ComplaintModel.createdAt.desc())
+    if offset:
+        stmt = stmt.offset(offset)
+    if limit:
+        stmt = stmt.limit(limit)
+
     result = await db.execute(stmt)
     return result.scalars().all()
 
@@ -1332,6 +1386,15 @@ async def update_complaint_status(
     complaint.status = status_update.status
     complaint.updatedAt = datetime.now(timezone.utc).replace(tzinfo=None)
 
+    # Stamp the FIRST resolution only. Reopening and resolving again should not
+    # reset it, otherwise a complaint that bounced once reports the turnaround
+    # of its final attempt rather than how long the citizen actually waited.
+    if (
+        lifecycle.status_name(status_update.status) == StatusEnum.RESOLVED.name
+        and complaint.resolvedAt is None
+    ):
+        complaint.resolvedAt = complaint.updatedAt
+
     history_id = f"HIST-{str(uuid.uuid4())[:8].upper()}"
     new_history = models.StatusHistoryModel(
         historyId=history_id,
@@ -1577,6 +1640,7 @@ async def recategorize_complaint(
 
 # --- Routers -------------------------------------------------------------
 # Registered last so the route table reads in the same order as this file.
+app.include_router(analytics_router.router)
 app.include_router(notifications_router.router)
 app.include_router(ai_router.router)
 

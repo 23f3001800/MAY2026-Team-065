@@ -24,25 +24,51 @@ module.exports = {
         // the dark palette above; everything behind login should reach for
         // these instead of raw slate-* so a future theme change is one edit.
         surface: {
-          DEFAULT: '#ffffff',
-          sunken: '#f6f8fa',   // page background behind cards
-          raised: '#ffffff',
-          hover: '#f8fafc',
+          DEFAULT: 'var(--surface)',
+          sunken: 'var(--surface-sunken)',
+          raised: 'var(--surface-raised)',
+          inset: 'var(--surface-inset)',
+          hover: 'var(--surface-inset)',
         },
         line: {
-          DEFAULT: '#e6eaf0',  // slightly warmer than slate-200; less harsh on white
-          strong: '#d3dae3',
+          DEFAULT: 'var(--line)',
+          strong: 'var(--line-strong)',
         },
         ink: {
-          DEFAULT: '#0f172a',  // headings
-          body: '#334155',     // body copy
-          muted: '#64748b',    // secondary
-          faint: '#94a3b8',    // timestamps, meta
+          DEFAULT: 'var(--ink-900)',
+          body: 'var(--ink-700)',
+          muted: 'var(--ink-500)',
+          faint: 'var(--ink-400)',
+        },
+
+        // Civic navy — the primary anchor for the signed-in app.
+        civic: {
+          50: 'var(--civic-50)', 100: 'var(--civic-100)', 300: 'var(--civic-300)',
+          400: 'var(--civic-400)', 500: 'var(--civic-500)', 600: 'var(--civic-600)',
+          700: 'var(--civic-700)', 800: 'var(--civic-800)', 900: 'var(--civic-900)',
+          950: 'var(--civic-950)',
+          DEFAULT: 'var(--civic-800)',
+        },
+        teal: {
+          50: 'var(--teal-50)', 100: 'var(--teal-100)', 500: 'var(--teal-500)',
+          600: 'var(--teal-600)', 700: 'var(--teal-700)',
+          DEFAULT: 'var(--teal-600)',
+        },
+        caution: {
+          50: 'var(--amber-50)', 100: 'var(--amber-100)', 500: 'var(--amber-500)',
+          600: 'var(--amber-600)', 700: 'var(--amber-700)',
+          DEFAULT: 'var(--amber-600)',
+        },
+        danger: {
+          50: 'var(--danger-50)', 100: 'var(--danger-100)',
+          600: 'var(--danger-600)', 700: 'var(--danger-700)',
+          DEFAULT: 'var(--danger-600)',
         },
       },
       fontFamily: {
-        primary: ["'Plus Jakarta Sans'", '-apple-system', 'BlinkMacSystemFont', 'sans-serif'],
-        display: ["'Outfit'", '-apple-system', 'BlinkMacSystemFont', 'sans-serif'],
+        primary: ["'Public Sans'", 'ui-sans-serif', 'sans-serif'],
+        display: ["'Archivo'", 'ui-sans-serif', 'sans-serif'],
+        mono: ["'IBM Plex Mono'", 'ui-monospace', 'monospace'],
       },
       borderRadius: {
         '2xl': '1rem',

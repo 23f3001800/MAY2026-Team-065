@@ -7,31 +7,25 @@ import Register from './pages/Register';
 import CitizenLayout from './layouts/CitizenLayout';
 import CitizenDashboard from './pages/CitizenDashboard';
 import ReportIssue from './pages/ReportIssue';
-import MyComplaints from './pages/MyComplaints';
+import Complaints from './pages/Complaints';
 import ComplaintDetails from './pages/ComplaintDetails';
 import Notifications from './pages/Notifications';
-import NearbyIssues from './pages/NearbyIssues';
-import TrackComplaints from './pages/TrackComplaints';
 import AIAssistant from './pages/AIAssistant';
 import Feedback from './pages/Feedback';
 import AdminLayout from './layouts/AdminLayout';
 import AdminDashboard from './pages/admin/AdminDashboard';
 import AdminUsers from './pages/admin/AdminUsers';
 import AdminComplaints from './pages/admin/AdminComplaints';
-import AdminDepartments from './pages/admin/AdminDepartments';
-import AdminCategories from './pages/admin/AdminCategories';
-import AdminAnalytics from './pages/admin/AdminAnalytics';
 import AdminReports from './pages/admin/AdminReports';
 import OfficerLayout from './layouts/OfficerLayout';
 import OfficerDashboard from './pages/officer/OfficerDashboard';
 import OfficerComplaints from './pages/officer/OfficerComplaints';
 import OfficerWorkers from './pages/officer/OfficerWorkers';
-import OfficerAnalytics from './pages/officer/OfficerAnalytics';
 import WorkerLayout from './layouts/WorkerLayout';
 import WorkerDashboard from './pages/worker/WorkerDashboard';
 import WorkerTasks from './pages/worker/WorkerTasks';
-import WorkerMap from './pages/worker/WorkerMap';
-import WorkerHistory from './pages/worker/WorkerHistory';
+import WorkerTaskDetail from './pages/worker/WorkerTaskDetail';
+import WorkerPerformance from './pages/worker/WorkerPerformance';
 import WorkerProfile from './pages/worker/WorkerProfile';
 import Profile from './pages/shared/Profile';
 import { getCurrentUser, homePathForRole } from './api/auth';
@@ -87,10 +81,11 @@ function App() {
         >
           <Route path="/dashboard" element={<CitizenDashboard />} />
           <Route path="/report" element={<ReportIssue />} />
-          <Route path="/my-complaints" element={<MyComplaints />} />
+          <Route path="/complaints" element={<Complaints />} />
+          <Route path="/my-complaints" element={<Navigate to="/complaints" replace />} />
           <Route path="/complaints/:id" element={<ComplaintDetails />} />
-          <Route path="/track" element={<TrackComplaints />} />
-          <Route path="/nearby" element={<NearbyIssues />} />
+          <Route path="/track" element={<Navigate to="/complaints" replace />} />
+          <Route path="/nearby" element={<Navigate to="/complaints" replace />} />
           <Route path="/notifications" element={<Notifications />} />
           <Route path="/ai-assistant" element={<AIAssistant />} />
           <Route path="/feedback" element={<Feedback />} />
@@ -109,9 +104,9 @@ function App() {
           <Route path="/admin/dashboard" element={<AdminDashboard />} />
           <Route path="/admin/users" element={<AdminUsers />} />
           <Route path="/admin/complaints" element={<AdminComplaints />} />
-          <Route path="/admin/departments" element={<AdminDepartments />} />
-          <Route path="/admin/categories" element={<AdminCategories />} />
-          <Route path="/admin/analytics" element={<AdminAnalytics />} />
+          <Route path="/admin/departments" element={<Navigate to="/admin/dashboard" replace />} />
+          <Route path="/admin/categories" element={<Navigate to="/admin/dashboard" replace />} />
+          <Route path="/admin/analytics" element={<Navigate to="/admin/dashboard" replace />} />
           <Route path="/admin/reports" element={<AdminReports />} />
           <Route path="/admin/notifications" element={<Notifications />} />
           <Route path="/admin/profile" element={<Profile />} />
@@ -129,7 +124,7 @@ function App() {
           <Route path="/officer/dashboard" element={<OfficerDashboard />} />
           <Route path="/officer/complaints" element={<OfficerComplaints />} />
           <Route path="/officer/workers" element={<OfficerWorkers />} />
-          <Route path="/officer/analytics" element={<OfficerAnalytics />} />
+          <Route path="/officer/analytics" element={<Navigate to="/officer/dashboard" replace />} />
           <Route path="/officer/notifications" element={<Notifications />} />
           <Route path="/officer/profile" element={<Profile />} />
           <Route path="/officer/settings" element={<Navigate to="/officer/profile" replace />} />
@@ -145,9 +140,11 @@ function App() {
         >
           <Route path="/worker/dashboard" element={<WorkerDashboard />} />
           <Route path="/worker/tasks" element={<WorkerTasks />} />
-          <Route path="/worker/map" element={<WorkerMap />} />
-          <Route path="/worker/history" element={<WorkerHistory />} />
+          <Route path="/worker/tasks/:id" element={<WorkerTaskDetail />} />
+          <Route path="/worker/map" element={<Navigate to="/worker/tasks" replace />} />
+          <Route path="/worker/history" element={<Navigate to="/worker/tasks" replace />} />
           <Route path="/worker/notifications" element={<Notifications />} />
+          <Route path="/worker/performance" element={<WorkerPerformance />} />
           <Route path="/worker/profile" element={<WorkerProfile />} />
           <Route path="/worker/settings" element={<Navigate to="/worker/profile" replace />} />
         </Route>
