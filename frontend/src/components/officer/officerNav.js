@@ -1,10 +1,15 @@
 // Sidebar navigation items for the municipal officer area.
 import {
-  IconGrid, IconClipboard, IconUsers, IconUserCircle, } from '../dashboard/icons';
+  IconGrid, IconClipboard, IconCheckCircle, IconUsers, IconUserCircle,
+} from '../dashboard/icons';
 
 export const OFFICER_NAV = [
   { to: '/officer/dashboard', label: 'Dashboard', icon: IconGrid },
   { to: '/officer/complaints', label: 'Assigned Complaints', icon: IconClipboard },
+  // Sign-off on submitted work. The one lifecycle step only an officer can
+  // clear, and it needs before/after photographs at a size you can judge — a
+  // row in the complaint queue could never give it that.
+  { to: '/officer/verification', label: 'Verification', icon: IconCheckCircle },
   { to: '/officer/workers', label: 'Field Workers', icon: IconUsers },
   { to: '/officer/profile', label: 'Profile', icon: IconUserCircle },
 ];

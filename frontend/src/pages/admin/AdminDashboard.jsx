@@ -13,6 +13,7 @@ import React, { useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { BarList, TrendLine, Donut } from '../../components/charts';
 import MetricCard from '../../components/metrics/MetricCard';
+import { hoursAsMetric } from '../../lib/duration';
 import { computeMetrics, volumeSeries, ranked } from '../../lib/complaintMetrics';
 import useCategories from '../../hooks/useCategories';
 import ComplaintHeatMap from '../../components/map/ComplaintHeatMap';
@@ -21,6 +22,7 @@ import { IconUserPlus } from '../../components/dashboard/icons';
 import { ROLES } from '../../config';
 import { getCityAnalytics } from '../../api/admin';
 import { listComplaints } from '../../api/complaints';
+import { getOverview } from '../../api/analytics';
 import { listUsers } from '../../api/admin';
 import useAsync from '../../hooks/useAsync';
 
@@ -35,23 +37,26 @@ const ROLE_PILL = {
 
 
 async function loadDashboard() {
-  const [analytics, complaints, users] = await Promise.all([
+  const [analytics, complaints, users, overview] = await Promise.all([
     getCityAnalytics(),
     listComplaints(),
     listUsers({ limit: 6 }),
+    // Secondary: the page was useful before this endpoint existed and stays
+    // useful if it fails, so it degrades to the browser-derived figures.
+    getOverview().catch(() => null),
   ]);
-  return { analytics, complaints, users };
+  return { analytics, complaints, users, overview };
 }
 
 export default function AdminDashboard() {
   const { data, error, loading, refetch } = useAsync(loadDashboard, []);
 
   // Aggregation lives in lib/complaintMetrics so admin, officer and citizen all
-  // share one definition. The previous version computed its own — including an
-  // "Avg. Resolution Time" from (updatedAt - reportedAt), which is wrong rather
-  // than imprecise: updatedAt moves on any edit, so a complaint recategorised
-  // months later reported a months-long resolution. That tile is now the
-  // honest insufficient-data state.
+  // share one definition. An earlier version computed "Avg. Resolution Time"
+  // from (updatedAt - reportedAt), which is wrong rather than imprecise —
+  // updatedAt moves on any edit, so a complaint recategorised months later
+  // reported a months-long resolution. That tile now reads the real figure from
+  // /analytics/overview, measured from the resolvedAt stamp.
   const metrics = useMemo(() => computeMetrics(data?.complaints), [data]);
   const { categories } = useCategories();
 
@@ -65,9 +70,13 @@ export default function AdminDashboard() {
     [categories, metrics.byCategory],
   );
 
-  // /admin/analytics IS a server aggregate, unlike everything else here, so the
-  // one figure it gives us is labelled Verified rather than Derived.
-  const verifiedTotal = data?.analytics?.overview?.totalComplaints ?? null;
+  // Two server aggregates now: /admin/analytics for the city total, and
+  // /analytics/overview for the rest. Anything they cover is Verified; the
+  // charts below still aggregate in the browser and stay Derived.
+  const server = data?.overview || null;
+  const level = server ? 'verified' : 'derived';
+  const verifiedTotal = server?.total ?? data?.analytics?.overview?.totalComplaints ?? null;
+  const avg = hoursAsMetric(server?.avgResolutionHours);
 
   const trend = useMemo(() => volumeSeries(data?.complaints, 30), [data]);
 
@@ -102,30 +111,43 @@ export default function AdminDashboard() {
               value={verifiedTotal ?? metrics.total}
               provenance={verifiedTotal !== null ? 'verified' : 'derived'}
               series={trend.points}
-              footnote={verifiedTotal !== null ? 'From /admin/analytics · last 30 days' : 'Last 30 days'}
+              footnote={verifiedTotal !== null ? 'Server aggregate · last 30 days' : 'Last 30 days'}
             />
             <MetricCard
               label="Resolved"
-              value={metrics.resolved}
+              value={server?.resolved ?? metrics.resolved}
+              provenance={level}
               tone="positive"
-              share={metrics.total ? metrics.resolved / metrics.total : 0}
-              context={`of ${metrics.total} total`}
+              share={metrics.total ? (server?.resolved ?? metrics.resolved) / (server?.total ?? metrics.total) : 0}
+              context={`of ${server?.total ?? metrics.total} total`}
             />
             <MetricCard
               label="Resolution Rate"
-              value={metrics.resolutionRate === null ? null : Number(metrics.resolutionRate.toFixed(1))}
+              value={server?.resolutionRatePct
+                ?? (metrics.resolutionRate === null ? null : Number(metrics.resolutionRate.toFixed(1)))}
               unit="%"
-              context={metrics.resolutionRate === null ? null : `${metrics.resolved} / ${metrics.total}`}
+              context={server
+                ? (server.resolutionRatePct === null ? null : `${server.resolved} / ${server.total}`)
+                : (metrics.resolutionRate === null ? null : `${metrics.resolved} / ${metrics.total}`)}
+              provenance={level}
               tone="positive"
-              share={metrics.resolutionRate === null ? undefined : metrics.resolutionRate / 100}
+              share={(server?.resolutionRatePct ?? metrics.resolutionRate) == null
+                ? undefined
+                : (server?.resolutionRatePct ?? metrics.resolutionRate) / 100}
             />
-            {/* Deliberately null — see the note on `metrics` above. */}
+            {/* Was permanently "insufficient data" until complaints gained a
+                resolvedAt stamp. Still null — never zero — when nothing has
+                actually resolved inside the window. */}
             <MetricCard
               label="Avg. Resolution Time"
-              value={null}
-              provenance="insufficient"
-              tone="caution"
-              footnote="No resolution timestamp exists on a complaint."
+              value={avg.value}
+              unit={avg.unit}
+              provenance={avg.value === null ? 'insufficient' : 'verified'}
+              tone={avg.value === null ? 'caution' : 'neutral'}
+              context={avg.value === null ? null : `across ${server.resolutionSampleSize} resolved`}
+              footnote={avg.value === null
+                ? 'Nothing resolved yet to measure.'
+                : 'Report to first “Resolved”'}
             />
           </div>
 
