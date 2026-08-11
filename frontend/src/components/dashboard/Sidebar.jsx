@@ -29,7 +29,7 @@ export default function Sidebar({ open, onNavigate, onLogout, items = NAV_ITEMS,
       />
 
       <aside
-        className={`fixed lg:sticky top-0 left-0 z-40 h-screen w-[260px] shrink-0 bg-[#0b1220] border-r border-white/5 flex flex-col transition-transform duration-300 ${
+        className={`fixed lg:sticky top-0 left-0 z-40 h-screen w-[260px] shrink-0 bg-civic-950 border-r border-white/[0.06] flex flex-col transition-transform duration-300 ${
           open ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
         }`}
       >

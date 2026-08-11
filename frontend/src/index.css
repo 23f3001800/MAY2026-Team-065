@@ -1,10 +1,85 @@
-/* ─── Google Font Import (must precede @tailwind directives) ── */
-@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Outfit:wght@400;600;700;800&display=swap');
+/* ─── Fonts (must precede @tailwind directives) ───────────────
+   Archivo for display: a grotesque with the flat, load-bearing feel of civic
+   signage, and it holds up at large sizes without looking like a startup logo.
+   Public Sans for text: drawn for the US federal design system, so it is built
+   for exactly this — dense public-sector data read by people who did not choose
+   to be here. IBM Plex Mono for IDs and figures.
+   Deliberately none of Inter / Roboto / Arial / system defaults. */
+@import url('https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
 
 /* ─── Tailwind Directives ─────────────────────────────────── */
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* ─── Design tokens ───────────────────────────────────────────
+   One source of truth for the visual system. Tailwind reads these via
+   tailwind.config.js, so a token change moves the whole app.
+
+   The palette is civic, not SaaS: navy carries authority and reads as
+   institutional rather than commercial; teal marks resolution; amber marks
+   attention; red is reserved for genuinely critical states so it keeps its
+   meaning. Backgrounds are warm off-white — pure #fff over a whole screen is
+   glary under the fluorescent lighting these desks actually have. */
+:root {
+  /* Civic navy — primary anchor */
+  --civic-950: #071426;
+  --civic-900: #0b1f38;
+  --civic-800: #102b4c;
+  --civic-700: #16395f;
+  --civic-600: #1d4a78;
+  --civic-500: #2a6396;
+  --civic-400: #4d86b8;
+  --civic-300: #8ab2d4;
+  --civic-100: #dae7f2;
+  --civic-50:  #eef4f9;
+
+  /* Teal — resolution, success, positive delta */
+  --teal-700: #0b5f52;
+  --teal-600: #0e7c66;
+  --teal-500: #12a184;
+  --teal-100: #d3ece5;
+  --teal-50:  #e9f6f2;
+
+  /* Amber — needs attention, ageing, breaching */
+  --amber-700: #92400e;
+  --amber-600: #b45309;
+  --amber-500: #d97706;
+  --amber-100: #fbeacd;
+  --amber-50:  #fdf6e9;
+
+  /* Red — critical only */
+  --danger-700: #8f1d14;
+  --danger-600: #b42318;
+  --danger-100: #fbdcd8;
+  --danger-50:  #fdeeec;
+
+  /* Neutrals, warmed slightly so they sit with the navy */
+  --ink-900: #0d1520;   /* headings */
+  --ink-700: #33414f;   /* body */
+  --ink-500: #5c6a78;   /* secondary */
+  --ink-400: #8593a1;   /* meta, timestamps */
+
+  --surface:        #ffffff;
+  --surface-sunken: #f5f4f1;  /* page background — warm off-white */
+  --surface-raised: #ffffff;
+  --surface-inset:  #fafaf8;
+
+  --line:        #e4e2dd;
+  --line-strong: #d0cdc6;
+
+  /* Elevation. Two layers each: a tight contact shadow plus a soft ambient
+     one. A single layer is what makes a card read as a flat outlined box. */
+  --shadow-sm: 0 1px 2px rgba(13, 21, 32, .04), 0 1px 3px rgba(13, 21, 32, .06);
+  --shadow-md: 0 2px 4px rgba(13, 21, 32, .04), 0 8px 20px -4px rgba(13, 21, 32, .08);
+  --shadow-lg: 0 4px 8px rgba(13, 21, 32, .05), 0 16px 32px -8px rgba(13, 21, 32, .10);
+
+  /* Motion */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --dur-fast: 140ms;
+  --dur-base: 200ms;
+  --dur-slow: 320ms;
+}
 
 /* ─── Global Base Styles ──────────────────────────────────── */
 @layer base {
@@ -13,7 +88,7 @@
   body {
     background-color: #090d16;
     color: #f8fafc;
-    font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+    font-family: 'Public Sans', ui-sans-serif, sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     min-height: 100vh;
@@ -35,7 +110,14 @@
   }
 
   ::-webkit-scrollbar-thumb:hover {
-    background: rgba(16, 185, 129, 0.4);
+    background: rgba(42, 99, 150, 0.5);
+  }
+
+  /* Headings use the display face by default so pages do not have to keep
+     opting in. */
+  h1, h2, h3 {
+    font-family: 'Archivo', ui-sans-serif, sans-serif;
+    letter-spacing: -0.011em;
   }
 }
 
@@ -136,8 +218,8 @@
      still meeting the keyboard-navigation requirement. */
   .focus-ring:focus-visible {
     outline: none;
-    box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.18);
-    border-color: #10b981;
+    box-shadow: 0 0 0 3px rgba(42, 99, 150, 0.22);
+    border-color: var(--civic-500);
   }
 
   /* Lift on hover. Kept small — 1px and a shadow step reads as physical;
