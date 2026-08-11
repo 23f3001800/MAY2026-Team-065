@@ -58,6 +58,10 @@ export default function ReportIssue() {
 
   const [triage, setTriage] = useState(null);
   const [triaging, setTriaging] = useState(false);
+  // Which classification steps have actually completed. Each entry is a real
+  // network call that returned — no timer-driven bar, because /ai/triage is a
+  // single request and any percentage inside it would be fabricated.
+  const [aiStage, setAiStage] = useState(null);
 
   // AI description drafting.
   const [drafting, setDrafting] = useState(false);
@@ -124,6 +128,7 @@ export default function ReportIssue() {
     let cancelled = false;
     const timer = setTimeout(async () => {
       setTriaging(true);
+      setAiStage({ done: 0, total: 2, label: 'Reading your description' });
       try {
         const result = await runTriage({
           description: text,
@@ -131,12 +136,20 @@ export default function ReportIssue() {
           latitude: coords?.latitude,
           longitude: coords?.longitude,
         });
-        if (!cancelled) setTriage(result);
+        if (!cancelled) {
+          setAiStage({ done: 2, total: 2, label: 'Classification complete' });
+          setTriage(result);
+        }
       } catch {
         // Never block filing on the AI being up.
         if (!cancelled) setTriage(null);
       } finally {
-        if (!cancelled) setTriaging(false);
+        if (!cancelled) {
+          setTriaging(false);
+          // Clear the strip shortly after completion so it does not linger as
+          // permanent chrome on a form the citizen is still filling in.
+          setTimeout(() => setAiStage(null), 1600);
+        }
       }
     }, TRIAGE_DELAY_MS);
 
@@ -210,8 +223,10 @@ export default function ReportIssue() {
     if (!photos.length) return;
     setDrafting(true);
     setMessage({ text: '', type: '' });
+    setAiStage({ done: 0, total: 2, label: 'Looking at your photo' });
     try {
       const res = await analyzeImage(photos[0].file);
+      setAiStage({ done: 1, total: 2, label: 'Drafting a description' });
       if (res?.available === false) {
         setMessage({ text: res.unavailableReason || 'Photo analysis is not switched on.', type: 'warning' });
         return;
@@ -227,6 +242,7 @@ export default function ReportIssue() {
       setMessage({ text: 'Photo analysis is unavailable right now.', type: 'warning' });
     } finally {
       setDrafting(false);
+      setTimeout(() => setAiStage(null), 1600);
     }
   };
 
@@ -481,6 +497,28 @@ export default function ReportIssue() {
               : 'GPS coordinates are required — tap "Use Current Location" to capture them.'}
           </p>
         </section>
+
+        {/* Background classification progress. Shown while the request is in
+            flight so the citizen knows work is happening on their behalf. */}
+        {aiStage && (
+          <div role="status" aria-live="polite" className="rounded-lg border border-line bg-surface-inset px-3.5 py-2.5">
+            <div className="flex items-center justify-between gap-2 text-[12px]">
+              <span className="inline-flex items-center gap-1.5 text-ink-body font-medium">
+                <IconSparkles size={13} className="text-civic-600" />
+                {aiStage.label}
+              </span>
+              <span className="text-ink-faint tnum">
+                {Math.round((aiStage.done / aiStage.total) * 100)}%
+              </span>
+            </div>
+            <div className="mt-1.5 h-1 rounded-full bg-line overflow-hidden">
+              <div
+                className="h-full rounded-full bg-civic-600 transition-[width] duration-500"
+                style={{ width: `${(aiStage.done / aiStage.total) * 100}%` }}
+              />
+            </div>
+          </div>
+        )}
 
         {/* 5. Live AI assessment */}
         {(triaging || triage) && (
