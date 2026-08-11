@@ -348,32 +348,34 @@ export default function WorkerTasks() {
           message={`Nothing open. ${groups.awaiting.length} awaiting review, ${groups.done.length} closed.`}
         />
       ) : scope === 'history' ? (
-        groups.done.length === 0 && groups.awaiting.length === 0 ? (
-          <EmptyPanel
-            icon={IconCheckCircle}
-            title="No finished work yet"
-            message="Tasks you submit or close will be listed here."
+        // Everything ever assigned to this worker, newest first — a record you
+        // can search, not just an archive of finished jobs.
+        <div className="space-y-6">
+          <Group
+            title="Awaiting review"
+            hint="Submitted — an officer or the citizen confirms it"
+            tasks={groups.awaiting}
+            busy={busy}
+            onQuick={handleQuick}
+            onOpen={(tid) => navigate(`/worker/tasks/${tid}`)}
           />
-        ) : (
-          <div className="space-y-6">
-            <Group
-              title="Awaiting review"
-              hint="Submitted — an officer or the citizen confirms it"
-              tasks={groups.awaiting}
-              busy={busy}
-              onQuick={handleQuick}
-              onOpen={(tid) => navigate(`/worker/tasks/${tid}`)}
-            />
-            <Group
-              title="Closed"
-              hint="Verified or rejected"
-              tasks={groups.done}
-              busy={busy}
-              onQuick={handleQuick}
-              onOpen={(tid) => navigate(`/worker/tasks/${tid}`)}
-            />
-          </div>
-        )
+          <Group
+            title="Closed"
+            hint="Verified or rejected"
+            tasks={groups.done}
+            busy={busy}
+            onQuick={handleQuick}
+            onOpen={(tid) => navigate(`/worker/tasks/${tid}`)}
+          />
+          <Group
+            title="Still open"
+            hint="Also shown under Active"
+            tasks={[...groups.active, ...groups.next]}
+            busy={busy}
+            onQuick={handleQuick}
+            onOpen={(tid) => navigate(`/worker/tasks/${tid}`)}
+          />
+        </div>
       ) : view === 'map' ? (
         <ComplaintMap
           complaints={[...groups.active, ...groups.next]}
