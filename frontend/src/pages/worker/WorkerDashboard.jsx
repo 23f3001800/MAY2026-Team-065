@@ -8,15 +8,15 @@
 // Rejected via PATCH /complaints/{id}/status. There is also no rating
 // endpoint to average, so "Avg. Rating" -- which was invented in the mock --
 // has been dropped rather than kept with fake numbers.
-import React, { useCallback, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import React, { useMemo, useState } from 'react';
 import StatTile from '../../components/dashboard/StatTile';
 import StatusBadge from '../../components/dashboard/StatusBadge';
 import SeverityBadge from '../../components/dashboard/SeverityBadge';
-import TaskDrawer from '../../components/worker/TaskDrawer';
 import { LoadingPanel, ErrorPanel } from '../../components/dashboard/AsyncStates';
 import { IconMapPin, IconCheckCircle } from '../../components/dashboard/icons';
 import { getCurrentUser } from '../../api/auth';
-import { listMyTasks, updateComplaintStatus } from '../../api/complaints';
+import { listMyTasks } from '../../api/complaints';
 import { setMyAvailability } from '../../api/workers';
 import useAsync from '../../hooks/useAsync';
 
@@ -26,10 +26,11 @@ const AVAIL_STYLE = {
 };
 
 export default function WorkerDashboard() {
+  const navigate = useNavigate();
   const user = getCurrentUser();
   const firstName = user?.name?.split(' ')[0] || 'there';
 
-  const { data, error, loading, refetch, setData } = useAsync(() => listMyTasks(), []);
+  const { data, error, loading, refetch } = useAsync(() => listMyTasks(), []);
   const tasks = useMemo(() => data || [], [data]);
 
   // No GET for the worker's own availabilityStatus (see WorkerProfile) --
@@ -37,14 +38,8 @@ export default function WorkerDashboard() {
   const [availability, setAvailability] = useState(null);
   const [availBusy, setAvailBusy] = useState(false);
 
-  const [selectedId, setSelectedId] = useState(null);
   const [toast, setToast] = useState('');
-  const [busy, setBusy] = useState(false);
-  const selected = tasks.find((t) => t.id === selectedId) || null;
 
-  const applyUpdate = useCallback((updated) => {
-    setData((list) => (list || []).map((t) => (t.id === updated.id ? updated : t)));
-  }, [setData]);
 
   const handleAvailability = async (available) => {
     setAvailBusy(true);
@@ -58,20 +53,6 @@ export default function WorkerDashboard() {
     }
   };
 
-  const handleStatusChange = async (id, status, remarks) => {
-    setBusy(true);
-    try {
-      const updated = await updateComplaintStatus(id, status, remarks);
-      applyUpdate(updated);
-      setToast(`${id} marked as ${status}.`);
-      setSelectedId(null);
-      setTimeout(() => setToast(''), 4000);
-    } catch (err) {
-      if (err.name !== 'SessionExpiredError') setToast(err.message);
-    } finally {
-      setBusy(false);
-    }
-  };
 
   const kpis = useMemo(() => {
     const by = (s) => tasks.filter((t) => t.status === s).length;
@@ -157,7 +138,7 @@ export default function WorkerDashboard() {
                     </div>
                     <StatusBadge status={t.status} />
                     <button
-                      onClick={() => setSelectedId(t.id)}
+                      onClick={() => navigate(`/worker/tasks/${t.id}`)}
                       className="shrink-0 px-3 py-2 rounded-lg text-[12px] font-semibold text-white bg-primary hover:bg-emerald-600 transition-colors"
                     >
                       Open
@@ -170,9 +151,6 @@ export default function WorkerDashboard() {
         </>
       )}
 
-      {selected && (
-        <TaskDrawer task={selected} busy={busy} onDismiss={() => setSelectedId(null)} onStatusChange={handleStatusChange} />
-      )}
     </div>
   );
 }

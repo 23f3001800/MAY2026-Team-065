@@ -1,11 +1,11 @@
 // History — tasks the worker has already closed out (Resolved or Rejected),
 // filtered client-side from the same GET /complaints/worker/tasks used by
-// My Tasks. Opens the same TaskDrawer in read-only mode since there is
+// My Tasks. Rows open the full task page rather than a drawer, since there is
 // nothing left to change on a closed task.
-import React, { useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import React, { useMemo } from 'react';
 import StatusBadge from '../../components/dashboard/StatusBadge';
 import SeverityBadge from '../../components/dashboard/SeverityBadge';
-import TaskDrawer from '../../components/worker/TaskDrawer';
 import { LoadingPanel, ErrorPanel, EmptyPanel } from '../../components/dashboard/AsyncStates';
 import { IconMapPin, IconClock } from '../../components/dashboard/icons';
 import { listMyTasks } from '../../api/complaints';
@@ -19,6 +19,7 @@ function formatDate(iso) {
 }
 
 export default function WorkerHistory() {
+  const navigate = useNavigate();
   const { data, error, loading, refetch } = useAsync(() => listMyTasks(), []);
   const items = useMemo(() => data || [], [data]);
   const closed = useMemo(
@@ -26,8 +27,6 @@ export default function WorkerHistory() {
     [items],
   );
 
-  const [selectedId, setSelectedId] = useState(null);
-  const selected = closed.find((t) => t.id === selectedId) || null;
 
   return (
     <div className="max-w-[1000px] mx-auto space-y-5">
@@ -47,7 +46,7 @@ export default function WorkerHistory() {
           {closed.map((t) => (
             <li
               key={t.id}
-              onClick={() => setSelectedId(t.id)}
+              onClick={() => navigate(`/worker/tasks/${t.id}`)}
               className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 flex items-center gap-4 flex-wrap cursor-pointer hover:border-primary transition-colors"
             >
               <div className="flex-1 min-w-[200px]">
@@ -67,7 +66,6 @@ export default function WorkerHistory() {
         </ul>
       )}
 
-      {selected && <TaskDrawer task={selected} readOnly busy={false} onDismiss={() => setSelectedId(null)} onStatusChange={() => {}} />}
-    </div>
+          </div>
   );
 }
