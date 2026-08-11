@@ -58,7 +58,10 @@ export default function TaskDrawer({ task, busy, readOnly, onDismiss, onStatusCh
   }, [onDismiss]);
 
   const changed = status !== task.status;
-  const resolving = status === 'Resolved';
+  // Submitting for review. "Resolved" is the awaiting-verification state — the
+  // worker's report that the work is done, not the closure itself. UNDER_REVIEW
+  // is official-only and would 403; VERIFIED is the citizen's call.
+  const submitting = status === 'Resolved';
   const mapsUrl = task.coords
     ? `https://www.google.com/maps?q=${task.coords.latitude},${task.coords.longitude}`
     : null;
@@ -183,7 +186,7 @@ export default function TaskDrawer({ task, busy, readOnly, onDismiss, onStatusCh
                 <div className="flex items-center justify-between gap-2 mb-2">
                   <h4 className="text-[13px] font-semibold text-ink">
                     Completion photos
-                    {resolving && <span className="text-danger-600 ml-1">*</span>}
+                    {submitting && <span className="text-danger-600 ml-1">*</span>}
                   </h4>
                   <span className="text-[11px] text-ink-faint">{photos.length}/{MAX_PHOTOS}</span>
                 </div>
@@ -218,11 +221,11 @@ export default function TaskDrawer({ task, busy, readOnly, onDismiss, onStatusCh
                   </div>
                 )}
 
-                {resolving && photos.length === 0 && (
+                {submitting && photos.length === 0 && (
                   <p className="flex items-start gap-1.5 text-[11px] text-caution-700 mt-2">
                     <IconAlertTriangle size={12} className="mt-0.5 shrink-0" />
-                    An officer has to verify evidence before closing this. Without a photo it will
-                    likely come back to you.
+                    A photo is what the officer and citizen review. Submitting without one will
+                    likely send this straight back to you.
                   </p>
                 )}
               </div>
@@ -254,10 +257,18 @@ export default function TaskDrawer({ task, busy, readOnly, onDismiss, onStatusCh
                 className="focus-ring mt-3 w-full inline-flex items-center justify-center gap-2 bg-civic-700 hover:bg-civic-800 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold text-[13px] py-2.5 rounded-lg transition-colors"
               >
                 <IconCheckCircle size={16} />
-                {changed ? `Mark as ${status}` : photos.length ? 'Upload evidence' : 'No change to apply'}
+                {submitting
+                  ? 'Submit for review'
+                  : changed ? `Mark as ${status}`
+                  : photos.length ? 'Upload evidence'
+                  : 'No change to apply'}
               </button>
 
-              <p className="text-[11px] text-ink-faint mt-2">Changing status notifies the citizen automatically.</p>
+              <p className="text-[11px] text-ink-faint mt-2">
+                {submitting
+                  ? 'The citizen is notified and confirms the fix. Until they do, this stays with you.'
+                  : 'Changing status notifies the citizen automatically.'}
+              </p>
             </section>
           )}
         </div>
