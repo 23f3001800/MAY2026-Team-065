@@ -21,6 +21,7 @@ import {
 } from '../components/dashboard/icons';
 import { getComplaint, getComplaintHistory, getComplaintMedia, submitFeedback } from '../api/complaints';
 import useAsync from '../hooks/useAsync';
+import { splitEvidence } from '../lib/evidence';
 import { getCurrentUser } from '../api/auth';
 
 function formatStamp(iso) {
@@ -135,21 +136,11 @@ export default function ComplaintDetails() {
   // worker's completion evidence. Splitting on the resolution timestamp is a
   // heuristic, but the media response carries no role — only an uploader id we
   // cannot resolve to a name — so this is the honest signal available.
-  const resolvedAt = useMemo(() => {
-    const entry = history.find((h) => h.status === 'Resolved');
-    return entry ? new Date(entry.at).getTime() : null;
-  }, [history]);
-
-  const { reportPhotos, resolutionPhotos } = useMemo(() => {
-    const report = [];
-    const resolution = [];
-    for (const m of media) {
-      const at = m.uploadedAt ? new Date(m.uploadedAt).getTime() : 0;
-      if (resolvedAt && at >= resolvedAt) resolution.push(m);
-      else report.push(m);
-    }
-    return { reportPhotos: report, resolutionPhotos: resolution };
-  }, [media, resolvedAt]);
+  // Split by uploader, not by the RESOLVED timestamp — see lib/evidence.js.
+  const { before: reportPhotos, after: resolutionPhotos } = useMemo(
+    () => splitEvidence(media, complaint?.reportedAt),
+    [media, complaint?.reportedAt],
+  );
 
   if (loading) {
     return <div className="max-w-[1400px] mx-auto"><LoadingPanel label="Loading complaint…" variant="detail" /></div>;
