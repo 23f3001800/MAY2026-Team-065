@@ -18,15 +18,12 @@ import AdminLayout from './layouts/AdminLayout';
 import AdminDashboard from './pages/admin/AdminDashboard';
 import AdminUsers from './pages/admin/AdminUsers';
 import AdminComplaints from './pages/admin/AdminComplaints';
-import AdminDepartments from './pages/admin/AdminDepartments';
 import AdminCategories from './pages/admin/AdminCategories';
-import AdminAnalytics from './pages/admin/AdminAnalytics';
 import AdminReports from './pages/admin/AdminReports';
 import OfficerLayout from './layouts/OfficerLayout';
 import OfficerDashboard from './pages/officer/OfficerDashboard';
 import OfficerComplaints from './pages/officer/OfficerComplaints';
 import OfficerWorkers from './pages/officer/OfficerWorkers';
-import OfficerAnalytics from './pages/officer/OfficerAnalytics';
 import WorkerLayout from './layouts/WorkerLayout';
 import WorkerDashboard from './pages/worker/WorkerDashboard';
 import WorkerTasks from './pages/worker/WorkerTasks';
@@ -109,9 +106,9 @@ function App() {
           <Route path="/admin/dashboard" element={<AdminDashboard />} />
           <Route path="/admin/users" element={<AdminUsers />} />
           <Route path="/admin/complaints" element={<AdminComplaints />} />
-          <Route path="/admin/departments" element={<AdminDepartments />} />
+          <Route path="/admin/departments" element={<Navigate to="/admin/dashboard" replace />} />
           <Route path="/admin/categories" element={<AdminCategories />} />
-          <Route path="/admin/analytics" element={<AdminAnalytics />} />
+          <Route path="/admin/analytics" element={<Navigate to="/admin/dashboard" replace />} />
           <Route path="/admin/reports" element={<AdminReports />} />
           <Route path="/admin/notifications" element={<Notifications />} />
           <Route path="/admin/profile" element={<Profile />} />
@@ -129,7 +126,7 @@ function App() {
           <Route path="/officer/dashboard" element={<OfficerDashboard />} />
           <Route path="/officer/complaints" element={<OfficerComplaints />} />
           <Route path="/officer/workers" element={<OfficerWorkers />} />
-          <Route path="/officer/analytics" element={<OfficerAnalytics />} />
+          <Route path="/officer/analytics" element={<Navigate to="/officer/dashboard" replace />} />
           <Route path="/officer/notifications" element={<Notifications />} />
           <Route path="/officer/profile" element={<Profile />} />
           <Route path="/officer/settings" element={<Navigate to="/officer/profile" replace />} />

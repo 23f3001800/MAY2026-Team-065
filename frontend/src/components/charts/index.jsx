@@ -14,7 +14,7 @@
 //   * Empty is an explicit state, never an empty box.
 //   * SVG carries role="img" with a text summary, because a screen reader
 //     gets nothing useful from the shapes.
-import React, { useId, useState } from 'react';
+import React, { useEffect, useId, useRef, useState } from 'react';
 
 // Civic-derived categorical ramp. Navy leads because it is the product's
 // anchor; teal and amber follow because they already carry meaning elsewhere in
@@ -98,7 +98,7 @@ export function BarList({ data = [], total, onSelect, valueSuffix = '', emptyMes
  * Donut for a part-to-whole split. Capped at ~6 slices by the caller: beyond
  * that the arcs are too thin to compare and a BarList is the better shape.
  */
-export function Donut({ data = [], size = 168, thickness = 26, centerLabel, emptyMessage }) {
+export function Donut({ data = [], size = 176, thickness = 28, centerLabel, emptyMessage }) {
   const [hover, setHover] = useState(null);
   const titleId = useId();
 
@@ -176,34 +176,56 @@ export function Donut({ data = [], size = 168, thickness = 26, centerLabel, empt
  *
  * @param {Array<{date: string, count: number}>} points
  */
-export function TrendLine({ points = [], height = 120, emptyMessage }) {
+export function TrendLine({ points = [], height = 140, emptyMessage }) {
   const [hover, setHover] = useState(null);
+  const [width, setWidth] = useState(600);
+  const wrapRef = useRef(null);
   const gradId = useId();
   const titleId = useId();
+
+  // Measure the container so the chart keeps a true aspect ratio. With a fixed
+  // viewBox and preserveAspectRatio="none" the same data read as a different
+  // trend depending on window width — flattened when wide, exaggerated when
+  // narrow. That is a real misreading, not a cosmetic one.
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return undefined;
+    const ro = new ResizeObserver(([entry]) => setWidth(entry.contentRect.width || 600));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   if (points.length < 2) return <EmptyChart message={emptyMessage} height={height} />;
 
   const max = Math.max(...points.map((p) => p.count), 1);
-  const W = 100; // viewBox units — the SVG scales to its container
-  const stepX = W / (points.length - 1);
+  const PAD = 8;
+  const W = Math.max(width, 160);
+  const stepX = (W - PAD * 2) / (points.length - 1);
 
-  const coords = points.map((p, i) => [i * stepX, height - (p.count / max) * (height - 12) - 6]);
+  const coords = points.map((p, i) => [
+    PAD + i * stepX,
+    height - PAD - (p.count / max) * (height - PAD * 3.5),
+  ]);
   const line = coords.map(([x, y], i) => `${i ? 'L' : 'M'}${x.toFixed(2)},${y.toFixed(2)}`).join(' ');
-  const area = `${line} L${W},${height} L0,${height} Z`;
+  const area = `${line} L${W - PAD},${height} L${PAD},${height} Z`;
 
   const peak = points.reduce((a, b) => (b.count > a.count ? b : a), points[0]);
 
   return (
-    <div>
+    <div ref={wrapRef}>
       <svg
         viewBox={`0 0 ${W} ${height}`}
-        preserveAspectRatio="none"
-        className="w-full"
+        className="w-full block"
         style={{ height }}
         role="img"
         aria-labelledby={titleId}
         onMouseLeave={() => setHover(null)}
       >
+        {/* One reference line, at the peak. More gridlines than this is chart
+            furniture competing with the data. */}
+        <line x1={PAD} y1={PAD * 2.5} x2={W - PAD} y2={PAD * 2.5}
+          stroke="#e4e2dd" strokeWidth="1" strokeDasharray="3 3" />
+        <text x={PAD} y={PAD * 2.5 - 4} fontSize="9" fill="#8593a1">{max}</text>
         <title id={titleId}>
           {`${points.length} days, peak ${peak.count} on ${peak.date}`}
         </title>
@@ -221,7 +243,7 @@ export function TrendLine({ points = [], height = 120, emptyMessage }) {
         {points.map((p, i) => (
           <rect
             key={p.date}
-            x={i * stepX - stepX / 2}
+            x={PAD + i * stepX - stepX / 2}
             y={0}
             width={stepX}
             height={height}
@@ -230,8 +252,11 @@ export function TrendLine({ points = [], height = 120, emptyMessage }) {
           />
         ))}
         {hover && (
-          <circle cx={hover.x} cy={hover.y} r="2.5" fill="#1d4a78" stroke="#fff" strokeWidth="1.5"
-            vectorEffect="non-scaling-stroke" />
+          <g>
+            <line x1={hover.x} y1={PAD} x2={hover.x} y2={height - PAD}
+              stroke="#1d4a78" strokeWidth="1" strokeOpacity="0.25" />
+            <circle cx={hover.x} cy={hover.y} r="3.5" fill="#1d4a78" stroke="#fff" strokeWidth="2" />
+          </g>
         )}
       </svg>
 

@@ -11,7 +11,7 @@
 // Users", and shows whatever the backend returns first.
 import React, { useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import { BarList, TrendLine } from '../../components/charts';
+import { BarList, TrendLine, Donut } from '../../components/charts';
 import MetricCard from '../../components/metrics/MetricCard';
 import { computeMetrics, volumeSeries, ranked } from '../../lib/complaintMetrics';
 import ComplaintHeatMap from '../../components/map/ComplaintHeatMap';
@@ -88,14 +88,15 @@ export default function AdminDashboard() {
               label="Total Complaints"
               value={verifiedTotal ?? metrics.total}
               provenance={verifiedTotal !== null ? 'verified' : 'derived'}
-              footnote={verifiedTotal !== null ? 'From GET /admin/analytics' : 'Counted from the record set'}
-              formula={`${verifiedTotal ?? metrics.total} complaints city-wide`}
+              series={trend.points}
+              footnote={verifiedTotal !== null ? 'From /admin/analytics · last 30 days' : 'Last 30 days'}
             />
             <MetricCard
               label="Resolved"
               value={metrics.resolved}
               tone="positive"
-              formula={`Status Resolved or Verified = ${metrics.resolved}`}
+              share={metrics.total ? metrics.resolved / metrics.total : 0}
+              context={`of ${metrics.total} total`}
             />
             <MetricCard
               label="Resolution Rate"
@@ -103,8 +104,7 @@ export default function AdminDashboard() {
               unit="%"
               context={metrics.resolutionRate === null ? null : `${metrics.resolved} / ${metrics.total}`}
               tone="positive"
-              formula={metrics.resolutionRate === null ? undefined
-                : `${metrics.resolved} ÷ ${metrics.total} × 100 = ${metrics.resolutionRate.toFixed(1)}%`}
+              share={metrics.resolutionRate === null ? undefined : metrics.resolutionRate / 100}
             />
             {/* Deliberately null — see the note on `metrics` above. */}
             <MetricCard
@@ -141,6 +141,40 @@ export default function AdminDashboard() {
             <section className="bg-surface rounded-xl border border-line shadow-sm p-5">
               <h3 className="font-display text-[15px] font-bold text-ink mb-3">Top issue categories</h3>
               <BarList data={ranked(metrics.byCategory, 6).top} total={metrics.total} />
+            </section>
+          </div>
+
+          {/* Absorbed from the old Analytics and Departments pages. Three
+              separate screens over one dataset meant an admin had to hold the
+              numbers in their head while navigating between them. */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+            <section className="bg-surface rounded-xl border border-line shadow-sm p-5">
+              <h3 className="font-display text-[15px] font-bold text-ink mb-3">Status distribution</h3>
+              <Donut data={ranked(metrics.byStatus, 6).top} centerLabel="complaints" />
+            </section>
+
+            <section className="bg-surface rounded-xl border border-line shadow-sm p-5">
+              <h3 className="font-display text-[15px] font-bold text-ink mb-1">Open complaints by age</h3>
+              <p className="text-[12px] text-ink-muted mb-3">
+                Open only — a closed complaint is not ageing.
+              </p>
+              <BarList
+                data={Object.entries(metrics.ageBuckets)}
+                total={metrics.open}
+                emptyMessage="Nothing is open right now."
+              />
+            </section>
+
+            <section className="bg-surface rounded-xl border border-line shadow-sm p-5">
+              <h3 className="font-display text-[15px] font-bold text-ink mb-1">Departments</h3>
+              <p className="text-[12px] text-ink-muted mb-3">
+                Load by routing department
+              </p>
+              <BarList
+                data={ranked(metrics.byDepartment, 6).top}
+                total={metrics.total}
+                emptyMessage="No complaint carries a department yet."
+              />
             </section>
           </div>
 
