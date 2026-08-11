@@ -47,17 +47,26 @@ function ageLabel(days) {
 /**
  * The one thing this task needs from the worker right now.
  *
- * `direct` transitions apply on a single tap. Resolving is deliberately NOT
- * direct: it needs photo evidence, and an officer verifies that evidence before
- * closing, so it routes through the drawer.
+ * The worker's path is: accept -> In Progress (or park it On Hold) -> submit
+ * evidence -> Resolved.
+ *
+ * "Resolved" is the awaiting-review state, not the end of the story. The
+ * obvious-sounding UNDER_REVIEW is OFFICIAL_ONLY in services/lifecycle.py and
+ * would 403 from a worker, and VERIFIED is deliberately the citizen's call —
+ * they are the only party who can confirm the problem is actually gone. So the
+ * worker reports Resolved and the UI says "submitted for review", which is what
+ * it means to everyone downstream.
+ *
+ * `direct` transitions apply on a single tap. Submitting is NOT direct: it
+ * needs photo evidence, so it routes through the drawer.
  */
 function primaryAction(status) {
   switch (status) {
     case 'Assigned':
     case 'Reopened':
-      return { label: 'Start work', next: 'In Progress', direct: true, tone: 'civic' };
+      return { label: 'Accept task', next: 'In Progress', direct: true, tone: 'civic' };
     case 'In Progress':
-      return { label: 'Mark complete', next: 'Resolved', direct: false, tone: 'teal' };
+      return { label: 'Submit for review', next: 'Resolved', direct: false, tone: 'teal' };
     case 'On Hold':
       return { label: 'Resume', next: 'In Progress', direct: true, tone: 'civic' };
     case 'Escalated':
@@ -65,6 +74,12 @@ function primaryAction(status) {
     default:
       return null;
   }
+}
+
+// Parking a job is a real field outcome — blocked access, missing part, weather.
+// It sits beside the primary action rather than inside a menu.
+function canHold(status) {
+  return status === 'In Progress';
 }
 
 const TONE_BTN = {
@@ -135,6 +150,15 @@ function TaskCard({ task, busy, onQuick, onOpen }) {
         >
           Details
         </button>
+        {canHold(task.status) && (
+          <button
+            onClick={() => onQuick(task, { next: 'On Hold' })}
+            disabled={busy}
+            className="focus-ring flex-1 flex items-center justify-center gap-2 py-3 text-[13px] font-semibold text-caution-700 hover:bg-caution-50 transition-colors disabled:opacity-50"
+          >
+            Hold
+          </button>
+        )}
         {action && (
           <button
             onClick={() => (action.direct ? onQuick(task, action) : onOpen(task.id))}
@@ -187,10 +211,15 @@ export default function WorkerTasks() {
     const next = items
       .filter((t) => ['Assigned', 'Reopened', 'On Hold', 'Escalated'].includes(t.status))
       .sort(order);
-    const done = items
-      .filter((t) => t.status === 'Resolved' || TERMINAL_STATUSES.includes(t.status))
+    // Submitted work is not "done" from the worker's point of view — it can
+    // come back if the citizen reopens it, so it gets its own group rather than
+    // being filed away with verified work.
+    const awaiting = items.filter((t) => t.status === 'Resolved')
       .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
-    return { active, next, done };
+    const done = items
+      .filter((t) => TERMINAL_STATUSES.includes(t.status))
+      .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+    return { active, next, awaiting, done };
   }, [items, order]);
 
   const applyUpdate = useCallback((updated) => {
@@ -203,7 +232,9 @@ export default function WorkerTasks() {
     setBusy(true);
     try {
       applyUpdate(await updateComplaintStatus(id, status, remarks));
-      say(`${id} marked as ${status}.`);
+      say(status === 'Resolved'
+        ? `${id} submitted for review.`
+        : `${id} marked as ${status}.`);
       setSelectedId(null);
     } catch (err) {
       if (err.name !== 'SessionExpiredError') say(err.message, 'error');
@@ -262,7 +293,7 @@ export default function WorkerTasks() {
         <EmptyPanel
           icon={IconCheckCircle}
           title="All caught up"
-          message={`Nothing open. You've closed ${groups.done.length} task${groups.done.length === 1 ? '' : 's'}.`}
+          message={`Nothing open. ${groups.awaiting.length} awaiting review, ${groups.done.length} closed.`}
         />
       ) : (
         <div className="space-y-6">
@@ -279,6 +310,14 @@ export default function WorkerTasks() {
             title="Up next"
             hint="Most urgent first"
             tasks={groups.next}
+            busy={busy}
+            onQuick={handleQuick}
+            onOpen={setSelectedId}
+          />
+          <Group
+            title="Awaiting review"
+            hint="Submitted — an officer or the citizen confirms it"
+            tasks={groups.awaiting}
             busy={busy}
             onQuick={handleQuick}
             onOpen={setSelectedId}
