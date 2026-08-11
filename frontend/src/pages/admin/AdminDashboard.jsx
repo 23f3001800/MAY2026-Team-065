@@ -11,9 +11,10 @@
 // Users", and shows whatever the backend returns first.
 import React, { useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import AdminStatCard from '../../components/admin/AdminStatCard';
-import LineChart from '../../components/admin/LineChart';
-import BarList from '../../components/admin/BarList';
+import { BarList, TrendLine } from '../../components/charts';
+import MetricCard from '../../components/metrics/MetricCard';
+import { computeMetrics, volumeSeries, ranked } from '../../lib/complaintMetrics';
+import ComplaintHeatMap from '../../components/map/ComplaintHeatMap';
 import { LoadingPanel, ErrorPanel } from '../../components/dashboard/AsyncStates';
 import { IconUserPlus } from '../../components/dashboard/icons';
 import { ROLES } from '../../config';
@@ -31,10 +32,6 @@ const ROLE_PILL = {
   admin: 'bg-violet-50 text-violet-700',
 };
 
-function monthKey(iso) {
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? null : d.toLocaleDateString(undefined, { month: 'short' });
-}
 
 async function loadDashboard() {
   const [analytics, complaints, users] = await Promise.all([
@@ -48,42 +45,20 @@ async function loadDashboard() {
 export default function AdminDashboard() {
   const { data, error, loading, refetch } = useAsync(loadDashboard, []);
 
-  const stats = useMemo(() => {
-    if (!data) return [];
-    const { analytics, complaints } = data;
-    const byStatus = analytics.breakdownByStatus || {};
-    const resolved = complaints.filter((c) => c.status === 'Resolved');
-    const avgDays = resolved.length
-      ? (resolved.reduce((sum, c) => sum + (new Date(c.updatedAt) - new Date(c.reportedAt)), 0) / resolved.length / 86400000).toFixed(1)
-      : null;
-    return [
-      { key: 'total', label: 'Total Complaints', value: analytics.overview?.totalComplaints ?? complaints.length, trend: 'City-wide', tone: 'emerald' },
-      { key: 'resolved', label: 'Resolved', value: byStatus.RESOLVED || 0, trend: 'Closed out', tone: 'purple' },
-      { key: 'assigned', label: 'Assigned', value: byStatus.ASSIGNED || 0, trend: 'In progress', tone: 'blue' },
-      { key: 'avg_time', label: 'Avg. Resolution Time', value: avgDays ? `${avgDays} days` : '—', trend: 'Reported to resolved', tone: 'amber' },
-    ];
-  }, [data]);
+  // Aggregation lives in lib/complaintMetrics so admin, officer and citizen all
+  // share one definition. The previous version computed its own — including an
+  // "Avg. Resolution Time" from (updatedAt - reportedAt), which is wrong rather
+  // than imprecise: updatedAt moves on any edit, so a complaint recategorised
+  // months later reported a months-long resolution. That tile is now the
+  // honest insufficient-data state.
+  const metrics = useMemo(() => computeMetrics(data?.complaints), [data]);
 
-  const complaintsOverTime = useMemo(() => {
-    if (!data) return [];
-    const counts = new Map();
-    for (const c of data.complaints) {
-      const key = monthKey(c.reportedAt);
-      if (key) counts.set(key, (counts.get(key) || 0) + 1);
-    }
-    return [...counts.entries()].map(([label, value]) => ({ label, value }));
-  }, [data]);
+  // /admin/analytics IS a server aggregate, unlike everything else here, so the
+  // one figure it gives us is labelled Verified rather than Derived.
+  const verifiedTotal = data?.analytics?.overview?.totalComplaints ?? null;
 
-  const topCategories = useMemo(() => {
-    if (!data) return [];
-    const counts = new Map();
-    for (const c of data.complaints) counts.set(c.category, (counts.get(c.category) || 0) + 1);
-    const palette = ['#10b981', '#3b82f6', '#f59e0b', '#8b5cf6', '#94a3b8'];
-    return [...counts.entries()]
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 5)
-      .map(([label, value], i) => ({ label, value, color: palette[i % palette.length] }));
-  }, [data]);
+  const trend = useMemo(() => volumeSeries(data?.complaints, 30), [data]);
+
 
   return (
     <div className="max-w-[1200px] mx-auto space-y-6">
@@ -109,13 +84,64 @@ export default function AdminDashboard() {
         <>
           {/* KPIs */}
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-            {stats.map((s) => <AdminStatCard key={s.key} {...s} />)}
+            <MetricCard
+              label="Total Complaints"
+              value={verifiedTotal ?? metrics.total}
+              provenance={verifiedTotal !== null ? 'verified' : 'derived'}
+              footnote={verifiedTotal !== null ? 'From GET /admin/analytics' : 'Counted from the record set'}
+              formula={`${verifiedTotal ?? metrics.total} complaints city-wide`}
+            />
+            <MetricCard
+              label="Resolved"
+              value={metrics.resolved}
+              tone="positive"
+              formula={`Status Resolved or Verified = ${metrics.resolved}`}
+            />
+            <MetricCard
+              label="Resolution Rate"
+              value={metrics.resolutionRate === null ? null : Number(metrics.resolutionRate.toFixed(1))}
+              unit="%"
+              context={metrics.resolutionRate === null ? null : `${metrics.resolved} / ${metrics.total}`}
+              tone="positive"
+              formula={metrics.resolutionRate === null ? undefined
+                : `${metrics.resolved} ÷ ${metrics.total} × 100 = ${metrics.resolutionRate.toFixed(1)}%`}
+            />
+            {/* Deliberately null — see the note on `metrics` above. */}
+            <MetricCard
+              label="Avg. Resolution Time"
+              value={null}
+              provenance="insufficient"
+              tone="caution"
+              footnote="No resolution timestamp exists on a complaint."
+            />
           </div>
 
+          {/* Where the pressure is */}
+          <section>
+            <div className="flex items-baseline justify-between gap-3 mb-3 flex-wrap">
+              <div>
+                <h2 className="font-display text-[16px] font-bold text-ink">Complaint density</h2>
+                <p className="text-[12px] text-ink-muted mt-0.5">
+                  Weighted by severity — hot areas are where the serious work is, not just the most reports.
+                </p>
+              </div>
+            </div>
+            <ComplaintHeatMap complaints={data.complaints} height="440px" />
+          </section>
+
           {/* Charts */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {complaintsOverTime.length > 1 && <LineChart title="Complaints Over Time" data={complaintsOverTime} />}
-            <BarList title="Top Issue Categories" data={topCategories.length ? topCategories : [{ label: 'No data yet', value: 0, color: '#94a3b8' }]} />
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+            <section className="bg-surface rounded-xl border border-line shadow-sm p-5">
+              <h3 className="font-display text-[15px] font-bold text-ink mb-1">Complaints over time</h3>
+              <p className="text-[12px] text-ink-muted mb-3">
+                Last 30 days · {trend.counted} of {trend.total} complaints fall in this window
+              </p>
+              <TrendLine points={trend.points} height={140} />
+            </section>
+            <section className="bg-surface rounded-xl border border-line shadow-sm p-5">
+              <h3 className="font-display text-[15px] font-bold text-ink mb-3">Top issue categories</h3>
+              <BarList data={ranked(metrics.byCategory, 6).top} total={metrics.total} />
+            </section>
           </div>
 
           {/* Users */}
