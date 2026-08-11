@@ -26,6 +26,7 @@ import OfficerWorkers from './pages/officer/OfficerWorkers';
 import WorkerLayout from './layouts/WorkerLayout';
 import WorkerDashboard from './pages/worker/WorkerDashboard';
 import WorkerTasks from './pages/worker/WorkerTasks';
+import WorkerTaskDetail from './pages/worker/WorkerTaskDetail';
 import WorkerHistory from './pages/worker/WorkerHistory';
 import WorkerProfile from './pages/worker/WorkerProfile';
 import Profile from './pages/shared/Profile';
@@ -140,6 +141,7 @@ function App() {
         >
           <Route path="/worker/dashboard" element={<WorkerDashboard />} />
           <Route path="/worker/tasks" element={<WorkerTasks />} />
+          <Route path="/worker/tasks/:id" element={<WorkerTaskDetail />} />
           <Route path="/worker/map" element={<Navigate to="/worker/tasks" replace />} />
           <Route path="/worker/history" element={<WorkerHistory />} />
           <Route path="/worker/notifications" element={<Notifications />} />

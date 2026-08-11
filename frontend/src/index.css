@@ -265,3 +265,32 @@
     transform: none;
   }
 }
+
+/* ─── Print ─────────────────────────────────────────────────
+   The report sheet is the only thing that should reach paper. Sidebar, top bar
+   and the floating assistant are navigation — useless in ink and they would
+   push the content off the page. */
+@media print {
+  @page { margin: 14mm; }
+
+  body { background: #fff; }
+
+  aside,
+  header.sticky,
+  .print\:hidden {
+    display: none !important;
+  }
+
+  /* Let the sheet own the page rather than sitting inside the app's scroll. */
+  main { padding: 0 !important; background: none !important; }
+
+  /* Keep chart colours: browsers strip backgrounds by default, which would
+     render every bar and slice white. */
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .break-before-page { break-before: page; }
+  .break-inside-avoid { break-inside: avoid; }
+}

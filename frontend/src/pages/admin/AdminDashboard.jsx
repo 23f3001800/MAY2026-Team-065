@@ -9,12 +9,14 @@
 // UserModel has no createdAt column, so there is no way to sort "recent"
 // users by signup time -- the table below is just "Users", not "Recent
 // Users", and shows whatever the backend returns first.
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { BarList, TrendLine, Donut } from '../../components/charts';
 import MetricCard from '../../components/metrics/MetricCard';
 import { computeMetrics, volumeSeries, ranked } from '../../lib/complaintMetrics';
 import useCategories from '../../hooks/useCategories';
+import PrintReport from '../../components/admin/PrintReport';
+import { IconDownload } from '../../components/dashboard/icons';
 import ComplaintHeatMap from '../../components/map/ComplaintHeatMap';
 import { LoadingPanel, ErrorPanel } from '../../components/dashboard/AsyncStates';
 import { IconUserPlus } from '../../components/dashboard/icons';
@@ -54,6 +56,7 @@ export default function AdminDashboard() {
   // honest insufficient-data state.
   const metrics = useMemo(() => computeMetrics(data?.complaints), [data]);
   const { categories } = useCategories();
+  const [reportOpen, setReportOpen] = useState(false);
 
   // Every seeded category, zeros included. ranked() only surfaces categories
   // that have complaints, so a category nobody has reported disappears — and
@@ -73,13 +76,21 @@ export default function AdminDashboard() {
 
 
   return (
-    <div className="max-w-[1200px] mx-auto space-y-6">
+    <div className="max-w-[1280px] mx-auto space-y-6 animate-rise-in">
       {/* Header */}
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div>
-          <h1 className="font-display text-2xl font-bold text-slate-900">Admin Dashboard</h1>
-          <p className="text-[14px] text-slate-500">City-wide overview of civic complaints and users.</p>
+          <h1 className="font-display text-[26px] font-bold text-ink leading-tight">Admin Dashboard</h1>
+          <p className="text-[14px] text-ink-muted mt-1">City-wide overview of civic complaints and users.</p>
         </div>
+
+        <button
+          onClick={() => setReportOpen(true)}
+          disabled={!data}
+          className="focus-ring lift inline-flex items-center gap-2 bg-surface border border-line hover:border-civic-400 disabled:opacity-50 text-ink-body font-semibold text-[13px] px-3.5 py-2.5 rounded-lg shadow-sm transition-all"
+        >
+          <IconDownload size={15} /> Generate report
+        </button>
         <Link
           to="/admin/users"
           className="inline-flex items-center gap-2 bg-primary hover:bg-emerald-600 text-white font-semibold text-[14px] px-4 py-2.5 rounded-xl shadow-btn transition-colors"
@@ -87,6 +98,15 @@ export default function AdminDashboard() {
           <IconUserPlus size={16} /> Manage Users
         </Link>
       </div>
+
+      {reportOpen && data && (
+        <PrintReport
+          metrics={metrics}
+          trend={trend}
+          categories={allCategories}
+          onClose={() => setReportOpen(false)}
+        />
+      )}
 
       {loading ? (
         <LoadingPanel label="Loading the dashboard…" variant="stats" />

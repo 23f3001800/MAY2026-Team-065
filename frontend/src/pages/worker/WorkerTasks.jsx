@@ -17,9 +17,9 @@
 // Resolution still opens the drawer because it needs photo evidence, but
 // starting, resuming and navigating are one tap.
 import React, { useCallback, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import StatusBadge from '../../components/dashboard/StatusBadge';
 import SeverityBadge from '../../components/dashboard/SeverityBadge';
-import TaskDrawer from '../../components/worker/TaskDrawer';
 import Toast from '../../components/dashboard/Toast';
 import { LoadingPanel, ErrorPanel, EmptyPanel } from '../../components/dashboard/AsyncStates';
 import {
@@ -218,17 +218,16 @@ function Group({ title, hint, tasks, ...cardProps }) {
 }
 
 export default function WorkerTasks() {
+  const navigate = useNavigate();
   const { data, error, loading, refetch, setData } = useAsync(() => listMyTasks(), []);
   const items = useMemo(() => data || [], [data]);
 
-  const [selectedId, setSelectedId] = useState(null);
   const [toast, setToast] = useState('');
   const [toastTone, setToastTone] = useState('success');
   const [busy, setBusy] = useState(false);
   // List or map over the SAME open tasks. This was a separate page, which meant
   // leaving your task list to find out where the tasks were.
   const [view, setView] = useState('list');
-  const selected = items.find((t) => t.id === selectedId) || null;
 
   // Severity first, then oldest — the two things that decide what a worker
   // should do next.
@@ -259,20 +258,6 @@ export default function WorkerTasks() {
 
   const say = (msg, tone = 'success') => { setToast(msg); setToastTone(tone); };
 
-  const handleStatusChange = async (id, status, remarks) => {
-    setBusy(true);
-    try {
-      applyUpdate(await updateComplaintStatus(id, status, remarks));
-      say(status === 'Resolved'
-        ? `${id} submitted for review.`
-        : `${id} marked as ${status}.`);
-      setSelectedId(null);
-    } catch (err) {
-      if (err.name !== 'SessionExpiredError') say(err.message, 'error');
-    } finally {
-      setBusy(false);
-    }
-  };
 
   // One-tap transition straight from the card.
   const handleQuick = async (task, action) => {
@@ -347,7 +332,7 @@ export default function WorkerTasks() {
           complaints={[...groups.active, ...groups.next]}
           height="560px"
           showMe
-          onSelect={(c) => setSelectedId(c.id)}
+          onSelect={(c) => navigate(`/worker/tasks/${c.id}`)}
         />
       ) : (
         <div className="space-y-6">
@@ -358,7 +343,7 @@ export default function WorkerTasks() {
             tasks={groups.active}
             busy={busy}
             onQuick={handleQuick}
-            onOpen={setSelectedId}
+            onOpen={(tid) => navigate(`/worker/tasks/${tid}`)}
           />
           <Group
             title="Up next"
@@ -366,7 +351,7 @@ export default function WorkerTasks() {
             tasks={groups.next}
             busy={busy}
             onQuick={handleQuick}
-            onOpen={setSelectedId}
+            onOpen={(tid) => navigate(`/worker/tasks/${tid}`)}
           />
           <Group
             title="Awaiting review"
@@ -374,7 +359,7 @@ export default function WorkerTasks() {
             tasks={groups.awaiting}
             busy={busy}
             onQuick={handleQuick}
-            onOpen={setSelectedId}
+            onOpen={(tid) => navigate(`/worker/tasks/${tid}`)}
           />
         </div>
       )}
@@ -390,7 +375,7 @@ export default function WorkerTasks() {
             {groups.done.slice(0, 10).map((t) => (
               <li key={t.id}>
                 <button
-                  onClick={() => setSelectedId(t.id)}
+                  onClick={() => navigate(`/worker/tasks/${t.id}`)}
                   className="focus-ring w-full text-left px-4 py-3 hover:bg-surface-inset transition-colors flex items-center gap-3"
                 >
                   <div className="min-w-0 flex-1">
@@ -405,15 +390,6 @@ export default function WorkerTasks() {
         </details>
       )}
 
-      {selected && (
-        <TaskDrawer
-          task={selected}
-          busy={busy}
-          readOnly={TERMINAL_STATUSES.includes(selected.status)}
-          onDismiss={() => setSelectedId(null)}
-          onStatusChange={handleStatusChange}
-        />
-      )}
     </div>
   );
 }
