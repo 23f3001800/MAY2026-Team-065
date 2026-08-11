@@ -133,13 +133,13 @@ export default function ComplaintDetails() {
   );
 
   // Photos uploaded at or after the complaint was marked Resolved are the field
-  // worker's completion evidence. Splitting on the resolution timestamp is a
-  // heuristic, but the media response carries no role — only an uploader id we
-  // cannot resolve to a name — so this is the honest signal available.
-  // Split by uploader, not by the RESOLVED timestamp — see lib/evidence.js.
+  // worker's completion evidence. ComplaintResponse now carries citizenId, so
+  // the reporter's own photos are identified rather than inferred from upload
+  // order — see lib/evidence.js, which keeps the old heuristic as a fallback
+  // for records filed before that field existed.
   const { before: reportPhotos, after: resolutionPhotos } = useMemo(
-    () => splitEvidence(media, complaint?.reportedAt),
-    [media, complaint?.reportedAt],
+    () => splitEvidence(media, complaint?.reportedAt, complaint?.citizenId),
+    [media, complaint?.reportedAt, complaint?.citizenId],
   );
 
   if (loading) {
