@@ -245,9 +245,6 @@ export default function ComplaintDrawer({
                     </span>
                   }
                 >
-                  {ai.summary && (
-                    <p className="text-[13px] text-ink-body leading-relaxed mb-3">{ai.summary}</p>
-                  )}
 
                   <div className="grid grid-cols-2 gap-2.5">
                     <div className="bg-white rounded-lg border border-line p-2.5">
