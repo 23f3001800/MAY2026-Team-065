@@ -89,65 +89,90 @@ const TONE_BTN = {
   caution: 'bg-caution-600 hover:bg-caution-700 text-white',
 };
 
-function TaskCard({ task, busy, onQuick, onOpen }) {
+function TaskCard({ task, busy, onQuick, onOpen, index = 0 }) {
   const action = primaryAction(task.status);
   const days = ageInDays(task.reportedAt);
-  const urgent = task.severity === 'Critical' || task.severity === 'High';
+  const active = task.status === 'In Progress';
   const mapsUrl = task.coords
     ? `https://www.google.com/maps/dir/?api=1&destination=${task.coords.latitude},${task.coords.longitude}`
     : null;
 
   return (
     <li
-      className={`bg-surface rounded-xl border shadow-sm overflow-hidden transition-shadow hover:shadow-md ${
-        urgent ? 'border-l-[3px] border-l-danger-600 border-line' : 'border-line'
-      }`}
+      style={{ '--i': index }}
+      className={`group relative bg-surface rounded-2xl border shadow-sm overflow-hidden
+        animate-rise-in stagger transition-all duration-200 hover:shadow-md hover:-translate-y-0.5
+        ${active ? 'border-civic-300 ring-1 ring-civic-100' : 'border-line'}`}
     >
-      <div className="p-4">
+      {/* Severity rail. A delivery app tells you at a glance which drop is the
+          urgent one without reading anything — this is that. */}
+      <span
+        aria-hidden="true"
+        className={`absolute left-0 top-0 bottom-0 w-1 ${
+          task.severity === 'Critical' ? 'bg-danger-600'
+          : task.severity === 'High' ? 'bg-caution-500'
+          : task.severity === 'Medium' ? 'bg-civic-400'
+          : 'bg-teal-500'}`}
+      />
+
+      <div className="pl-5 pr-4 pt-4 pb-3">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
-            <h3 className="text-[15px] font-semibold text-ink leading-snug">{task.issue}</h3>
-            <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-              <SeverityBadge severity={task.severity} />
+            <div className="flex items-center gap-2 mb-1.5 flex-wrap">
               <StatusBadge status={task.status} />
+              {active && (
+                <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide text-civic-700">
+                  <span className="w-1.5 h-1.5 rounded-full bg-civic-600 animate-pulse-dot" />
+                  on this now
+                </span>
+              )}
               {days !== null && days >= 7 && (
-                <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-caution-700">
-                  <IconClock size={11} /> open {days} days
+                <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide text-caution-700">
+                  <IconClock size={10} /> {days}d waiting
                 </span>
               )}
             </div>
+            <h3 className="text-[16px] font-semibold text-ink leading-snug">{task.issue}</h3>
           </div>
+          <SeverityBadge severity={task.severity} className="shrink-0 mt-0.5" />
         </div>
 
-        <p className="text-[13px] text-ink-body leading-relaxed mt-2.5 line-clamp-2">
+        <p className="text-[13px] text-ink-body leading-relaxed mt-2 line-clamp-2">
           {task.description}
         </p>
 
-        <div className="flex items-start gap-1.5 text-[13px] text-ink-muted mt-2.5">
-          <IconMapPin size={14} className="text-ink-faint mt-0.5 shrink-0" />
-          <span className="min-w-0">{task.location}</span>
-        </div>
-        <div className="text-[11px] text-ink-faint mt-1 ml-[22px]">
-          {task.category} · reported {ageLabel(days)}
+        {/* Address block, styled like a delivery drop: the destination is the
+            thing you scan for, so it gets its own surface rather than being a
+            grey line of metadata. */}
+        <div className="flex items-start gap-2.5 mt-3 rounded-xl bg-surface-inset px-3 py-2.5">
+          <span className="w-7 h-7 rounded-lg bg-surface border border-line flex items-center justify-center shrink-0 mt-0.5">
+            <IconMapPin size={14} className="text-civic-600" />
+          </span>
+          <div className="min-w-0">
+            <div className="text-[13px] font-medium text-ink leading-snug">{task.location}</div>
+            <div className="text-[11px] text-ink-faint mt-0.5">
+              {task.category} · reported {ageLabel(days)}
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* Action bar. Targets are ≥44px tall — this is tapped with a thumb,
-          sometimes through a glove. */}
+      {/* Action bar. Full-bleed, ≥48px, thumb-reachable — tapped outdoors,
+          often through a glove. */}
       <div className="flex items-stretch border-t border-line divide-x divide-line">
         {mapsUrl && (
           <a
             href={mapsUrl}
             target="_blank"
             rel="noreferrer"
-            className="focus-ring flex-1 flex items-center justify-center gap-2 py-3 text-[13px] font-semibold text-ink-body hover:bg-surface-inset transition-colors"
+            className="focus-ring flex-1 flex items-center justify-center gap-2 py-3.5 text-[13px] font-semibold text-ink-body hover:bg-surface-inset active:bg-line transition-colors"
           >
             <IconMapPin size={15} /> Navigate
           </a>
         )}
         <button
           onClick={() => onOpen(task.id)}
-          className="focus-ring flex-1 flex items-center justify-center gap-2 py-3 text-[13px] font-semibold text-ink-body hover:bg-surface-inset transition-colors"
+          className="focus-ring flex-1 flex items-center justify-center py-3.5 text-[13px] font-semibold text-ink-body hover:bg-surface-inset active:bg-line transition-colors"
         >
           Details
         </button>
@@ -155,7 +180,7 @@ function TaskCard({ task, busy, onQuick, onOpen }) {
           <button
             onClick={() => onQuick(task, { next: 'On Hold' })}
             disabled={busy}
-            className="focus-ring flex-1 flex items-center justify-center gap-2 py-3 text-[13px] font-semibold text-caution-700 hover:bg-caution-50 transition-colors disabled:opacity-50"
+            className="focus-ring flex-1 flex items-center justify-center py-3.5 text-[13px] font-semibold text-caution-700 hover:bg-caution-50 active:bg-caution-100 transition-colors disabled:opacity-50"
           >
             Hold
           </button>
@@ -164,9 +189,11 @@ function TaskCard({ task, busy, onQuick, onOpen }) {
           <button
             onClick={() => (action.direct ? onQuick(task, action) : onOpen(task.id))}
             disabled={busy}
-            className={`focus-ring flex-[1.4] flex items-center justify-center gap-2 py-3 text-[13px] font-bold transition-colors disabled:opacity-50 ${TONE_BTN[action.tone]}`}
+            className={`focus-ring flex-[1.5] flex items-center justify-center gap-2 py-3.5 text-[13px] font-bold
+              transition-all disabled:opacity-50 ${TONE_BTN[action.tone]}`}
           >
-            {action.label} <IconArrowRight size={14} />
+            {action.label}
+            <IconArrowRight size={15} className="transition-transform duration-200 group-hover:translate-x-0.5" />
           </button>
         )}
       </div>
@@ -184,7 +211,7 @@ function Group({ title, hint, tasks, ...cardProps }) {
         {hint && <span className="text-[12px] text-ink-faint ml-auto">{hint}</span>}
       </div>
       <ul className="space-y-3">
-        {tasks.map((t) => <TaskCard key={t.id} task={t} {...cardProps} />)}
+        {tasks.map((t, i) => <TaskCard key={t.id} task={t} index={i} {...cardProps} />)}
       </ul>
     </section>
   );
