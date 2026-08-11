@@ -28,7 +28,11 @@ import { TERMINAL_STATUSES } from '../api/mappers';
 import useCategories from '../hooks/useCategories';
 import useAsync from '../hooks/useAsync';
 
-const RADIUS_OPTIONS = [1, 2, 5];
+// Wider than before. A 2km default hid most of what a citizen would consider
+// "near me" in a city — the point of this view is to find an existing report
+// before filing a duplicate, and that fails if the radius is too tight to
+// reach it.
+const RADIUS_OPTIONS = [2, 5, 10, 25];
 const DAY_MS = 86400000;
 
 function ageDays(iso) {
@@ -43,8 +47,9 @@ function formatDate(iso) {
     : d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
-// Great-circle distance — /complaints/nearby returns none, and it filters by a
-// square bounding box, so the corners need dropping.
+// Great-circle distance. /complaints/nearby returns no distance, so this fills
+// it in for sorting and display. It does NOT filter — the backend already
+// applied radius_km, and re-filtering here dropped results it had returned.
 function distanceKm(a, b) {
   if (!a || !b) return null;
   const R = 6371;
@@ -168,7 +173,7 @@ export default function Complaints() {
   // Nearby — only fetched when that scope is opened, so a citizen who never
   // looks at it is never asked for their location.
   const [origin, setOrigin] = useState(null);
-  const [radius, setRadius] = useState(2);
+  const [radius, setRadius] = useState(5);
   const [nearby, setNearby] = useState([]);
   const [nearbyState, setNearbyState] = useState({ loading: false, error: '' });
 
@@ -216,9 +221,12 @@ export default function Complaints() {
 
   const rows = useMemo(() => {
     if (scope === 'nearby') {
+      // Distance is for sorting and labelling ONLY — not filtering. The backend
+      // already applied radius_km; re-filtering to a stricter circle here threw
+      // away complaints it had legitimately returned (its bounding box is wider
+      // than the circle, so corner results were silently dropped).
       return nearby
         .map((c) => ({ ...c, distanceKm: distanceKm(origin, c.coords) }))
-        .filter((c) => c.distanceKm === null || c.distanceKm <= radius)
         .filter((c) => category === 'All' || c.category === category)
         .sort((a, b) => (a.distanceKm ?? Infinity) - (b.distanceKm ?? Infinity));
     }
@@ -228,7 +236,7 @@ export default function Complaints() {
         && (category === 'All' || c.category === category)
         && (!q || `${c.issue} ${c.id} ${c.location}`.toLowerCase().includes(q)))
       .sort((a, b) => new Date(b.reportedAt) - new Date(a.reportedAt));
-  }, [scope, nearby, origin, radius, mine, query, status, category]);
+  }, [scope, nearby, origin, mine, query, status, category]);
 
   const busy = scope === 'mine' ? loading : nearbyState.loading;
   const failed = scope === 'mine' ? error : nearbyState.error;
@@ -401,10 +409,18 @@ export default function Complaints() {
       )}
 
       {!busy && !failed && rows.length > 0 && (
-        <p className="text-[12px] text-ink-faint flex items-center gap-1.5">
+        <p className="text-[12px] text-ink-faint flex items-center gap-1.5 flex-wrap">
           Showing {rows.length}
           {scope === 'mine' && ` of ${mine.length}`}
-          {scope === 'nearby' && ' nearby'}
+          {scope === 'nearby' && ` within ${radius} km`}
+          {/* A complaint with no coordinates cannot be plotted, so the map and
+              the list legitimately differ. Say so rather than letting the map
+              look incomplete. */}
+          {view === 'map' && rows.some((c) => !c.coords) && (
+            <span className="text-caution-700">
+              · {rows.filter((c) => !c.coords).length} without coordinates are not on the map
+            </span>
+          )}
           <IconArrowRight size={11} className="text-line" />
           tap any card for the full history
         </p>
