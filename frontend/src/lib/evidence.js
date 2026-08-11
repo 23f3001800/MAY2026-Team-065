@@ -19,13 +19,24 @@ const NEAR_SUBMISSION_MS = 15 * 60 * 1000;
 /**
  * @param {Array} media       from getComplaintMedia
  * @param {string} reportedAt complaint.reportedAt, used only for the fallback
+ * @param {string} [citizenId] the reporter, when known — makes this exact
  * @returns {{ before: Array, after: Array }}
  */
-export function splitEvidence(media = [], reportedAt) {
+export function splitEvidence(media = [], reportedAt, citizenId) {
   const items = [...media].filter(Boolean).sort(
     (a, b) => new Date(a.uploadedAt || 0) - new Date(b.uploadedAt || 0),
   );
   if (!items.length) return { before: [], after: [] };
+
+  // Exact path: ComplaintResponse now carries citizenId, so the reporter's
+  // photos can be identified rather than inferred. Everything below this is a
+  // fallback for records where it is missing.
+  if (citizenId) {
+    return {
+      before: items.filter((m) => m.uploadedBy === citizenId),
+      after: items.filter((m) => m.uploadedBy !== citizenId),
+    };
+  }
 
   const uploaders = new Set(items.map((m) => m.uploadedBy).filter(Boolean));
 

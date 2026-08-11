@@ -24,13 +24,46 @@ import {
 } from '../dashboard/icons';
 import { analyzeImage } from '../../api/ai';
 import { compareImages } from '../../lib/imageDiff';
+import { API_BASE_URL } from '../../config';
 
 // Fetch a served image back as a File so it can be posted to /ai/analyze-image,
 // which takes multipart upload rather than a URL.
+//
+// This is the only raw fetch() in the app — everything else goes through
+// api/client. It has to be: /uploads is a static mount, not a JSON endpoint.
+// That makes it the one call that can fail in ways the rest of the app cannot,
+// and a bare TypeError here surfaced to a municipal officer as the literal
+// words "Failed to fetch", which tells them nothing about what to do.
+//
+// So: absolute-ise the URL against the API host (a relative /uploads/... path
+// would otherwise resolve against the dev server and quietly return its index
+// page), and translate every failure mode into something actionable.
 async function urlToFile(url, name = 'evidence.jpg') {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Could not fetch the photo (${res.status})`);
+  if (!url) throw new Error('This photo has no address recorded, so it cannot be checked.');
+  const absolute = /^https?:\/\//i.test(url) ? url : `${API_BASE_URL}${url}`;
+
+  let res;
+  try {
+    res = await fetch(absolute, { cache: 'no-store' });
+  } catch (err) {
+    // fetch only rejects on a network-level failure: the API host is down, the
+    // request was blocked (CORS, an extension), or the browser is offline.
+    throw new Error(
+      navigator.onLine === false
+        ? 'You appear to be offline, so the photo could not be loaded.'
+        : `Could not reach ${new URL(absolute).origin} to load the photo. `
+          + 'Check the backend is running and that it allows this page to read /uploads.',
+    );
+  }
+
+  if (!res.ok) {
+    throw new Error(res.status === 404
+      ? 'The photo is recorded on this complaint but is missing from the server.'
+      : `The photo could not be loaded (HTTP ${res.status}).`);
+  }
+
   const blob = await res.blob();
+  if (!blob.size) throw new Error('The photo came back empty, so there is nothing to analyse.');
   return new File([blob], name, { type: blob.type || 'image/jpeg' });
 }
 
@@ -66,13 +99,18 @@ export default function AiVerificationPanel({ complaint, beforePhotos, afterPhot
     setVision(null);
     setDiff(null);
     try {
-      const file = await urlToFile(afterPhotos[0].url);
-      const [v, d] = await Promise.all([
-        analyzeImage(file),
-        compareImages(beforePhotos[0]?.url, afterPhotos[0]?.url),
-      ]);
-      setVision(v);
-      setDiff(d);
+      // Started first and awaited separately: the similarity number never
+      // throws (it reports its own reason), so it must not be discarded just
+      // because the vision call failed — and vice versa. Promise.all here meant
+      // one failure wiped out both results.
+      const diffPromise = compareImages(beforePhotos[0]?.url, afterPhotos[0]?.url);
+      try {
+        const file = await urlToFile(afterPhotos[0].url);
+        setVision(await analyzeImage(file));
+      } catch (err) {
+        if (err.name !== 'SessionExpiredError') setError(err.message);
+      }
+      setDiff(await diffPromise);
     } catch (err) {
       if (err.name !== 'SessionExpiredError') setError(err.message);
     } finally {
