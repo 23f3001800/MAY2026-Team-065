@@ -23,6 +23,9 @@ const RAMP = ['#2a6396', '#12a184', '#d97706', '#b42318'];
 // a Low one, because that is what the map is being read for.
 const WEIGHT = { Critical: 3, High: 2.2, Medium: 1.4, Low: 1 };
 
+// Mainland India plus island territories, with a little slack.
+const INDIA_BOUNDS = [[6.0, 67.5], [36.5, 97.5]];
+
 export default function ComplaintHeatMap({ complaints = [], height = '460px' }) {
   const containerRef = useRef(null);
   const mapRef = useRef(null);
@@ -38,8 +41,16 @@ export default function ComplaintHeatMap({ complaints = [], height = '460px' }) 
 
   useEffect(() => {
     if (mapRef.current || !containerRef.current) return undefined;
-    const map = L.map(containerRef.current, { scrollWheelZoom: false })
-      .setView([20.5937, 78.9629], 4);
+    // Constrained to India. Without bounds the map pans to empty ocean the
+    // moment someone drags, and fitBounds on a stray coordinate could throw the
+    // whole view to another continent — neither is a useful state for a city
+    // operations map.
+    const map = L.map(containerRef.current, {
+      scrollWheelZoom: false,
+      maxBounds: INDIA_BOUNDS,
+      maxBoundsViscosity: 0.9,   // rubber-band rather than a hard stop
+      minZoom: 4,
+    }).fitBounds(INDIA_BOUNDS);
 
     // Muted base map: a heat layer competes with colourful tiles, and the data
     // should be the loudest thing on screen.
@@ -83,10 +94,10 @@ export default function ComplaintHeatMap({ complaints = [], height = '460px' }) 
         .addTo(layer);
     }
 
-    map.fitBounds(
-      L.latLngBounds(plotted.map((c) => [c.coords.latitude, c.coords.longitude])),
-      { padding: [40, 40], maxZoom: 15 },
-    );
+    // Fit to the data, but never outside India — a single bad coordinate should
+    // not drag the view off the country.
+    const dataBounds = L.latLngBounds(plotted.map((c) => [c.coords.latitude, c.coords.longitude]));
+    map.fitBounds(dataBounds.isValid() ? dataBounds.pad(0.15) : INDIA_BOUNDS, { maxZoom: 15 });
   }, [plotted]);
 
   useEffect(() => {
