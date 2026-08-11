@@ -40,3 +40,20 @@ export function homePathForRole(role) {
     default: return '/dashboard';
   }
 }
+
+/**
+ * Where a complaint's detail page lives for a given role.
+ *
+ * The same ComplaintDetails screen is mounted under three prefixes so it renders
+ * inside the right layout, and each is guarded to its own role. Linking to the
+ * bare /complaints/:id from an officer or admin surface bounced them straight
+ * back to their dashboard, so callers outside the citizen area must use this.
+ */
+export function complaintPath(role, complaintId) {
+  const id = encodeURIComponent(complaintId);
+  switch (role) {
+    case 'municipal_officer': return `/officer/complaints/${id}`;
+    case 'admin': return `/admin/complaints/${id}`;
+    default: return `/complaints/${id}`;
+  }
+}

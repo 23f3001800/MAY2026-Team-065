@@ -11,39 +11,7 @@
 import React, { useEffect, useMemo, useRef } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-
-// Matches SeverityBadge so a pin and a badge never disagree.
-const SEVERITY_COLOR = {
-  Critical: '#dc2626',
-  High: '#ea580c',
-  Medium: '#d97706',
-  Low: '#059669',
-};
-
-const DEFAULT_COLOR = '#64748b';
-
-function pinIcon(severity, dimmed) {
-  const color = SEVERITY_COLOR[severity] || DEFAULT_COLOR;
-  return L.divIcon({
-    className: '', // suppress Leaflet's default styling
-    html: `
-      <span style="
-        display:block;width:18px;height:18px;border-radius:9999px;
-        background:${color};border:2.5px solid #fff;
-        box-shadow:0 1px 4px rgba(15,23,42,.4);
-        opacity:${dimmed ? 0.45 : 1};
-      "></span>`,
-    iconSize: [18, 18],
-    iconAnchor: [9, 9],
-    popupAnchor: [0, -10],
-  });
-}
-
-function escapeHtml(s = '') {
-  return String(s).replace(/[&<>"']/g, (c) => (
-    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
-  ));
-}
+import { SEVERITY_COLOR, pinIcon, escapeHtml, plottable } from './pin';
 
 /**
  * @param {Array}  complaints  UI-shaped complaints; those without `coords` are skipped
@@ -56,12 +24,7 @@ export default function ComplaintMap({ complaints = [], height = '420px', onSele
   const mapRef = useRef(null);
   const layerRef = useRef(null);
 
-  const plotted = useMemo(
-    () => complaints.filter((c) => c?.coords
-      && typeof c.coords.latitude === 'number'
-      && typeof c.coords.longitude === 'number'),
-    [complaints],
-  );
+  const plotted = useMemo(() => plottable(complaints), [complaints]);
 
   // Create the map once.
   useEffect(() => {

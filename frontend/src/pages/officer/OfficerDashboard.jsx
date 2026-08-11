@@ -1,16 +1,18 @@
 // Municipal officer overview — the operations command view.
 //
-// Data source is GET /complaints/ (officers receive every complaint) plus
-// GET /workers/. Note that /admin/analytics is NOT usable here: main.py:311
-// rejects any role other than administrator, so an officer has no server-side
-// analytics endpoint at all. Every figure on this page is therefore aggregated
-// from the full record set by lib/complaintMetrics and labelled "Derived"
-// rather than "Verified" — see docs/BACKEND_ANALYTICS_REQUESTS.md.
+// Headline figures come from GET /analytics/overview — a real server-side
+// aggregate, so they are labelled "Verified". Average resolution time is among
+// them now that complaints carry `resolvedAt`; the old note here said no
+// resolution timestamp existed, which was true until the backend added one.
 //
-// Two things this deliberately does NOT show, because the data cannot support
-// them honestly: average resolution time (no resolution timestamp exists;
-// updatedAt moves on any edit) and period-over-period comparison (no historical
-// snapshot). Both render as "insufficient verified data".
+// The charts below still aggregate the full record set in the browser via
+// lib/complaintMetrics, and stay labelled "Derived". That is not an oversight:
+// they need per-complaint detail (age buckets, category mix, the triage queue)
+// that the overview endpoint does not carry, and mislabelling a browser
+// aggregate as Verified would break the one promise this dashboard makes.
+//
+// If the analytics call fails the page still renders — tiles fall back to the
+// derived figures and relabel themselves accordingly, rather than going blank.
 import React, { useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import StatusBadge from '../../components/dashboard/StatusBadge';
@@ -21,8 +23,11 @@ import Provenance from '../../components/metrics/Provenance';
 import { LoadingPanel, ErrorPanel, EmptyPanel } from '../../components/dashboard/AsyncStates';
 import { IconRefresh, IconArrowRight, IconUsers, IconClock } from '../../components/dashboard/icons';
 import { getCurrentUser } from '../../api/auth';
+import { complaintPath } from '../../api/session';
 import { listComplaints } from '../../api/complaints';
+import { getOverview, getResolutionPerformance, getAging } from '../../api/analytics';
 import { listFieldWorkers } from '../../api/workers';
+import { formatHours, hoursAsMetric } from '../../lib/duration';
 import useAsync from '../../hooks/useAsync';
 import { computeMetrics, ranked, volumeSeries } from '../../lib/complaintMetrics';
 import { BarList, TrendLine, Donut } from '../../components/charts';
@@ -43,11 +48,16 @@ function Availability({ status }) {
 }
 
 async function loadDashboard() {
-  // Workers are secondary: if that call fails the dashboard is still useful,
-  // so it is caught rather than allowed to reject the whole load.
+  // Workers and analytics are secondary: if either call fails the dashboard is
+  // still useful, so they are caught rather than allowed to reject the load.
   const complaints = await listComplaints();
-  const workers = await listFieldWorkers().catch(() => null);
-  return { complaints, workers, loadedAt: new Date() };
+  const [workers, overview, resolution, aging] = await Promise.all([
+    listFieldWorkers().catch(() => null),
+    getOverview().catch(() => null),
+    getResolutionPerformance().catch(() => null),
+    getAging().catch(() => null),
+  ]);
+  return { complaints, workers, overview, resolution, aging, loadedAt: new Date() };
 }
 
 function SectionHeader({ title, subtitle, action }) {
@@ -67,6 +77,24 @@ export default function OfficerDashboard() {
   const { data, error, loading, refetch } = useAsync(loadDashboard, []);
 
   const metrics = useMemo(() => computeMetrics(data?.complaints), [data]);
+
+  // Server figures when they arrived, browser figures when they did not. Kept
+  // as an explicit pair rather than merged so each tile can label itself
+  // honestly instead of the page claiming one provenance for everything.
+  const server = data?.overview || null;
+  const level = server ? 'verified' : 'derived';
+  const avg = hoursAsMetric(server?.avgResolutionHours);
+
+  // Turnaround and backlog age, straight from the server. Absorbed from what
+  // was briefly a separate Performance page — it read as a second dashboard
+  // over the same data, and an officer comparing turnaround against the queue
+  // should not have to navigate between two screens to do it.
+  const aging = data?.aging || null;
+  const departments = useMemo(() => data?.resolution?.departments || [], [data]);
+  const worstDept = useMemo(
+    () => departments.reduce((m, d) => Math.max(m, d.avgHours), 0),
+    [departments],
+  );
 
   const recent = useMemo(() => {
     if (!data?.complaints) return [];
@@ -128,21 +156,21 @@ export default function OfficerDashboard() {
 
       {/* Metrics. Each carries a visual, not just a figure: a bare number tells
           you the value but not whether it is large, moving, or most of a whole. */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4">
         <MetricCard
           label="Total Complaints"
-          value={metrics.total}
-          provenance="derived"
+          value={server?.total ?? metrics.total}
+          provenance={level}
           tone="neutral"
           series={trend.points}
           footnote="Last 30 days"
         />
         <MetricCard
           label="Open"
-          value={metrics.open}
+          value={server?.open ?? metrics.open}
           context={`${metrics.untriaged} awaiting triage`}
-          provenance="derived"
-          tone={metrics.open > metrics.closed ? 'caution' : 'neutral'}
+          provenance={level}
+          tone={(server?.open ?? metrics.open) > metrics.closed ? 'caution' : 'neutral'}
           split={[
             { label: '0-2d', value: metrics.ageBuckets['0-2 days'], color: '#0e7c66' },
             { label: '3-7d', value: metrics.ageBuckets['3-7 days'], color: '#12a184' },
@@ -152,20 +180,36 @@ export default function OfficerDashboard() {
         />
         <MetricCard
           label="Resolved"
-          value={metrics.resolved}
-          provenance="derived"
+          value={server?.resolved ?? metrics.resolved}
+          provenance={level}
           tone="positive"
-          share={metrics.total ? metrics.resolved / metrics.total : 0}
-          context={`of ${metrics.total} total`}
+          share={metrics.total ? (server?.resolved ?? metrics.resolved) / (server?.total ?? metrics.total) : 0}
+          context={`of ${server?.total ?? metrics.total} total`}
         />
         <MetricCard
           label="Resolution Rate"
-          value={metrics.resolutionRate === null ? null : Number(metrics.resolutionRate.toFixed(1))}
+          value={server?.resolutionRatePct
+            ?? (metrics.resolutionRate === null ? null : Number(metrics.resolutionRate.toFixed(1)))}
           unit="%"
-          context={metrics.resolutionRate === null ? null : `${metrics.resolved} / ${metrics.total}`}
-          provenance="derived"
+          context={server
+            ? (server.resolutionRatePct === null ? null : `${server.resolved} / ${server.total}`)
+            : (metrics.resolutionRate === null ? null : `${metrics.resolved} / ${metrics.total}`)}
+          provenance={level}
           tone="positive"
-          share={metrics.resolutionRate === null ? undefined : metrics.resolutionRate / 100}
+          share={(server?.resolutionRatePct ?? metrics.resolutionRate) == null
+            ? undefined
+            : (server?.resolutionRatePct ?? metrics.resolutionRate) / 100}
+        />
+        {/* Answerable at last: measured from report to first Resolved, using
+            the resolvedAt stamp. Null — not zero — while nothing has resolved. */}
+        <MetricCard
+          label="Avg. Resolution"
+          value={avg.value}
+          unit={avg.unit}
+          provenance={avg.value === null ? 'insufficient' : 'verified'}
+          tone="neutral"
+          context={avg.value === null ? null : `across ${server.resolutionSampleSize} resolved`}
+          footnote={avg.value === null ? 'Nothing resolved yet to measure.' : 'Report to first “Resolved”'}
         />
       </div>
 
@@ -188,22 +232,81 @@ export default function OfficerDashboard() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        {/* Backlog age. Prefers /analytics/aging — which counts every open
+            complaint server-side, un-windowed — and falls back to the browser
+            buckets, relabelled, when that call did not land. */}
         <section className="bg-surface rounded-xl border border-line shadow-sm p-5">
-          <h3 className="font-display text-[15px] font-bold text-ink mb-1">Open complaints by age</h3>
-          <p className="text-[12px] text-ink-muted mb-3">Open only — a closed complaint is not ageing.</p>
+          <div className="flex items-center gap-2 mb-1">
+            <h3 className="font-display text-[15px] font-bold text-ink">Open complaints by age</h3>
+            <Provenance level={aging ? 'verified' : 'derived'} />
+          </div>
+          <p className="text-[12px] text-ink-muted mb-3">
+            {aging?.oldestOpenDays != null
+              ? `${aging.openTotal} open · oldest has waited ${aging.oldestOpenDays} days`
+              : 'Open only — a closed complaint is not ageing.'}
+          </p>
           <BarList
-            data={Object.entries(metrics.ageBuckets)}
-            total={metrics.open}
+            data={aging
+              ? aging.buckets.map((b) => [b.label, b.count])
+              : Object.entries(metrics.ageBuckets)}
+            total={aging ? aging.openTotal : metrics.open}
             emptyMessage="Nothing is open right now."
           />
         </section>
+
+        {/* Departments by TURNAROUND, not volume. Volume alone says which
+            department is busiest, which an officer can already see from the
+            category mix; how long each one takes is the figure that changes a
+            dispatch decision, and it needs the resolvedAt stamp to compute. */}
         <section className="bg-surface rounded-xl border border-line shadow-sm p-5">
-          <h3 className="font-display text-[15px] font-bold text-ink mb-3">Departments</h3>
-          <BarList
-            data={ranked(metrics.byDepartment, 6).top}
-            total={metrics.total}
-            emptyMessage="No complaint carries a department yet."
-          />
+          <div className="flex items-center gap-2 mb-1">
+            <h3 className="font-display text-[15px] font-bold text-ink">Department turnaround</h3>
+            <Provenance level={departments.length ? 'verified' : 'insufficient'} />
+          </div>
+          <p className="text-[12px] text-ink-muted mb-3">
+            Report to first “Resolved”. Median sits beside the mean because one
+            complaint left open for a year drags an average somewhere no real
+            complaint is.
+          </p>
+          {departments.length === 0 ? (
+            <p className="text-[13px] text-ink-muted">
+              Nothing has been resolved yet, so there is no turnaround to measure.
+            </p>
+          ) : (
+            <ul className="divide-y divide-line -my-2.5">
+              {departments.slice(0, 6).map((d) => {
+                const width = worstDept ? Math.max((d.avgHours / worstDept) * 100, 3) : 0;
+                const skewed = d.medianHours > 0 && d.avgHours / d.medianHours >= 1.5;
+                return (
+                  <li key={d.department} className="py-2.5">
+                    <div className="flex items-baseline justify-between gap-3">
+                      <span className="text-[13px] font-medium text-ink truncate">{d.department}</span>
+                      <span className="text-[13px] font-semibold text-ink tnum shrink-0">
+                        {formatHours(d.avgHours)}
+                        <span className="text-[11px] font-normal text-ink-faint ml-1.5">avg</span>
+                      </span>
+                    </div>
+                    <div className="mt-1.5 h-1.5 rounded-full bg-surface-inset overflow-hidden">
+                      <div
+                        className={`h-full rounded-full animate-grow-x origin-left ${skewed ? 'bg-caution-500' : 'bg-civic-600'}`}
+                        style={{ width: `${width}%` }}
+                      />
+                    </div>
+                    <div className="flex items-center justify-between gap-2 mt-1.5">
+                      <span className="text-[11px] text-ink-faint tnum">
+                        median {formatHours(d.medianHours)} · {d.resolved} resolved
+                      </span>
+                      {skewed && (
+                        <span className="text-[10px] font-semibold uppercase tracking-wide text-caution-700">
+                          long tail
+                        </span>
+                      )}
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
         </section>
       </div>
 
@@ -229,7 +332,7 @@ export default function OfficerDashboard() {
               {recent.map((c, i) => (
                 <li key={c.id} style={{ '--i': i }} className="animate-rise-in stagger">
                   <Link
-                    to={`/complaints/${c.id}`}
+                    to={complaintPath('municipal_officer', c.id)}
                     className="flex items-start gap-3 px-4 py-3 hover:bg-surface-inset transition-colors"
                   >
                     <div className="min-w-0 flex-1">
