@@ -18,7 +18,6 @@ import AdminLayout from './layouts/AdminLayout';
 import AdminDashboard from './pages/admin/AdminDashboard';
 import AdminUsers from './pages/admin/AdminUsers';
 import AdminComplaints from './pages/admin/AdminComplaints';
-import AdminCategories from './pages/admin/AdminCategories';
 import AdminReports from './pages/admin/AdminReports';
 import OfficerLayout from './layouts/OfficerLayout';
 import OfficerDashboard from './pages/officer/OfficerDashboard';
@@ -27,7 +26,6 @@ import OfficerWorkers from './pages/officer/OfficerWorkers';
 import WorkerLayout from './layouts/WorkerLayout';
 import WorkerDashboard from './pages/worker/WorkerDashboard';
 import WorkerTasks from './pages/worker/WorkerTasks';
-import WorkerMap from './pages/worker/WorkerMap';
 import WorkerHistory from './pages/worker/WorkerHistory';
 import WorkerProfile from './pages/worker/WorkerProfile';
 import Profile from './pages/shared/Profile';
@@ -107,7 +105,7 @@ function App() {
           <Route path="/admin/users" element={<AdminUsers />} />
           <Route path="/admin/complaints" element={<AdminComplaints />} />
           <Route path="/admin/departments" element={<Navigate to="/admin/dashboard" replace />} />
-          <Route path="/admin/categories" element={<AdminCategories />} />
+          <Route path="/admin/categories" element={<Navigate to="/admin/dashboard" replace />} />
           <Route path="/admin/analytics" element={<Navigate to="/admin/dashboard" replace />} />
           <Route path="/admin/reports" element={<AdminReports />} />
           <Route path="/admin/notifications" element={<Notifications />} />
@@ -142,7 +140,7 @@ function App() {
         >
           <Route path="/worker/dashboard" element={<WorkerDashboard />} />
           <Route path="/worker/tasks" element={<WorkerTasks />} />
-          <Route path="/worker/map" element={<WorkerMap />} />
+          <Route path="/worker/map" element={<Navigate to="/worker/tasks" replace />} />
           <Route path="/worker/history" element={<WorkerHistory />} />
           <Route path="/worker/notifications" element={<Notifications />} />
           <Route path="/worker/profile" element={<WorkerProfile />} />
