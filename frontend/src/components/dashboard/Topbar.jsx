@@ -4,7 +4,9 @@ import { IconMenu } from './icons';
 import NotificationBell from './NotificationBell';
 import LocationChip from './LocationChip';
 
-export default function Topbar({ user, onMenu, showLocation = true, notificationsHref = '/notifications' }) {
+export default function Topbar({
+  user, onMenu, showLocation = true, notificationsHref = '/notifications', onLocated,
+}) {
   const name = user?.name?.split(' ')[0] || 'there';
   const initial = (user?.name?.[0] || 'U').toUpperCase();
 
@@ -20,7 +22,7 @@ export default function Topbar({ user, onMenu, showLocation = true, notification
       </button>
 
       {/* Real current area, replacing a hardcoded label that did nothing. */}
-      {showLocation && <LocationChip />}
+      {showLocation && <LocationChip onLocated={onLocated} />}
 
       <div className="flex-1" />
 

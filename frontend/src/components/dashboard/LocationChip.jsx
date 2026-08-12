@@ -19,7 +19,13 @@ const STATE = {
   failed: 'failed',
 };
 
-export default function LocationChip() {
+/**
+ * @param {Function} [onLocated] called with {latitude, longitude} on a fix.
+ *   Best-effort by design: a field worker's chip uses this to record their
+ *   position server-side, and a failure to save must not stop the chip from
+ *   showing them where they are.
+ */
+export default function LocationChip({ onLocated }) {
   const [state, setState] = useState(STATE.idle);
   const [label, setLabel] = useState('');
 
@@ -33,6 +39,13 @@ export default function LocationChip() {
     navigator.geolocation.getCurrentPosition(
       async (pos) => {
         const coords = { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
+        if (onLocated) {
+          try {
+            await onLocated(coords);
+          } catch {
+            // Reporting the position is a side benefit, not the chip's job.
+          }
+        }
         const address = await reverseGeocode(coords);
         setState(STATE.ready);
         // If the lookup fails we still know where they are, so show the
@@ -46,7 +59,7 @@ export default function LocationChip() {
       },
       { timeout: 10000, maximumAge: 300000 },
     );
-  }, []);
+  }, [onLocated]);
 
   useEffect(() => { detect(); }, [detect]);
 
