@@ -36,3 +36,37 @@ export async function createFieldWorker({ name, email, phone, password, skillSet
   });
   return fromApiWorker(data);
 }
+
+/**
+ * The signed-in worker's own profile: base address and last reported position.
+ *
+ * Separate from listFieldWorkers, which is the officer's view of the roster --
+ * this one is scoped server-side to the caller and carries fields a worker may
+ * change about themselves.
+ */
+export async function getMyWorkerProfile() {
+  return apiRequest('/workers/me/profile');
+}
+
+/**
+ * Update the worker's own profile.
+ *
+ * Coordinates must be sent as a pair; the backend 422s on half of one, because
+ * a row with one coordinate looks locatable and is not. Omitted fields are left
+ * alone rather than blanked, so saving a phone number does not clear an address.
+ *
+ * Skills are deliberately not settable here -- what a worker is qualified for
+ * decides what they can be assigned, so it stays an administrator's call.
+ */
+export async function updateMyWorkerProfile({ name, phone, baseAddress, coords } = {}) {
+  return apiRequest('/workers/me/profile', {
+    method: 'PATCH',
+    body: {
+      name,
+      phone,
+      baseAddress,
+      currentLatitude: coords?.latitude,
+      currentLongitude: coords?.longitude,
+    },
+  });
+}
