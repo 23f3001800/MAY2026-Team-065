@@ -53,8 +53,21 @@ export function uploadComplaintImage(complaintId, file) {
 
 // Scoped server-side by role: citizens get their own, officers and admins get
 // everything. Field workers must use listMyTasks instead.
-export async function listComplaints() {
-  const data = await apiRequest('/complaints/');
+/**
+ * @param {object} [opts]
+ *   sort              'created' | 'aiConfidence' | 'expectedResolution'
+ *   order             'asc' | 'desc'
+ *   aiConfidenceMax   only complaints the classifier was at most this sure of
+ *
+ * Complaints that were never classified carry no confidence and the backend
+ * excludes them from a confidence filter rather than treating them as zero --
+ * "never classified" and "classified badly" are different queues.
+ */
+export async function listComplaints(opts = {}) {
+  const { sort, order, aiConfidenceMax, aiConfidenceMin, limit, offset } = opts;
+  const data = await apiRequest('/complaints/', {
+    params: { sort, order, aiConfidenceMax, aiConfidenceMin, limit, offset },
+  });
   return (data || []).map(fromApiComplaint);
 }
 
@@ -63,8 +76,19 @@ export async function getComplaint(complaintId) {
   return fromApiComplaint(data);
 }
 
-export async function listMyTasks() {
-  const data = await apiRequest('/complaints/worker/tasks');
+/**
+ * A worker's own tasks.
+ *
+ * With `origin`, the backend orders them by distance from that point and
+ * returns distanceKm on each. Without it, they come back newest first. The
+ * backend refuses sort=distance with no coordinates rather than silently
+ * falling back, so this only asks for it when it has a real position.
+ */
+export async function listMyTasks({ origin } = {}) {
+  const params = origin
+    ? { sort: 'distance', lat: origin.latitude, lng: origin.longitude }
+    : undefined;
+  const data = await apiRequest('/complaints/worker/tasks', { params });
   return (data || []).map(fromApiComplaint);
 }
 
@@ -77,6 +101,35 @@ export async function listNearbyComplaints({ latitude, longitude, radiusKm = 5 }
     params: { latitude, longitude, radius_km: radiusKm },
   });
   return (data || []).map(fromApiComplaint);
+}
+
+/**
+ * Assign many complaints to one worker.
+ *
+ * Partial success is normal and is reported per complaint: one already-resolved
+ * complaint does not fail the rest. Returns the backend's shape unchanged so
+ * the caller can show exactly which ones did not take, and why.
+ *
+ * @returns {{assigned: string[], failed: {complaintId, reason}[],
+ *            assignedCount: number, failedCount: number}}
+ */
+export function bulkAssign(complaintIds, fieldWorkerId) {
+  return apiRequest('/complaints/bulk-assign', {
+    method: 'PATCH',
+    body: { complaintIds, fieldWorkerId },
+  });
+}
+
+/**
+ * Open complaints past their SLA deadline.
+ *
+ * Not date-filtered: a complaint from months ago that is still open is the
+ * point of it. `atRisk` is only populated when asked for.
+ */
+export async function listEscalations({ includeAtRisk = false } = {}) {
+  return apiRequest('/complaints/escalations', {
+    params: { includeAtRisk: includeAtRisk ? 'true' : undefined },
+  });
 }
 
 export async function assignFieldWorker(complaintId, fieldWorkerId) {
@@ -136,12 +189,26 @@ export async function getComplaintMedia(complaintId) {
 
 // Batch upload. The single-file endpoint still exists; this one takes several
 // in one request, which is what the worker's evidence step wants.
-export function uploadComplaintImages(complaintId, files) {
+/**
+ * @param {string} complaintId
+ * @param {File[]} files
+ * @param {object} [opts]
+ *   remarks         the worker's note, recorded in status history
+ *   idempotencyKey  kept stable across retries of the SAME upload
+ *
+ * The key is what makes a retry safe. Without it, a partial success followed by
+ * a retry puts a second copy of the same photo on the complaint — evidence that
+ * reads as two separate visits. With it, the backend replays the original
+ * response and stores nothing new.
+ */
+export function uploadComplaintImages(complaintId, files, { remarks, idempotencyKey } = {}) {
   const form = new FormData();
   for (const f of files) form.append('files', f);
+  if (remarks) form.append('remarks', remarks);
   return apiRequest(`/complaints/${encodeURIComponent(complaintId)}/images`, {
     method: 'POST',
     body: form,
+    headers: idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : undefined,
   });
 }
 

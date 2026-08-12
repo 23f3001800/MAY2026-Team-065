@@ -10,6 +10,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import StatusBadge from '../components/dashboard/StatusBadge';
+import SlaBadge from '../components/dashboard/SlaBadge';
 import SeverityBadge from '../components/dashboard/SeverityBadge';
 import { LoadingPanel, ErrorPanel } from '../components/dashboard/AsyncStates';
 import EvidencePanel from '../components/dashboard/EvidencePanel';
@@ -208,6 +209,7 @@ export default function ComplaintDetails() {
             <span className="text-slate-300">·</span>
             <StatusBadge status={complaint.status} />
             <SeverityBadge severity={complaint.severity} />
+            <SlaBadge complaint={complaint} showDate />
           </div>
         </div>
 
