@@ -22,6 +22,7 @@ import OfficerDashboard from './pages/officer/OfficerDashboard';
 import OfficerComplaints from './pages/officer/OfficerComplaints';
 import OfficerWorkers from './pages/officer/OfficerWorkers';
 import OfficerVerification from './pages/officer/OfficerVerification';
+import OfficerEscalations from './pages/officer/OfficerEscalations';
 import WorkerLayout from './layouts/WorkerLayout';
 import WorkerDashboard from './pages/worker/WorkerDashboard';
 import WorkerTasks from './pages/worker/WorkerTasks';
@@ -130,6 +131,7 @@ function App() {
               there bounced them to their dashboard. */}
           <Route path="/officer/complaints/:id" element={<ComplaintDetails />} />
           <Route path="/officer/verification" element={<OfficerVerification />} />
+          <Route path="/officer/escalations" element={<OfficerEscalations />} />
           <Route path="/officer/workers" element={<OfficerWorkers />} />
           <Route path="/officer/analytics" element={<Navigate to="/officer/dashboard" replace />} />
           <Route path="/officer/notifications" element={<Notifications />} />
