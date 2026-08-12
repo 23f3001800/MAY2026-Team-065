@@ -25,11 +25,14 @@ import { getComplaintHistory, getComplaintMedia } from '../../api/complaints';
 import { splitEvidence } from '../../lib/evidence';
 import AiVerificationPanel from './AiVerificationPanel';
 
-// States where a field worker has submitted completed work and it is sitting
-// with the officer. 'Under Review' is where a submission actually lands;
-// 'Resolved' is included because an officer often reopens the drawer on work
-// they have already accepted but the citizen has not yet confirmed.
-const AWAITING_SIGN_OFF = ['Under Review', 'Resolved'];
+// Where a field worker's completed work sits waiting for sign-off.
+//
+// RESOLVED, and only RESOLVED. UNDER_REVIEW belongs to the *intake* phase — an
+// officer checking a new complaint is valid, is not a duplicate, and picking a
+// department — so there is no completion evidence to verify in that state.
+// The lifecycle is: ASSIGNED -> IN_PROGRESS -> RESOLVED (worker) -> VERIFIED
+// (officer or citizen).
+const AWAITING_SIGN_OFF = ['Resolved'];
 
 const SEVERITY_LEVELS = ['Low', 'Medium', 'High', 'Critical'];
 
@@ -262,11 +265,7 @@ export default function ComplaintDrawer({
                 )}
 
                 {/* AI assistance sits with the evidence and above the decision,
-                    so it informs the choice rather than second-guessing it.
-                    Gated on AWAITING_SIGN_OFF, not on Resolved alone: a worker
-                    submitting completed work moves the complaint to Under
-                    Review, so gating on Resolved meant the panel never appeared
-                    on the one state where an officer actually needs it. */}
+                    so it informs the choice rather than second-guessing it. */}
                 {AWAITING_SIGN_OFF.includes(complaint.status) && (
                   <AiVerificationPanel
                     complaint={complaint}
@@ -281,30 +280,20 @@ export default function ComplaintDrawer({
                 {AWAITING_SIGN_OFF.includes(complaint.status) && (
                   <div className="mt-3 rounded-lg border border-civic-100 bg-civic-50/60 p-3">
                     <p className="text-[12px] text-ink-body leading-snug mb-2.5">
-                      {complaint.status === 'Under Review'
-                        ? 'A field worker has submitted this as complete. Accept the work, or send it back for more.'
-                        : 'You have accepted this work. Closing it is the reporter’s call — this only overrides that.'}
+                      A field worker has submitted this as complete. Verify the work matches the
+                      report, or send it back.
                     </p>
                     <div className="flex gap-2">
                       <button
-                        onClick={() => onStatusChange(
-                          complaint.id,
-                          complaint.status === 'Under Review' ? 'Resolved' : 'Verified',
-                          'Evidence verified by officer.',
-                        )}
+                        onClick={() => onStatusChange(complaint.id, 'Verified', 'Evidence verified by officer.')}
                         disabled={busy || afterPhotos.length === 0}
                         title={afterPhotos.length === 0 ? 'No completion evidence to verify' : undefined}
                         className="focus-ring flex-1 inline-flex items-center justify-center gap-1.5 bg-teal-600 hover:bg-teal-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold text-[12px] py-2 rounded-lg transition-colors"
                       >
-                        <IconCheckCircle size={14} />
-                        {complaint.status === 'Under Review' ? 'Accept the work' : 'Verify & close'}
+                        <IconCheckCircle size={14} /> Verify &amp; close
                       </button>
                       <button
-                        onClick={() => onStatusChange(
-                          complaint.id,
-                          complaint.status === 'Under Review' ? 'In Progress' : 'Reopened',
-                          'Sent back — work not accepted.',
-                        )}
+                        onClick={() => onStatusChange(complaint.id, 'In Progress', 'Sent back by officer — work not accepted.')}
                         disabled={busy}
                         className="focus-ring flex-1 bg-surface border border-line hover:border-caution-500 text-caution-700 font-semibold text-[12px] py-2 rounded-lg transition-colors disabled:opacity-40"
                       >
