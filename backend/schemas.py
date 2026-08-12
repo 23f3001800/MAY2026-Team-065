@@ -182,6 +182,41 @@ class FieldWorkerResponse(BaseModel):
     class Config:
         from_attributes = True
 
+class WorkerProfileUpdate(BaseModel):
+    """What a field worker may change about themselves.
+
+    Every field is optional and only applied when sent, so updating a phone
+    number does not blank an address. Skills are NOT here on purpose: what a
+    worker is qualified for is an administrator's call, not their own.
+    """
+
+    name: Optional[str] = None
+    phone: Optional[str] = None
+    baseAddress: Optional[str] = None
+
+    # Sent together or not at all -- half a coordinate is not a position.
+    currentLatitude: Optional[float] = Field(None, ge=-90, le=90)
+    currentLongitude: Optional[float] = Field(None, ge=-180, le=180)
+
+
+class WorkerProfileResponse(BaseModel):
+    userId: str
+    name: str
+    email: str
+    phone: Optional[str] = None
+    skillSet: Optional[str] = None
+    availabilityStatus: Optional[str] = None
+    baseAddress: Optional[str] = None
+    currentLatitude: Optional[float] = None
+    currentLongitude: Optional[float] = None
+    # When the position was last reported. A client showing a location without
+    # this cannot tell a live fix from one recorded three days ago.
+    locationUpdatedAt: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
 class PasswordReset(BaseModel):
     newPassword: str
 

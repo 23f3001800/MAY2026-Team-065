@@ -56,6 +56,21 @@ class FieldWorkerModel(UserModel):
     userId: Mapped[str] = mapped_column(ForeignKey("users.userId"), primary_key=True)
     skillSet: Mapped[str] = mapped_column(String, nullable=True) # Stored as comma-separated values
     availabilityStatus: Mapped[str] = mapped_column(String, default="AVAILABLE")
+
+    # Where the worker is based -- their home depot or ward office. Free text,
+    # entered once, and unlike the live position below it does not move.
+    baseAddress: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+
+    # Last reported position, used to order their task list by distance.
+    #
+    # Nullable and deliberately NOT defaulted to a city centre: a worker who has
+    # never shared their location must read as "unknown", because a guessed
+    # position would silently reorder their whole day around a place they are
+    # not. lastSeenAt is what makes it possible to tell a stale fix from a fresh
+    # one -- a position from yesterday is worse than none if nothing says so.
+    currentLatitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    currentLongitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    locationUpdatedAt: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     
     complaints: Mapped[List["ComplaintModel"]] = relationship(back_populates="field_worker")
 

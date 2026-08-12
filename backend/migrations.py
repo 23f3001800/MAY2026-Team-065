@@ -45,6 +45,11 @@ _ADDED_COLUMNS: List[Tuple[str, str, str]] = [
     # NULL fails on a table with existing rows; _backfill_is_active() fills it
     # immediately afterwards so the model's nullable=False stays truthful.
     ("users", "isActive", "BOOLEAN"),
+    # Field worker profile: where they are based, and where they last were.
+    ("field_workers", "baseAddress", "VARCHAR"),
+    ("field_workers", "currentLatitude", "DOUBLE PRECISION"),
+    ("field_workers", "currentLongitude", "DOUBLE PRECISION"),
+    ("field_workers", "locationUpdatedAt", "TIMESTAMP"),
 ]
 
 # SQLite has no DOUBLE PRECISION / TIMESTAMP spelling difference worth caring

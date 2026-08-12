@@ -1380,6 +1380,79 @@ async def update_citizen_password(
 
 
 #  Allows a logged-in Field Worker to toggle their availability ON or OFF.
+@app.get("/workers/me/profile", response_model=schemas.WorkerProfileResponse)
+async def get_worker_profile(
+    db: AsyncSession = Depends(get_db),
+    current_user: models.UserModel = Depends(get_current_user)
+):
+    """The signed-in field worker's own profile."""
+    require_roles(current_user, ("field_worker",), "read a field worker profile")
+
+    result = await db.execute(
+        select(models.FieldWorkerModel)
+        .where(models.FieldWorkerModel.userId == current_user.userId)
+    )
+    worker = result.scalar_one_or_none()
+    if not worker:
+        raise HTTPException(status_code=404, detail="Worker profile not found.")
+    return worker
+
+
+@app.patch("/workers/me/profile", response_model=schemas.WorkerProfileResponse)
+async def update_worker_profile(
+    profile_data: schemas.WorkerProfileUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: models.UserModel = Depends(get_current_user)
+):
+    """Update the signed-in field worker's own profile.
+
+    Covers their name, phone, base address, and last known position. Skills are
+    deliberately not editable here -- what a worker is qualified for decides
+    what they can be assigned, so it stays an administrator's call.
+
+    The two coordinates must arrive together. Storing one without the other
+    would leave a row that looks like it has a position and cannot be plotted,
+    and the distance sort would silently skip that worker forever.
+    """
+    require_roles(current_user, ("field_worker",), "update a field worker profile")
+
+    result = await db.execute(
+        select(models.FieldWorkerModel)
+        .where(models.FieldWorkerModel.userId == current_user.userId)
+    )
+    worker = result.scalar_one_or_none()
+    if not worker:
+        raise HTTPException(status_code=404, detail="Worker profile not found.")
+
+    lat, lng = profile_data.currentLatitude, profile_data.currentLongitude
+    if (lat is None) != (lng is None):
+        raise HTTPException(
+            status_code=422,
+            detail="Send currentLatitude and currentLongitude together, or neither.",
+        )
+
+    # Only fields that were actually sent are applied, so omitting one leaves it
+    # alone rather than blanking it.
+    if profile_data.name is not None:
+        name = profile_data.name.strip()
+        if not name:
+            raise HTTPException(status_code=422, detail="Name cannot be blank.")
+        worker.name = name
+    if profile_data.phone is not None:
+        worker.phone = profile_data.phone.strip()
+    if profile_data.baseAddress is not None:
+        # An empty string clears it, which is different from not sending it.
+        worker.baseAddress = profile_data.baseAddress.strip() or None
+    if lat is not None and lng is not None:
+        worker.currentLatitude = lat
+        worker.currentLongitude = lng
+        worker.locationUpdatedAt = datetime.now(timezone.utc).replace(tzinfo=None)
+
+    await db.commit()
+    await db.refresh(worker)
+    return worker
+
+
 @app.patch("/workers/me/availability")
 async def update_worker_availability(
     update_data: schemas.AvailabilityUpdate,
