@@ -137,6 +137,17 @@ export function fromApiComplaint(c) {
     // Never treat null as zero.
     resolvedAt: c.resolvedAt || null,
 
+    // When the city undertook to fix this by, from the severity SLA. Null when
+    // the backend could not compute it -- never a guess, and never rendered as
+    // "due now".
+    expectedResolutionAt: c.expectedResolutionAt || null,
+    slaBreached: c.slaBreached === true,
+    // Hours until the deadline; negative once overdue, null once closed.
+    hoursRemaining: typeof c.hoursRemaining === 'number' ? c.hoursRemaining : null,
+
+    // Only present on the worker task feed when sorted by distance.
+    distanceKm: typeof c.distanceKm === 'number' ? c.distanceKm : null,
+
     // The people on the record. citizenId in particular turns the before/after
     // photo split from an inference into a fact (see lib/evidence.js).
     citizenId: c.citizenId || null,

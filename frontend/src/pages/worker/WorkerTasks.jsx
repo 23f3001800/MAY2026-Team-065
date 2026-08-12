@@ -24,7 +24,9 @@ import Toast from '../../components/dashboard/Toast';
 import { LoadingPanel, ErrorPanel, EmptyPanel } from '../../components/dashboard/AsyncStates';
 import {
   IconMapPin, IconClipboard, IconCheckCircle, IconClock, IconRefresh, IconArrowRight,
+  IconCrosshair,
 } from '../../components/dashboard/icons';
+import SlaBadge from '../../components/dashboard/SlaBadge';
 import { listMyTasks, updateComplaintStatus } from '../../api/complaints';
 import useAsync from '../../hooks/useAsync';
 import { TERMINAL_STATUSES } from '../../api/mappers';
@@ -154,8 +156,19 @@ function TaskCard({ task, busy, onQuick, onOpen, index = 0 }) {
               <span className="inline-flex items-center text-[10px] font-semibold uppercase tracking-wide text-ink-muted bg-surface border border-line rounded px-1.5 py-0.5">
                 {task.category}
               </span>
+              {/* Only present when the list was ordered by distance -- a figure
+                  with no point of origin would be meaningless. */}
+              {task.distanceKm !== null && (
+                <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-civic-700">
+                  <IconCrosshair size={11} />
+                  {task.distanceKm < 1
+                    ? `${Math.round(task.distanceKm * 1000)} m away`
+                    : `${task.distanceKm.toFixed(1)} km away`}
+                </span>
+              )}
               <span className="text-[11px] text-ink-faint">reported {ageLabel(days)}</span>
             </div>
+            <SlaBadge complaint={task} showDate className="mt-1.5" />
           </div>
         </div>
       </div>
@@ -222,8 +235,51 @@ function Group({ title, hint, tasks, ...cardProps }) {
 
 export default function WorkerTasks() {
   const navigate = useNavigate();
-  const { data, error, loading, refetch, setData } = useAsync(() => listMyTasks(), []);
+
+  // Where the worker is, if the device will say. Held in state rather than
+  // requested inside the fetch so a refresh does not re-prompt for permission,
+  // and so "nearest first" can be offered only once a real position exists --
+  // the backend refuses to sort by distance without one, which is the honest
+  // behaviour but makes for a broken button if offered too early.
+  const [origin, setOrigin] = useState(null);
+  const [locating, setLocating] = useState(false);
+  const [locateError, setLocateError] = useState('');
+
+  // 'urgency' = severity then age, the judgement call about what matters most.
+  // 'distance' = server-ordered by how far away each job is, which is what
+  // saves a shift's worth of travel.
+  const [sortBy, setSortBy] = useState('urgency');
+
+  const { data, error, loading, refetch, setData } = useAsync(
+    () => listMyTasks(sortBy === 'distance' && origin ? { origin } : {}),
+    [sortBy, origin],
+  );
   const items = useMemo(() => data || [], [data]);
+
+  const locate = useCallback(() => {
+    if (!navigator.geolocation) {
+      setLocateError('This device cannot report a location.');
+      return;
+    }
+    setLocating(true);
+    setLocateError('');
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setOrigin({ latitude: pos.coords.latitude, longitude: pos.coords.longitude });
+        setSortBy('distance');
+        setLocating(false);
+      },
+      (err) => {
+        setLocateError(
+          err.code === err.PERMISSION_DENIED
+            ? 'Location permission is off, so tasks cannot be ordered by distance.'
+            : 'Could not get a location fix.',
+        );
+        setLocating(false);
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 },
+    );
+  }, []);
 
   const [toast, setToast] = useState('');
   const [toastTone, setToastTone] = useState('success');
@@ -243,10 +299,14 @@ export default function WorkerTasks() {
   }, []);
 
   const groups = useMemo(() => {
-    const active = items.filter((t) => t.status === 'In Progress').sort(order);
-    const next = items
-      .filter((t) => ['Assigned', 'Reopened', 'On Hold', 'Escalated'].includes(t.status))
-      .sort(order);
+    // When the server ordered by distance, keep its order. Re-sorting by
+    // severity here would silently throw away the thing the worker asked for.
+    const byDistance = sortBy === 'distance' && origin;
+    const arrange = (list) => (byDistance ? list : list.sort(order));
+
+    const active = arrange(items.filter((t) => t.status === 'In Progress'));
+    const next = arrange(items
+      .filter((t) => ['Assigned', 'Reopened', 'On Hold', 'Escalated'].includes(t.status)));
     // Submitted work is not "done" from the worker's point of view — it can
     // come back if the citizen reopens it, so it gets its own group rather than
     // being filed away with verified work.
@@ -256,7 +316,7 @@ export default function WorkerTasks() {
       .filter((t) => TERMINAL_STATUSES.includes(t.status))
       .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
     return { active, next, awaiting, done };
-  }, [items, order]);
+  }, [items, order, sortBy, origin]);
 
   const applyUpdate = useCallback((updated) => {
     setData((list) => (list || []).map((t) => (t.id === updated.id ? updated : t)));
@@ -320,6 +380,31 @@ export default function WorkerTasks() {
               </button>
             ))}
           </div>
+          {/* Nearest-first needs a real position: the backend refuses to sort
+              by distance without one rather than quietly falling back to date
+              order, so the control asks for a fix instead of pretending. */}
+          <div className="inline-flex rounded-lg border border-line overflow-hidden bg-surface" role="group" aria-label="Order tasks">
+            <button
+              onClick={() => setSortBy('urgency')}
+              aria-pressed={sortBy === 'urgency'}
+              className={`focus-ring px-3.5 py-2.5 text-[13px] font-semibold transition-colors ${
+                sortBy === 'urgency' ? 'bg-civic-700 text-white' : 'text-ink-body hover:bg-surface-inset'
+              }`}
+            >
+              Urgency
+            </button>
+            <button
+              onClick={() => (origin ? setSortBy('distance') : locate())}
+              aria-pressed={sortBy === 'distance'}
+              disabled={locating}
+              className={`focus-ring inline-flex items-center gap-1.5 px-3.5 py-2.5 text-[13px] font-semibold transition-colors disabled:opacity-60 ${
+                sortBy === 'distance' ? 'bg-civic-700 text-white' : 'text-ink-body hover:bg-surface-inset'
+              }`}
+            >
+              <IconCrosshair size={14} />
+              {locating ? 'Locating…' : 'Nearest'}
+            </button>
+          </div>
           <button
             onClick={refetch}
             className="focus-ring lift inline-flex items-center gap-2 bg-surface border border-line hover:border-civic-400 text-ink-body font-semibold text-[13px] px-3.5 py-2.5 rounded-lg shadow-sm transition-all"
@@ -328,6 +413,12 @@ export default function WorkerTasks() {
           </button>
         </div>
       </header>
+
+      {locateError && (
+        <p className="text-[13px] text-caution-800 bg-caution-50 border border-caution-100 rounded-lg px-3.5 py-2.5">
+          {locateError}
+        </p>
+      )}
 
       <Toast message={toast} tone={toastTone} onDismiss={() => setToast('')} autoHideMs={toastTone === 'error' ? 0 : 4000} />
 
