@@ -62,6 +62,17 @@ class ComplaintResponse(BaseModel):
     # Consumers must treat null as "unknown", never as zero.
     resolvedAt: Optional[datetime] = None
 
+    # --- SLA, derived from createdAt + severity (services/sla.py) ------------
+    # Answers "when should this be fixed by", which the complaint history could
+    # not. Null when it cannot be computed -- never a guess.
+    #
+    # No "days remaining" integer is sent on purpose: the client renders
+    # relative time against the reader's own clock, and a server-computed
+    # countdown goes stale the moment it is cached.
+    expectedResolutionAt: Optional[datetime] = None
+    slaBreached: bool = False
+    hoursRemaining: Optional[float] = None
+
     location: LocationResponse
     category: CategoryResponse
 
@@ -86,8 +97,72 @@ class ComplaintResponse(BaseModel):
     class Config:
         from_attributes = True
 
+class WorkerTaskResponse(ComplaintResponse):
+    """A complaint as a field worker sees it, plus how far away it is.
+
+    distanceKm is only populated for sort=distance -- it is null otherwise,
+    because a distance is meaningless without the point it was measured from,
+    and sending a stale one would be worse than sending none.
+    """
+
+    distanceKm: Optional[float] = None
+
+
 class ComplaintAssign(BaseModel):
     fieldWorkerId: str
+
+
+class BulkAssign(BaseModel):
+    """Assign many complaints to one field worker in a single call."""
+
+    # Capped because each id costs a lifecycle check and a notification. Beyond
+    # this the request stops being "the ward I am looking at" and starts being a
+    # migration, which deserves a job rather than a request.
+    complaintIds: List[str] = Field(..., min_length=1, max_length=50)
+    fieldWorkerId: str
+
+
+class BulkAssignFailure(BaseModel):
+    complaintId: str
+    reason: str
+
+
+class BulkAssignResult(BaseModel):
+    """Partial success is the normal outcome, so it is modelled explicitly.
+
+    One already-resolved complaint in a batch of twenty should not fail the
+    other nineteen, and the caller needs to know exactly which ones did not
+    take rather than being told the whole thing worked.
+    """
+
+    assigned: List[str]
+    failed: List[BulkAssignFailure]
+    assignedCount: int
+    failedCount: int
+
+
+class EscalationItem(BaseModel):
+    complaintId: str
+    description: str
+    status: StatusEnum
+    severity: SeverityEnum
+    createdAt: datetime
+    expectedResolutionAt: Optional[datetime] = None
+    # Negative once overdue. Kept signed rather than split into two fields so a
+    # client can sort breached and at-risk on one key.
+    hoursRemaining: Optional[float] = None
+    department: Optional[str] = None
+    categoryName: Optional[str] = None
+    fieldWorkerId: Optional[str] = None
+    officerId: Optional[str] = None
+    address: Optional[str] = None
+
+
+class EscalationResponse(BaseModel):
+    breached: List[EscalationItem]
+    atRisk: List[EscalationItem]
+    breachedCount: int
+    atRiskCount: int
 
 # Field Worker Schemas
 class FieldWorkerCreate(BaseModel):
@@ -107,6 +182,41 @@ class FieldWorkerResponse(BaseModel):
     class Config:
         from_attributes = True
 
+class WorkerProfileUpdate(BaseModel):
+    """What a field worker may change about themselves.
+
+    Every field is optional and only applied when sent, so updating a phone
+    number does not blank an address. Skills are NOT here on purpose: what a
+    worker is qualified for is an administrator's call, not their own.
+    """
+
+    name: Optional[str] = None
+    phone: Optional[str] = None
+    baseAddress: Optional[str] = None
+
+    # Sent together or not at all -- half a coordinate is not a position.
+    currentLatitude: Optional[float] = Field(None, ge=-90, le=90)
+    currentLongitude: Optional[float] = Field(None, ge=-180, le=180)
+
+
+class WorkerProfileResponse(BaseModel):
+    userId: str
+    name: str
+    email: str
+    phone: Optional[str] = None
+    skillSet: Optional[str] = None
+    availabilityStatus: Optional[str] = None
+    baseAddress: Optional[str] = None
+    currentLatitude: Optional[float] = None
+    currentLongitude: Optional[float] = None
+    # When the position was last reported. A client showing a location without
+    # this cannot tell a live fix from one recorded three days ago.
+    locationUpdatedAt: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
 class PasswordReset(BaseModel):
     newPassword: str
 
@@ -125,10 +235,46 @@ class SystemOfficialCreate(BaseModel):
     skills: Optional[List[str]] = None
 
 class UserUpdate(BaseModel):
-    isActive: Optional[bool] = None  # To suspend/activate accounts
+    """Fields an administrator may change on an existing account.
+
+    Every field is optional and only applied when present, so a caller can
+    change one thing without having to send the whole record back. `role` is
+    accepted but rejected with a 400 if it differs from the current role --
+    changing a role would mean moving the row between polymorphic subclass
+    tables, which is not a safe in-place update.
+    """
+
+    name: Optional[str] = None
+    email: Optional[EmailStr] = None
+    phone: Optional[str] = None
+    isActive: Optional[bool] = None  # Suspend / reactivate. Blocks sign-in.
     role: Optional[str] = None
+    department: Optional[str] = None   # Municipal officers only.
+    skills: Optional[List[str]] = None  # Field workers only. Stored comma-joined.
+
+
+class UserAdminResponse(BaseModel):
+    """What the admin user list and the update endpoint return.
+
+    The previous version returned the raw ORM object from GET /admin/users and
+    a bare ``{"message": ...}`` from PATCH, so a client could not tell what had
+    actually been saved without re-reading the list. Returning the updated
+    record makes the write self-verifying.
+    """
+
+    userId: str
+    name: str
+    email: str
+    phone: Optional[str] = None
+    role: str
+    isActive: bool = True
     department: Optional[str] = None
-    skills: Optional[List[str]] = None
+    designation: Optional[str] = None
+    skillSet: Optional[str] = None
+    availabilityStatus: Optional[str] = None
+
+    class Config:
+        from_attributes = True
 
 class SystemOfficialCreate(BaseModel):
     name: str

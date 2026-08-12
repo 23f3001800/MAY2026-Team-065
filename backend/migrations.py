@@ -41,6 +41,15 @@ _ADDED_COLUMNS: List[Tuple[str, str, str]] = [
     ("complaints", "aiAnalyzedAt", "TIMESTAMP"),
     ("complaints", "duplicateOfComplaintId", "VARCHAR"),
     ("complaints", "resolvedAt", "TIMESTAMP"),
+    # Account suspension. Added nullable because ALTER TABLE ... ADD COLUMN NOT
+    # NULL fails on a table with existing rows; _backfill_is_active() fills it
+    # immediately afterwards so the model's nullable=False stays truthful.
+    ("users", "isActive", "BOOLEAN"),
+    # Field worker profile: where they are based, and where they last were.
+    ("field_workers", "baseAddress", "VARCHAR"),
+    ("field_workers", "currentLatitude", "DOUBLE PRECISION"),
+    ("field_workers", "currentLongitude", "DOUBLE PRECISION"),
+    ("field_workers", "locationUpdatedAt", "TIMESTAMP"),
 ]
 
 # SQLite has no DOUBLE PRECISION / TIMESTAMP spelling difference worth caring
@@ -264,6 +273,30 @@ async def _backfill_resolved_at(conn: AsyncConnection) -> int:
     return count
 
 
+async def _backfill_is_active(conn: AsyncConnection) -> int:
+    """Every pre-existing account is active.
+
+    This has to run, not just be defaulted in the model: rows written before the
+    column existed hold NULL, and NULL is not False -- so a login check written
+    as ``isActive is False`` would pass them, while one written as
+    ``isActive is True`` would lock every existing user out of the system. Both
+    are bad, and neither is obvious from reading the login handler. Filling the
+    column removes the question.
+    """
+    if not await _table_exists(conn, "users"):
+        return 0
+    if not await _column_exists(conn, "users", "isActive"):
+        return 0
+
+    result = await conn.execute(
+        text('UPDATE users SET "isActive" = TRUE WHERE "isActive" IS NULL')
+    )
+    filled = result.rowcount or 0
+    if filled:
+        logger.info("migration: marked %d pre-existing account(s) active", filled)
+    return filled
+
+
 async def _backfill_notification_defaults(conn: AsyncConnection) -> None:
     """Give pre-existing rows the defaults the model now declares."""
     if not await _table_exists(conn, "notifications"):
@@ -292,6 +325,7 @@ async def run_migrations(engine: AsyncEngine) -> None:
             await _backfill_notification_recipients(conn)
             await _backfill_notification_defaults(conn)
             await _backfill_resolved_at(conn)
+            await _backfill_is_active(conn)
 
         if added or enum_values_added:
             logger.info(

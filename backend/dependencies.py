@@ -55,6 +55,18 @@ async def get_current_user(
 
     if user is None:
         raise credentials_exception
+
+    # Suspension has to bite here as well as at login, or a token issued before
+    # the account was suspended keeps working until it expires -- which is the
+    # whole window an administrator is trying to close when they suspend
+    # someone. `is False` deliberately: NULL means the migration backfill has
+    # not run yet, and locking every request out of a half-migrated database is
+    # worse than letting it through.
+    if user.isActive is False:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This account has been suspended. Contact an administrator.",
+        )
     return user
 
 

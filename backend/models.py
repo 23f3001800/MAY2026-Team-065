@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import List, Optional
-from sqlalchemy import String, Integer, Float, DateTime, ForeignKey, Enum, Boolean
+from sqlalchemy import String, Integer, Float, DateTime, ForeignKey, Enum, Boolean, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 # Import Base and Enums from your database.py file
@@ -16,6 +16,16 @@ class UserModel(Base):
     phone: Mapped[str] = mapped_column(String, nullable=False)
     passwordHash: Mapped[str] = mapped_column(String, nullable=False)
     role: Mapped[str] = mapped_column(String, nullable=False) 
+
+    # Whether the account may sign in. Suspension is a soft delete: complaints
+    # reference citizenId, officerId and fieldWorkerId, so removing the row
+    # would orphan history that the audit trail depends on.
+    #
+    # Defaults True and is server_default'ed too -- rows that predate this
+    # column are backfilled to True by migrations.py, never left NULL, because
+    # `NULL != False` would let a suspended-looking account through the login
+    # check below.
+    isActive: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
 
     __mapper_args__ = {
         "polymorphic_on": "role",
@@ -46,6 +56,21 @@ class FieldWorkerModel(UserModel):
     userId: Mapped[str] = mapped_column(ForeignKey("users.userId"), primary_key=True)
     skillSet: Mapped[str] = mapped_column(String, nullable=True) # Stored as comma-separated values
     availabilityStatus: Mapped[str] = mapped_column(String, default="AVAILABLE")
+
+    # Where the worker is based -- their home depot or ward office. Free text,
+    # entered once, and unlike the live position below it does not move.
+    baseAddress: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+
+    # Last reported position, used to order their task list by distance.
+    #
+    # Nullable and deliberately NOT defaulted to a city centre: a worker who has
+    # never shared their location must read as "unknown", because a guessed
+    # position would silently reorder their whole day around a place they are
+    # not. lastSeenAt is what makes it possible to tell a stale fix from a fresh
+    # one -- a position from yesterday is worse than none if nothing says so.
+    currentLatitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    currentLongitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    locationUpdatedAt: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     
     complaints: Mapped[List["ComplaintModel"]] = relationship(back_populates="field_worker")
 
@@ -138,6 +163,41 @@ class ComplaintModel(Base):
     citizen: Mapped["CitizenModel"] = relationship(back_populates="complaints")
     officer: Mapped["MunicipalOfficerModel"] = relationship(back_populates="complaints")
     field_worker: Mapped["FieldWorkerModel"] = relationship(back_populates="complaints")
+
+    # --- SLA, derived rather than stored -------------------------------------
+    # The deadline is a pure function of createdAt and severity, so storing it
+    # would mean a column that silently goes stale the moment an officer
+    # re-rates the severity. Exposed as properties instead: ComplaintResponse
+    # has from_attributes=True, so every endpoint that returns a complaint picks
+    # these up without the handler doing anything.
+    #
+    # The import is deliberately inside the property: services/sla.py imports
+    # this module, and pulling it in at module level would be a circular import.
+
+    @property
+    def expectedResolutionAt(self) -> Optional[datetime]:
+        """When this complaint should be resolved by. None if it cannot be computed."""
+        from services import sla
+
+        return sla.deadline_for(self, sla.sla_hours())
+
+    @property
+    def slaBreached(self) -> bool:
+        """Past its deadline AND still open.
+
+        A complaint resolved late is history, not a queue item -- keeping it
+        flagged forever would leave finished work in an officer's face.
+        """
+        from services import sla
+
+        return bool(sla.sla_state(self)["slaBreached"])
+
+    @property
+    def hoursRemaining(self) -> Optional[float]:
+        """Hours until the deadline; negative when overdue. None once closed."""
+        from services import sla
+
+        return sla.sla_state(self)["hoursRemaining"]
     
     media_attachments: Mapped[List["MediaAttachmentModel"]] = relationship(back_populates="complaint")
     status_histories: Mapped[List["StatusHistoryModel"]] = relationship(back_populates="complaint")
@@ -236,3 +296,28 @@ class FeedbackModel(Base):
     complaintId: Mapped[str] = mapped_column(ForeignKey("complaints.complaintId"))
     
     complaint: Mapped["ComplaintModel"] = relationship(back_populates="feedbacks")
+
+class IdempotencyKeyModel(Base):
+    """A record of a request that must not be performed twice.
+
+    A field worker uploading evidence on a weak connection will retry, and a
+    retry after a partial success used to put a second copy of the same photo on
+    the complaint -- which then shows up as fabricated "after" evidence.
+
+    The client sends a key it keeps stable across retries; the first request
+    stores its response under that key, and every repeat gets the stored
+    response back without storing anything again.
+
+    Scoped by (key, endpoint) rather than key alone so a client reusing one key
+    for two different operations cannot receive the wrong operation's answer.
+    """
+
+    __tablename__ = "idempotency_keys"
+
+    key: Mapped[str] = mapped_column(String, primary_key=True)
+    endpoint: Mapped[str] = mapped_column(String, primary_key=True)
+    userId: Mapped[str] = mapped_column(String, nullable=False)
+    # The response body, JSON-encoded. Replayed verbatim so a retry is
+    # indistinguishable from the original call.
+    responseJson: Mapped[str] = mapped_column(String, nullable=False)
+    createdAt: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

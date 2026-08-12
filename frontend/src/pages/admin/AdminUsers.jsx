@@ -13,11 +13,13 @@
 // actually locked out, since there is no way to confirm that from here.
 import React, { useCallback, useMemo, useState } from 'react';
 import CreateOfficerModal from '../../components/admin/CreateOfficerModal';
+import EditUserModal from '../../components/admin/EditUserModal';
 import CreateWorkerModal from '../../components/admin/CreateWorkerModal';
 import ResetPasswordModal from '../../components/admin/ResetPasswordModal';
 import UnavailableNote from '../../components/dashboard/UnavailableNote';
 import { LoadingPanel, ErrorPanel, EmptyPanel } from '../../components/dashboard/AsyncStates';
 import { IconSearch, IconChevronDown, IconUserPlus, IconUsers, IconCheckCircle } from '../../components/dashboard/icons';
+import { parseSkills } from '../../lib/skills';
 import { listUsers, updateUser } from '../../api/admin';
 import useAsync from '../../hooks/useAsync';
 
@@ -44,6 +46,7 @@ export default function AdminUsers() {
   const [showCreateOfficer, setShowCreateOfficer] = useState(false);
   const [showCreateWorker, setShowCreateWorker] = useState(false);
   const [resetTarget, setResetTarget] = useState(null);
+  const [editTarget, setEditTarget] = useState(null);
   const [toast, setToast] = useState('');
   const [busyId, setBusyId] = useState(null);
 
@@ -152,8 +155,24 @@ export default function AdminUsers() {
                         {u.roleLabel}
                       </span>
                     </td>
-                    <td className="px-3 py-3 text-[13px] text-slate-500">{u.department || u.skillSet || '—'}</td>
+                    <td className="px-3 py-3 text-[13px] text-slate-500">
+                      {u.department ? u.department : parseSkills(u.skillSet).length ? (
+                        <span className="flex flex-wrap gap-1">
+                          {parseSkills(u.skillSet).map((s) => (
+                            <span key={s} className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 text-[11px] font-medium whitespace-nowrap">
+                              {s}
+                            </span>
+                          ))}
+                        </span>
+                      ) : '—'}
+                    </td>
                     <td className="px-5 py-3 text-right whitespace-nowrap">
+                      <button
+                        onClick={() => setEditTarget(u)}
+                        className="text-[12px] font-semibold text-slate-600 hover:underline mr-3"
+                      >
+                        Edit
+                      </button>
                       <button
                         onClick={() => setResetTarget(u)}
                         className="text-[12px] font-semibold text-primary hover:underline mr-3"
@@ -177,9 +196,11 @@ export default function AdminUsers() {
       )}
 
       <UnavailableNote>
-        Suspend/Reactivate calls the real endpoint and the backend returns success, but the user
-        table has no column to store that state yet, so it doesn't actually block sign-in. Resetting
-        a password and creating accounts both fully persist.
+        Creating accounts, resetting passwords, and setting an officer's department all persist.
+        A field worker's skills persist when the account is created but cannot be edited afterwards
+        — the update endpoint writes to the wrong column. Suspend/Reactivate returns success but the
+        user table has no column to store it, so it does not block sign-in, and there is no delete
+        endpoint. Open Edit on any account to see which of its fields are writable.
       </UnavailableNote>
 
       {showCreateOfficer && (
@@ -187,6 +208,13 @@ export default function AdminUsers() {
       )}
       {showCreateWorker && (
         <CreateWorkerModal onDismiss={() => setShowCreateWorker(false)} onCreated={(msg) => handleCreated(setShowCreateWorker, msg)} />
+      )}
+      {editTarget && (
+        <EditUserModal
+          user={editTarget}
+          onDismiss={() => setEditTarget(null)}
+          onSaved={(msg) => { setEditTarget(null); flash(msg); refetch(); }}
+        />
       )}
       {resetTarget && (
         <ResetPasswordModal
