@@ -1,4 +1,6 @@
-from fastapi import FastAPI, Depends, HTTPException, status,  UploadFile, File
+from fastapi import (
+    FastAPI, Depends, HTTPException, status, UploadFile, File, Form, Header, Query,
+)
 from fastapi.staticfiles import StaticFiles
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -9,11 +11,12 @@ from sqlalchemy import select, or_
 from sqlalchemy import func
 from typing import List
 from typing import Optional
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 import jwt
 from sqlalchemy.orm import selectinload
 import os
 import shutil
+import json
 import math
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -22,7 +25,10 @@ from sqlalchemy.orm import selectin_polymorphic
 import asyncio
 import logging
 
-from database import engine, Base, AsyncSessionLocal, StatusEnum, SeverityEnum
+from database import (
+    engine, Base, AsyncSessionLocal, StatusEnum, SeverityEnum,
+    OPEN_STATUSES, TERMINAL_STATUSES,
+)
 import models
 import schemas
 import security
@@ -125,6 +131,42 @@ def get_password_hash(password: str) -> str:
     return pwd_context.hash(password)
 
 ### Registeration Api
+# Sort keys accepted by GET /complaints/. "expectedResolution" is served by a
+# Python sort (see the handler) because the deadline is derived from severity,
+# which has no meaningful SQL ordering of its own.
+_COMPLAINT_SORTS = ("created", "aiConfidence", "expectedResolution")
+
+# Ceiling on the rows pulled back for a Python-side sort. Beyond this the
+# request is an accidental full-table export, and the answer is a real SQL
+# ordering rather than a bigger buffer.
+_MAX_PYTHON_SORT = 2000
+
+# Mean Earth radius, km. Used by the equirectangular approximation below.
+_EARTH_RADIUS_KM = 6371.0
+
+
+def _distance_km(lat: float, lng: float, location) -> Optional[float]:
+    """Great-circle distance from (lat, lng) to a complaint's location.
+
+    Equirectangular approximation rather than full haversine: over the tens of
+    kilometres a city spans the difference is metres, and this is only ever used
+    to order a worker's task list. Returns None when the location has no usable
+    coordinates -- never 0.0, which would sort an unknown location to the front
+    as if the worker were standing on it.
+    """
+    if location is None:
+        return None
+    try:
+        target_lat = float(location.latitude)
+        target_lng = float(location.longitude)
+    except (TypeError, ValueError):
+        return None
+
+    x = math.radians(target_lng - lng) * math.cos(math.radians((lat + target_lat) / 2))
+    y = math.radians(target_lat - lat)
+    return round(math.sqrt(x * x + y * y) * _EARTH_RADIUS_KM, 2)
+
+
 @app.post("/auth/register", status_code=status.HTTP_201_CREATED)
 async def register_user(user: schemas.UserRegister, db: AsyncSession = Depends(get_db)):
     stmt = select(models.UserModel).where(models.UserModel.email == user.email)
@@ -165,6 +207,20 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends(), db: AsyncSessi
             detail="Incorrect email or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+    # A suspended account must not get a token. Checked AFTER the password so a
+    # wrong password and a suspended account are indistinguishable to someone
+    # probing for valid emails -- and 403 rather than 401, because the
+    # credentials were correct and retrying with a different password will not
+    # help. `is False` rather than `not`: a NULL here means the migration
+    # backfill has not run, and refusing every login on a half-migrated
+    # database would be a worse failure than allowing one.
+    if db_user.isActive is False:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This account has been suspended. Contact an administrator.",
+        )
+
     access_token = security.create_access_token(
         data={
             "sub": db_user.email, 
@@ -287,6 +343,16 @@ async def get_complaints(
     severity: Optional[str] = Query(None, description="SeverityEnum name"),
     from_: Optional[date] = Query(None, alias="from", description="createdAt on or after"),
     to: Optional[date] = Query(None, description="createdAt on or before (inclusive)"),
+    aiConfidenceMax: Optional[float] = Query(
+        None, ge=0.0, le=1.0,
+        description="Only complaints the classifier was at most this sure about",
+    ),
+    aiConfidenceMin: Optional[float] = Query(None, ge=0.0, le=1.0),
+    sort: str = Query(
+        "created",
+        description="created (newest first) | aiConfidence | expectedResolution",
+    ),
+    order: str = Query("desc", description="asc | desc"),
     limit: Optional[int] = Query(None, ge=1, le=500),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
@@ -346,7 +412,61 @@ async def get_complaints(
             models.ComplaintModel.createdAt <= datetime.combine(to, datetime.max.time())
         )
 
-    stmt = stmt.order_by(models.ComplaintModel.createdAt.desc())
+    # Confidence filtering. A complaint with NULL aiConfidence was never
+    # classified -- triage was off, or it predates triage -- which is a
+    # different thing from "classified badly". Excluding NULLs keeps the two
+    # queues apart; treating NULL as 0.0 would bury the genuinely doubtful
+    # classifications under complaints the model never saw.
+    if aiConfidenceMax is not None:
+        stmt = stmt.where(
+            models.ComplaintModel.aiConfidence.is_not(None),
+            models.ComplaintModel.aiConfidence <= aiConfidenceMax,
+        )
+    if aiConfidenceMin is not None:
+        stmt = stmt.where(
+            models.ComplaintModel.aiConfidence.is_not(None),
+            models.ComplaintModel.aiConfidence >= aiConfidenceMin,
+        )
+
+    sort_key = (sort or "created").strip()
+    descending = (order or "desc").strip().lower() != "asc"
+    if sort_key not in _COMPLAINT_SORTS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unknown sort '{sort}'. Expected one of: " + ", ".join(_COMPLAINT_SORTS),
+        )
+
+    if sort_key == "aiConfidence":
+        # asc puts the least confident first, which is the whole point: an
+        # officer wants to re-check what the model was unsure about. Unclassified
+        # complaints sort last either way rather than masquerading as certain.
+        column = models.ComplaintModel.aiConfidence
+        stmt = stmt.order_by(
+            column.desc().nullslast() if descending else column.asc().nullslast(),
+            models.ComplaintModel.createdAt.desc(),
+        )
+    elif sort_key == "expectedResolution":
+        # The deadline is createdAt + a per-severity offset, and severity is an
+        # enum with no useful SQL ordering, so this cannot be expressed as an
+        # ORDER BY. Sorted in Python below, which is why it forces a bounded
+        # result set rather than silently sorting one page of an unsorted table.
+        stmt = stmt.order_by(models.ComplaintModel.createdAt.desc())
+    else:
+        column = models.ComplaintModel.createdAt
+        stmt = stmt.order_by(column.desc() if descending else column.asc())
+    if sort_key == "expectedResolution":
+        # Sort the whole (filtered) set before paginating, or page 1 would hold
+        # the newest complaints sorted among themselves rather than the most
+        # urgent overall. Capped so this cannot become a full-table sort.
+        result = await db.execute(stmt.limit(_MAX_PYTHON_SORT))
+        rows = list(result.scalars().all())
+        far_future = datetime.max
+        rows.sort(
+            key=lambda c: c.expectedResolutionAt or far_future,
+            reverse=descending,
+        )
+        return rows[offset: offset + limit] if limit else rows[offset:]
+
     if offset:
         stmt = stmt.offset(offset)
     if limit:
@@ -392,6 +512,69 @@ async def get_city_analytics(
     }
 
 #  Allows a Municipal Officer to assign a Field Worker to a specific complaint with skill validation. 
+class AssignmentRefused(Exception):
+    """A single complaint could not be assigned. Carries the reason verbatim.
+
+    Exists so bulk assignment can collect per-complaint failures instead of
+    aborting the whole batch, while the single-complaint endpoint turns the same
+    reason into its 400.
+    """
+
+    def __init__(self, reason: str, status_code: int = 400):
+        super().__init__(reason)
+        self.reason = reason
+        self.status_code = status_code
+
+
+def _apply_assignment(
+    db: AsyncSession,
+    complaint: models.ComplaintModel,
+    field_worker: models.FieldWorkerModel,
+    current_user: models.UserModel,
+) -> None:
+    """Assign one complaint to one worker, with history and notifications.
+
+    Every assignment path goes through here. When this logic lived inline in the
+    single-complaint endpoint, adding bulk assignment meant copying the skill
+    check, the history row and the notification call -- and a copy drifts from
+    its original within a sprint.
+
+    Does NOT commit. The caller decides how a failure affects the batch.
+    """
+    # Terminal complaints are finished. Reassigning one quietly reopens work
+    # somebody already signed off, so it is refused rather than silently allowed.
+    current_status = str(getattr(complaint.status, "name", complaint.status) or "")
+    if current_status in {st.name for st in TERMINAL_STATUSES}:
+        raise AssignmentRefused("Complaint is already " + current_status.lower() + ".")
+
+    department = complaint.category.department if complaint.category else None
+    if department and department not in (field_worker.skillSet or ""):
+        raise AssignmentRefused(
+            "Skill mismatch: this needs '" + department + "', the worker covers '"
+            + (field_worker.skillSet or "nothing") + "'."
+        )
+
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    complaint.fieldWorkerId = field_worker.userId
+    if current_user.role.lower() == "officer":
+        complaint.officerId = current_user.userId
+    complaint.status = "ASSIGNED"
+    complaint.updatedAt = now
+
+    db.add(models.StatusHistoryModel(
+        historyId="HIST-" + str(uuid.uuid4())[:8].upper(),
+        complaintId=complaint.complaintId,
+        status="ASSIGNED",
+        remarks="Task dispatched to Field Worker: " + field_worker.userId,
+        timestamp=now,
+    ))
+
+    # Tell the worker they have a task, and the citizen that work has started.
+    notification_service.notify_assignment(
+        db, complaint, worker=field_worker, assigned_by=current_user
+    )
+
+
 @app.patch("/complaints/{complaintId}/assign", response_model=schemas.ComplaintResponse)
 async def assign_field_worker(
     complaintId: str,
@@ -421,39 +604,91 @@ async def assign_field_worker(
     if not field_worker:
         raise HTTPException(status_code=404, detail="Field Worker not found.")
         
-    if complaint.category.department not in field_worker.skillSet:
-        raise HTTPException(
-            status_code=400, 
-            detail=f"Skill mismatch! This issue requires the '{complaint.category.department}' department, but this worker specializes in '{field_worker.skillSet}'."
-        )
-
-    complaint.fieldWorkerId = assignment.fieldWorkerId
-    
-    if current_user.role.lower() == "officer":
-        complaint.officerId = current_user.userId  
-        
-    complaint.status = "ASSIGNED"
-    complaint.updatedAt = datetime.now(timezone.utc).replace(tzinfo=None)
-
-    history_id = f"HIST-{str(uuid.uuid4())[:8].upper()}"
-    new_history = models.StatusHistoryModel(
-        historyId=history_id,
-        complaintId=complaintId,
-        status="ASSIGNED",
-        remarks=f"Task dispatched to Field Worker: {assignment.fieldWorkerId}",
-        timestamp=datetime.now(timezone.utc).replace(tzinfo=None)
-    )
-    db.add(new_history)
-
-    # Tell the worker they have a task, and the citizen that work has started.
-    notification_service.notify_assignment(
-        db, complaint, worker=field_worker, assigned_by=current_user
-    )
+    try:
+        _apply_assignment(db, complaint, field_worker, current_user)
+    except AssignmentRefused as refused:
+        raise HTTPException(status_code=refused.status_code, detail=refused.reason)
 
     await db.commit()
     await db.refresh(complaint)
 
     return complaint
+
+
+@app.patch("/complaints/bulk-assign", response_model=schemas.BulkAssignResult)
+async def bulk_assign(
+    payload: schemas.BulkAssign,
+    db: AsyncSession = Depends(get_db),
+    current_user: models.UserModel = Depends(get_current_user)
+):
+    """Assign many complaints to one field worker in one call.
+
+    Complaints in the same ward usually go to the same worker, and doing that
+    one request at a time is slow enough that officers batch it up mentally and
+    then lose track of half of it.
+
+    Partial success is the normal outcome and is reported explicitly: one
+    already-resolved complaint does not fail the other nineteen. The whole call
+    is refused only when the worker id is bad, because then nothing in the batch
+    could succeed.
+
+    Each assignment runs through the same `_apply_assignment` path as the
+    single-complaint endpoint, so the skill check, status history and
+    notifications are identical.
+    """
+    require_roles(current_user, ("officer", "administrator"), "assign complaints")
+
+    worker_result = await db.execute(
+        select(models.FieldWorkerModel)
+        .where(models.FieldWorkerModel.userId == payload.fieldWorkerId)
+    )
+    field_worker = worker_result.scalar_one_or_none()
+    if not field_worker:
+        raise HTTPException(status_code=404, detail="Field Worker not found.")
+
+    # Deduplicated, preserving the order sent, so the same id twice does not
+    # produce two history rows and two notifications.
+    wanted = list(dict.fromkeys(payload.complaintIds))
+
+    result = await db.execute(
+        select(models.ComplaintModel)
+        .where(models.ComplaintModel.complaintId.in_(wanted))
+        .options(
+            selectinload(models.ComplaintModel.location),
+            selectinload(models.ComplaintModel.category),
+        )
+    )
+    found = {c.complaintId: c for c in result.scalars().all()}
+
+    assigned = []
+    failed = []
+
+    for complaint_id in wanted:
+        complaint = found.get(complaint_id)
+        if complaint is None:
+            failed.append(schemas.BulkAssignFailure(
+                complaintId=complaint_id, reason="Complaint not found."
+            ))
+            continue
+        try:
+            _apply_assignment(db, complaint, field_worker, current_user)
+        except AssignmentRefused as refused:
+            failed.append(schemas.BulkAssignFailure(
+                complaintId=complaint_id, reason=refused.reason
+            ))
+            continue
+        assigned.append(complaint_id)
+
+    # One commit for the batch, so a crash mid-loop cannot leave half the ward
+    # assigned with no record of which half.
+    await db.commit()
+
+    return schemas.BulkAssignResult(
+        assigned=assigned,
+        failed=failed,
+        assignedCount=len(assigned),
+        failedCount=len(failed),
+    )
 
 
 ### Field worker create route
@@ -507,15 +742,124 @@ async def get_field_workers(
     return result.scalars().all()
 
 # Getapi: returns the complaints assigned to the specific Field Worker who is currently logged in
-@app.get("/complaints/worker/tasks", response_model=List[schemas.ComplaintResponse])
-async def get_worker_tasks(
+@app.get("/complaints/escalations", response_model=schemas.EscalationResponse)
+async def get_escalations(
+    includeAtRisk: bool = Query(
+        False, description="Also return open complaints close to their deadline"
+    ),
     db: AsyncSession = Depends(get_db),
     current_user: models.UserModel = Depends(get_current_user)
 ):
-   
-    
+    """Open complaints that have missed their SLA deadline, worst first.
+
+    The SLA sweep already detects breaches and raises notifications, but nothing
+    could ASK for the list -- so an officer still found overdue work by
+    scrolling the pending queue, which is exactly what they said was the
+    problem. This is the query behind that screen.
+
+    Deliberately NOT date-filtered: a complaint from eight months ago that is
+    still open is the whole point of the endpoint, and a window would hide it.
+
+    Only OPEN complaints appear. One that was resolved late is history, not a
+    queue item; leaving it flagged forever would keep finished work in an
+    officer's face and train them to ignore the list.
+    """
+    require_roles(current_user, ("officer", "administrator"), "view escalations")
+
+    result = await db.execute(
+        select(models.ComplaintModel)
+        .where(models.ComplaintModel.status.in_([st.name for st in OPEN_STATUSES]))
+        .options(
+            selectinload(models.ComplaintModel.category),
+            selectinload(models.ComplaintModel.location),
+        )
+    )
+    complaints = list(result.scalars().all())
+
+    hours = sla_service.sla_hours()
+    breached = []
+    at_risk = []
+
+    for complaint in complaints:
+        state = sla_service.sla_state(complaint, hours)
+        remaining = state["hoursRemaining"]
+        if state["expectedResolutionAt"] is None or remaining is None:
+            # No createdAt, or no severity to price it from. Reporting it as
+            # either breached or safe would be a guess, so it is left out and
+            # stays visible in the ordinary queue.
+            continue
+
+        item = schemas.EscalationItem(
+            complaintId=complaint.complaintId,
+            description=complaint.description,
+            status=complaint.status,
+            severity=complaint.severity,
+            createdAt=complaint.createdAt,
+            expectedResolutionAt=state["expectedResolutionAt"],
+            hoursRemaining=remaining,
+            department=complaint.category.department if complaint.category else None,
+            categoryName=complaint.category.name if complaint.category else None,
+            fieldWorkerId=complaint.fieldWorkerId,
+            officerId=complaint.officerId,
+            address=complaint.location.address if complaint.location else None,
+        )
+
+        if remaining < 0:
+            breached.append(item)
+        elif includeAtRisk:
+            # "At risk" is the last quarter of the window rather than a fixed
+            # number of hours: four hours left is nothing on a CRITICAL job and
+            # plenty on a LOW one, so a flat threshold would flood the list with
+            # routine work while missing the urgent case.
+            severity = str(getattr(complaint.severity, "name", complaint.severity) or "LOW")
+            window = hours.get(severity, hours["LOW"])
+            if window and remaining <= window * 0.25:
+                at_risk.append(item)
+
+    # Most overdue first; for at-risk, closest to breaching first.
+    breached.sort(key=lambda i: i.hoursRemaining)
+    at_risk.sort(key=lambda i: i.hoursRemaining)
+
+    return schemas.EscalationResponse(
+        breached=breached,
+        atRisk=at_risk,
+        breachedCount=len(breached),
+        atRiskCount=len(at_risk),
+    )
+
+
+@app.get("/complaints/worker/tasks", response_model=List[schemas.WorkerTaskResponse])
+async def get_worker_tasks(
+    sort: str = Query("created", description="created | distance"),
+    lat: Optional[float] = Query(None, ge=-90, le=90, description="Worker's current latitude"),
+    lng: Optional[float] = Query(None, ge=-180, le=180, description="Worker's current longitude"),
+    db: AsyncSession = Depends(get_db),
+    current_user: models.UserModel = Depends(get_current_user)
+):
+    """A field worker's assigned complaints.
+
+    ``sort=distance`` orders by how far each job is from the coordinates the
+    worker's device reports, nearest first, so a shift can be walked in a
+    sensible order instead of by submission time.
+
+    ``lat`` and ``lng`` are REQUIRED for that mode and produce a 422 when
+    missing rather than quietly falling back to date order -- a list that looks
+    sorted by distance and is not would send someone across the city and back.
+    """
     if current_user.role.lower() != "field_worker":
         raise HTTPException(status_code=403, detail="Only field workers can access this feed.")
+
+    sort_key = (sort or "created").strip()
+    if sort_key not in ("created", "distance"):
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unknown sort '{sort}'. Expected 'created' or 'distance'.",
+        )
+    if sort_key == "distance" and (lat is None or lng is None):
+        raise HTTPException(
+            status_code=422,
+            detail="sort=distance requires both lat and lng.",
+        )
 
     stmt = (
         select(models.ComplaintModel)
@@ -523,8 +867,27 @@ async def get_worker_tasks(
         .options(selectinload(models.ComplaintModel.location), selectinload(models.ComplaintModel.category))
     )
     result = await db.execute(stmt)
-    
-    return result.scalars().all()
+    tasks = list(result.scalars().all())
+
+    if sort_key != "distance":
+        tasks.sort(key=lambda c: c.createdAt or datetime.min, reverse=True)
+        return [schemas.WorkerTaskResponse.model_validate(t) for t in tasks]
+
+    # Distance is computed in Python, not SQL: PostGIS is not installed, and the
+    # per-worker task list is tens of rows, not thousands. The same
+    # equirectangular approximation /complaints/nearby uses -- at city scale the
+    # error is metres.
+    payload = []
+    for task in tasks:
+        km = _distance_km(lat, lng, task.location) if task.location else None
+        item = schemas.WorkerTaskResponse.model_validate(task)
+        item.distanceKm = km
+        payload.append(item)
+
+    # A task with no coordinates cannot be placed in a route, so it sorts last
+    # rather than first -- which is what None would do by accident.
+    payload.sort(key=lambda t: (t.distanceKm is None, t.distanceKm if t.distanceKm is not None else 0.0))
+    return payload
 
 ## Reset Password by Admin
     #  Allows an Administrator to securely overwrite a forgotten password.
@@ -605,15 +968,102 @@ def _store_upload(complaintId: str, file: UploadFile, uploadedBy: str) -> models
 
 
 # Uploads images by worker/citizen -- accepts several files in one request.
+# How long a stored idempotency key is honoured. Long enough to cover a worker
+# driving out of a dead zone and the phone retrying; short enough that the table
+# does not grow without bound.
+_IDEMPOTENCY_TTL_HOURS = 24
+
+
+async def _replay_idempotent(
+    db: AsyncSession, key: Optional[str], endpoint: str, user_id: str
+) -> Optional[dict]:
+    """Return the stored response for this key, or None if it is new.
+
+    Expired keys are treated as new rather than as errors: past the TTL the
+    client has long since given up, and refusing the request would be worse than
+    letting it through.
+    """
+    if not key:
+        return None
+
+    result = await db.execute(
+        select(models.IdempotencyKeyModel).where(
+            models.IdempotencyKeyModel.key == key,
+            models.IdempotencyKeyModel.endpoint == endpoint,
+        )
+    )
+    record = result.scalar_one_or_none()
+    if record is None:
+        return None
+
+    cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(
+        hours=_IDEMPOTENCY_TTL_HOURS
+    )
+    if record.createdAt and record.createdAt < cutoff:
+        await db.delete(record)
+        await db.flush()
+        return None
+
+    # A key belongs to whoever first used it. Replaying another user's response
+    # would leak their data to anyone who guessed a key.
+    if record.userId != user_id:
+        raise HTTPException(
+            status_code=409,
+            detail="This idempotency key was already used by a different account.",
+        )
+
+    return json.loads(record.responseJson)
+
+
+def _remember_idempotent(
+    db: AsyncSession, key: Optional[str], endpoint: str, user_id: str, payload: dict
+) -> None:
+    """Store a response so a retry with the same key replays it."""
+    if not key:
+        return
+    db.add(models.IdempotencyKeyModel(
+        key=key,
+        endpoint=endpoint,
+        userId=user_id,
+        responseJson=json.dumps(payload, default=str),
+        createdAt=datetime.now(timezone.utc).replace(tzinfo=None),
+    ))
+
+
 @app.post("/complaints/{complaintId}/images", status_code=status.HTTP_201_CREATED)
 async def upload_complaint_images(
     complaintId: str,
     files: List[UploadFile] = File(..., description="One or more photos of the issue"),
+    remarks: Optional[str] = Form(
+        None, description="What the worker wants recorded alongside the evidence"
+    ),
+    idempotency_key: Optional[str] = Header(
+        None,
+        alias="Idempotency-Key",
+        description="Client-generated id, kept stable across retries of the same upload",
+    ),
     db: AsyncSession = Depends(get_db),
     current_user: models.UserModel = Depends(get_current_user)
 ):
-    """Attach one or more photos to a complaint."""
+    """Attach one or more photos to a complaint.
+
+    Safe to retry. A field worker in a weak-signal area will retry a failed
+    upload, and without a key a partial success followed by a retry put a second
+    copy of the same photo on the complaint -- evidence that looks like two
+    separate visits. Send the same ``Idempotency-Key`` on every retry and the
+    original response is replayed instead of storing anything again.
+
+    ``remarks`` travels with the files so a retry carries the worker's typed text
+    rather than losing it. It is appended to the status history, where it is
+    attributable and timestamped, rather than stored as a loose field.
+    """
     complaint = await _load_complaint_for_upload(complaintId, db, current_user)
+
+    replayed = await _replay_idempotent(
+        db, idempotency_key, f"POST /complaints/{complaintId}/images", current_user.userId
+    )
+    if replayed is not None:
+        return replayed
 
     if not files:
         raise HTTPException(status_code=400, detail="No files were uploaded.")
@@ -646,13 +1096,31 @@ async def upload_complaint_images(
         except Exception:
             logger.exception("photo analysis failed for %s; upload still succeeded", complaintId)
 
-    await db.commit()
+    # The worker's typed note goes into the audit trail, attributed and
+    # timestamped, rather than into a field that nothing reads.
+    if remarks and remarks.strip():
+        db.add(models.StatusHistoryModel(
+            historyId="HIST-" + str(uuid.uuid4())[:8].upper(),
+            complaintId=complaintId,
+            status=str(getattr(complaint.status, "name", complaint.status)),
+            remarks=remarks.strip(),
+            timestamp=datetime.now(timezone.utc).replace(tzinfo=None),
+        ))
 
-    return {
+    payload = {
         "message": f"{len(uploaded_media)} image(s) uploaded successfully",
         "mediaAttachments": uploaded_media,
         "aiAnalysis": ai_analysis,
     }
+
+    _remember_idempotent(
+        db, idempotency_key, f"POST /complaints/{complaintId}/images",
+        current_user.userId, payload,
+    )
+
+    await db.commit()
+
+    return payload
 
 
 async def _analyze_uploaded_photo(
@@ -956,8 +1424,24 @@ async def create_system_official(
     hashed_password = get_password_hash(user_in.password)
     new_user_id = str(uuid.uuid4())
     
+    # Only the officer branch is implemented here. Anything else used to fall
+    # through with new_user still None and blow up on db.add(None) as a 500;
+    # field workers have their own endpoint (POST /workers/) because they carry
+    # a skill set this schema has no place for.
+    role = (user_in.role or "").strip().lower()
+    if role in {"field_worker", "fieldworker"}:
+        raise HTTPException(
+            status_code=400,
+            detail="Create field workers with POST /workers/, which takes their skill set.",
+        )
+    if role not in {"municipal_officer", "officer"}:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot create a '{user_in.role}' account here. Supported role: municipal_officer.",
+        )
+
     new_user = None
-    if user_in.role == "municipal_officer":
+    if role in {"municipal_officer", "officer"}:
         new_user = models.MunicipalOfficerModel(
             userId=new_user_id,          
             name=user_in.name,
@@ -998,7 +1482,7 @@ async def trigger_sla_sweep(
 
 
 #Search Functionality
-@app.get("/admin/users")
+@app.get("/admin/users", response_model=List[schemas.UserAdminResponse])
 async def list_users(
     query: Optional[str] = None,
     role: Optional[str] = None,
@@ -1008,8 +1492,7 @@ async def list_users(
     current_user: models.UserModel = Depends(get_current_user)
 ):
     
-    if current_user.role.lower() != "administrator":
-        raise HTTPException(status_code=403, detail="Not authorized.")
+    require_roles(current_user, ("administrator",), "list user accounts")
 
     stmt = select(models.UserModel).options(
         selectin_polymorphic(
@@ -1035,49 +1518,159 @@ async def list_users(
     return users
 
 # Edit user accounts (Suspend users, update skills, change roles). This is for admin
-@app.patch("/admin/users/{user_id}")
+@app.patch("/admin/users/{user_id}", response_model=schemas.UserAdminResponse)
 async def update_user(
     user_id: str,
     update_data: schemas.UserUpdate,
     db: AsyncSession = Depends(get_db),
     current_user: models.UserModel = Depends(get_current_user)
 ):
-  
-    if current_user.role.lower() != "administrator":
-        raise HTTPException(status_code=403, detail="Not authorized.")
+    """Update an account.
 
-    result = await db.execute(select(models.UserModel).where(models.UserModel.userId == user_id))
+    Rewritten because the previous version silently discarded most of what it
+    was given: it assigned ``field_worker.skills`` and ``field_worker.department``,
+    neither of which exists on FieldWorkerModel (the column is ``skillSet``, and
+    there is no department on a worker at all). SQLAlchemy accepted those as
+    ordinary Python attributes, the commit saved nothing, and the endpoint still
+    answered "User updated successfully" -- so a caller had no way to tell a
+    saved change from a discarded one.
+
+    Now it writes the real columns and returns the updated record, which makes
+    the write self-verifying.
+    """
+    require_roles(current_user, ("administrator",), "manage user accounts")
+
+    result = await db.execute(
+        select(models.UserModel)
+        .where(models.UserModel.userId == user_id)
+        .options(
+            selectin_polymorphic(
+                models.UserModel,
+                [models.FieldWorkerModel, models.MunicipalOfficerModel],
+            )
+        )
+    )
     target_user = result.scalar_one_or_none()
 
     if not target_user:
         raise HTTPException(status_code=404, detail="User not found.")
 
+    # Changing a role would mean moving the row between polymorphic subclass
+    # tables (citizens / municipal_officers / field_workers), which is not a
+    # safe in-place update -- the subclass row would be missing or orphaned.
+    if update_data.role is not None and update_data.role.lower() != target_user.role.lower():
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot change a user's role. Create a new account instead.",
+        )
+
+    if update_data.name is not None:
+        name = update_data.name.strip()
+        if not name:
+            raise HTTPException(status_code=422, detail="Name cannot be blank.")
+        target_user.name = name
+
+    if update_data.email is not None:
+        email = update_data.email.strip().lower()
+        if email != (target_user.email or "").lower():
+            # email is the sign-in identifier and carries a UNIQUE constraint.
+            # Checked here so the caller gets a 400 they can act on rather than
+            # a 500 from the database.
+            clash = await db.execute(
+                select(models.UserModel.userId).where(models.UserModel.email == email)
+            )
+            if clash.scalar_one_or_none():
+                raise HTTPException(status_code=400, detail="That email is already registered.")
+            target_user.email = email
+
+    if update_data.phone is not None:
+        target_user.phone = update_data.phone.strip()
+
     if update_data.isActive is not None:
+        # Suspension is the soft delete. An administrator cannot suspend
+        # themselves -- doing so would immediately lock them out of the screen
+        # they would need to undo it, with no other way back in.
+        if not update_data.isActive and target_user.userId == current_user.userId:
+            raise HTTPException(
+                status_code=400,
+                detail="You cannot suspend your own account.",
+            )
         target_user.isActive = update_data.isActive
-        
-    if update_data.role is not None and update_data.role != target_user.role:
-         raise HTTPException(
-             status_code=400, 
-             detail="Cannot change base user role directly. Create a new account instead."
-         )
 
-    if target_user.role == "field_worker":
-        fw_result = await db.execute(select(models.FieldWorkerModel).where(models.FieldWorkerModel.userId == user_id))
-        field_worker = fw_result.scalar_one()
-        
+    if isinstance(target_user, models.FieldWorkerModel):
         if update_data.skills is not None:
-            field_worker.skills = update_data.skills
+            # Stored as one comma-separated string (models.py:47). Assignment
+            # substring-matches this against a complaint's department, so the
+            # values have to survive the round trip exactly as given.
+            target_user.skillSet = ", ".join(
+                s.strip() for s in update_data.skills if s and s.strip()
+            )
         if update_data.department is not None:
-            field_worker.department = update_data.department
+            raise HTTPException(
+                status_code=400,
+                detail="Field workers have skills, not a department. Send `skills` instead.",
+            )
 
-    elif target_user.role == "municipal_officer" and update_data.department is not None:
-        mo_result = await db.execute(select(models.MunicipalOfficerModel).where(models.MunicipalOfficerModel.userId == user_id))
-        officer = mo_result.scalar_one()
-        officer.department = update_data.department
+    elif isinstance(target_user, models.MunicipalOfficerModel):
+        if update_data.department is not None:
+            target_user.department = update_data.department.strip()
+        if update_data.skills is not None:
+            raise HTTPException(
+                status_code=400,
+                detail="Municipal officers have a department, not skills. Send `department` instead.",
+            )
+
+    elif update_data.department is not None or update_data.skills is not None:
+        raise HTTPException(
+            status_code=400,
+            detail=f"A {target_user.role} account has neither a department nor skills.",
+        )
 
     await db.commit()
-    
-    return {"message": "User updated successfully"}
+    await db.refresh(target_user)
+    return target_user
+
+
+@app.delete("/admin/users/{user_id}", response_model=schemas.UserAdminResponse)
+async def deactivate_user(
+    user_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: models.UserModel = Depends(get_current_user)
+):
+    """Deactivate an account. This is a SOFT delete, deliberately.
+
+    Complaints carry citizenId, officerId and fieldWorkerId, and status history
+    records who made every transition. Removing the row would orphan all of it
+    and destroy the audit trail the rest of the system is built to preserve --
+    so DELETE marks the account inactive, which blocks sign-in and every
+    authenticated request, and leaves the history intact and attributable.
+
+    Reactivate with PATCH /admin/users/{id} {"isActive": true}.
+    """
+    require_roles(current_user, ("administrator",), "deactivate user accounts")
+
+    result = await db.execute(
+        select(models.UserModel)
+        .where(models.UserModel.userId == user_id)
+        .options(
+            selectin_polymorphic(
+                models.UserModel,
+                [models.FieldWorkerModel, models.MunicipalOfficerModel],
+            )
+        )
+    )
+    target_user = result.scalar_one_or_none()
+    if not target_user:
+        raise HTTPException(status_code=404, detail="User not found.")
+
+    if target_user.userId == current_user.userId:
+        raise HTTPException(status_code=400, detail="You cannot deactivate your own account.")
+
+    target_user.isActive = False
+    await db.commit()
+    await db.refresh(target_user)
+    return target_user
+
 
 ##### Feedback System and Location
 ### GEOSPATIAL: Nearby Complaints Map
