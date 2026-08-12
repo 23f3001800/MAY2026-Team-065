@@ -31,3 +31,8 @@ ${APPDATA}\npm/
 .env
 .env.*
 !.env.example
+
+# Milestone report drafts. Deliverables live outside the repo -- committing a
+# .docx makes every save a binary diff nobody can review.
+Milestone_*.docx
+~$*.docx
