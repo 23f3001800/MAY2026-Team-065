@@ -183,3 +183,37 @@ async def sweep_loop(stop_event: asyncio.Event) -> None:
             continue
 
     logger.info("SLA sweeper stopped")
+
+
+def is_open(complaint: models.ComplaintModel) -> bool:
+    """Is this complaint still live work?"""
+    name = str(getattr(complaint.status, "name", complaint.status) or "")
+    return name in {s.name for s in OPEN_STATUSES}
+
+
+def sla_state(complaint: models.ComplaintModel, hours: Optional[Dict[str, int]] = None) -> dict:
+    """The SLA position of one complaint, for serialising onto a response.
+
+    Returns the deadline, whether it has been missed, and how far either side of
+    it the complaint sits. Every value is None when it cannot be computed --
+    there is no createdAt, for instance -- rather than defaulted to zero, which
+    would read as "due right now".
+
+    ``breached`` is only ever True for a complaint that is still open. One that
+    was resolved late is history, not a queue item, and marking it breached
+    forever would keep it in an officer's face after the work was done.
+    """
+    hours = hours or sla_hours()
+    deadline = deadline_for(complaint, hours)
+    if deadline is None:
+        return {"expectedResolutionAt": None, "slaBreached": False, "hoursRemaining": None}
+
+    delta_hours = (deadline - _utcnow()).total_seconds() / 3600
+    still_open = is_open(complaint)
+    return {
+        "expectedResolutionAt": deadline,
+        "slaBreached": still_open and delta_hours < 0,
+        # Negative means overdue by that many hours. Only meaningful while the
+        # complaint is open; a closed one has no time left to run.
+        "hoursRemaining": round(delta_hours, 1) if still_open else None,
+    }

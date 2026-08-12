@@ -11,10 +11,19 @@
 // time, evidence first, with the two decisions an officer can make on it —
 // accept the work, or send it back — as the only buttons on screen.
 //
-// The queue is complaints in Under Review (worker submitted, awaiting sign-off)
-// and Resolved (accepted, now waiting on the citizen). Resolved ones are shown
-// because an officer often wants to re-read what they approved, but they carry
-// no actions — the next move belongs to the citizen.
+// The queue is complaints in RESOLVED — a field worker has marked the job
+// finished and it is waiting on verification. VERIFIED ones are listed too,
+// because an officer often wants to re-read what they signed off, but they
+// carry no actions: the ticket is closed.
+//
+// UNDER_REVIEW deliberately does NOT appear here. That state belongs to the
+// intake phase — an officer checking a new complaint is valid, is not a
+// duplicate, and choosing a department — and has no completion evidence to
+// judge. The lifecycle this follows is:
+//
+//   PENDING -> UNDER_REVIEW -> ASSIGNED -> IN_PROGRESS -> RESOLVED -> VERIFIED
+//                  intake                     work        worker     officer
+//                                                                    or citizen
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import StatusBadge from '../../components/dashboard/StatusBadge';
@@ -30,9 +39,14 @@ import { complaintPath } from '../../api/session';
 import { splitEvidence } from '../../lib/evidence';
 import useAsync from '../../hooks/useAsync';
 
-// Awaiting the officer, versus already signed off and waiting on the citizen.
-const AWAITING = 'Under Review';
-const SIGNED_OFF = 'Resolved';
+// Waiting on verification, versus already verified and closed.
+const AWAITING = 'Resolved';
+const SIGNED_OFF = 'Verified';
+
+// Where the work goes back to when an officer does not accept it. The worker is
+// still assigned, so it resumes rather than being reopened — REOPENED is the
+// citizen's move after poor feedback on a closed ticket, not the officer's.
+const SENT_BACK = 'In Progress';
 
 function ageDays(iso) {
   const t = new Date(iso).getTime();
@@ -159,7 +173,7 @@ export default function OfficerVerification() {
     setActionError('');
     try {
       await updateComplaintStatus(selected.id, status, remarks);
-      setToast(status === SIGNED_OFF ? 'Work accepted.' : 'Sent back to the field worker.');
+      setToast(status === SIGNED_OFF ? 'Verified and closed.' : 'Sent back to the field worker.');
       setSelectedId(null);
       await refetch();
     } catch (e) {
@@ -191,8 +205,8 @@ export default function OfficerVerification() {
           <h1 className="font-display text-[26px] font-bold text-ink leading-tight">Verification</h1>
           <p className="text-[14px] text-ink-muted mt-1">
             {queue.length === 0
-              ? 'No work is waiting on your sign-off.'
-              : `${queue.length} submission${queue.length === 1 ? '' : 's'} waiting on you.`}
+              ? 'No completed work is waiting on verification.'
+              : `${queue.length} completed job${queue.length === 1 ? '' : 's'} waiting on verification.`}
           </p>
         </div>
         <button
@@ -213,7 +227,7 @@ export default function OfficerVerification() {
         <EmptyPanel
           icon={IconCheckCircle}
           title="Nothing to verify"
-          message="When a field worker submits completed work, it lands here for your sign-off."
+          message="When a field worker marks a job finished, it lands here for verification."
         />
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-5 items-start">
@@ -257,7 +271,7 @@ export default function OfficerVerification() {
               <section className="bg-surface rounded-xl border border-line shadow-sm overflow-hidden">
                 <div className="px-3.5 py-2.5 border-b border-line bg-surface-inset">
                   <h2 className="text-[11px] font-semibold uppercase tracking-wide text-ink-muted">
-                    Accepted · awaiting citizen
+                    Verified · closed
                   </h2>
                 </div>
                 <ul className="divide-y divide-line max-h-[220px] overflow-y-auto">
@@ -387,24 +401,24 @@ export default function OfficerVerification() {
                       onClick={() => decide(SIGNED_OFF, 'Work verified by officer from submitted evidence.')}
                       className="focus-ring lift inline-flex items-center gap-2 bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white font-semibold text-[14px] px-4 py-2.5 rounded-xl transition-colors"
                     >
-                      <IconCheckCircle size={16} /> Accept the work
+                      <IconCheckCircle size={16} /> Verify &amp; close
                     </button>
                     <button
                       disabled={busy}
-                      onClick={() => decide('In Progress', 'Sent back by officer: evidence did not show the issue resolved.')}
+                      onClick={() => decide(SENT_BACK, 'Sent back by officer: evidence did not show the issue resolved.')}
                       className="focus-ring inline-flex items-center gap-2 bg-surface border border-line hover:border-caution-500/50 text-ink-body font-semibold text-[14px] px-4 py-2.5 rounded-xl transition-colors"
                     >
                       <IconArrowLeft size={16} /> Send back
                     </button>
                     <span className="text-[12px] text-ink-faint">
-                      Accepting moves it to Resolved; the citizen confirms from there.
+                      Verifying closes the ticket. Sending it back returns the worker to In Progress.
                     </span>
                   </div>
                 </section>
               ) : (
                 <p className="text-[13px] text-ink-muted bg-surface-inset rounded-lg px-3.5 py-3">
-                  You have already accepted this one. It is with the reporter now — only they can
-                  confirm the fix and close it.
+                  This one has been verified and closed. If the reporter says the problem is still
+                  there, they can reopen it from their own complaint page.
                 </p>
               )}
             </div>

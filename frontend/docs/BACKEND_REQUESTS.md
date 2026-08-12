@@ -3,7 +3,7 @@
 Everything the frontend needs that the API does not yet provide, in one place.
 Replaces the separate AI and analytics request docs.
 
-**Verified against `backend/` on 2026-08-11.** Each item was checked against the
+**Verified against `backend/` on 2026-08-12.** Each item was checked against the
 source before being listed — several earlier asks turned out to be already
 implemented and have been moved to [Already done](#already-done) rather than
 left in as noise.
@@ -157,6 +157,244 @@ whole record set and filters client-side. Fine at hundreds of complaints,
 not at tens of thousands.
 
 **Ask:** `?from=&to=&status=&categoryId=&limit=&offset=`.
+
+---
+
+## 6. User management CRUD — the admin screen is mostly read-only
+
+Admin > User Management can create accounts and reset passwords. It cannot
+meaningfully **update** or **delete** one, and each gap is a specific defect
+rather than a missing feature.
+
+### 6a. `PATCH /admin/users/{id}` writes a worker's skills to the wrong attribute
+
+`main.py` sets `field_worker.skills` and `field_worker.department`, but
+`FieldWorkerModel` (`models.py:45`) has neither — the column is **`skillSet`**,
+and there is no department column at all. SQLAlchemy accepts the assignment as
+an ordinary Python attribute, the commit saves nothing, and the endpoint still
+returns `{"message": "User updated successfully"}`.
+
+That last part is the real problem: it reports success. The frontend cannot
+tell a saved change from a discarded one, so the skills field in Edit User is
+locked rather than lying about what it did.
+
+```python
+if update_data.skills is not None:
+    field_worker.skillSet = ", ".join(update_data.skills)   # not .skills
+# drop the field_worker.department branch entirely, or add the column
+```
+
+### 6b. `isActive` has nowhere to be stored
+
+`UserModel` has no `isActive` column, so Suspend/Reactivate is accepted and
+persists nothing, and nothing blocks a suspended user from signing in. Needs a
+column plus a check in the login path — the column alone would be worse than
+nothing, because the UI would then correctly show a suspension that does not
+actually suspend.
+
+### 6c. Name, email and phone cannot be updated at all
+
+`UserUpdate` carries only `isActive`, `role`, `department`, `skills`. A
+mistyped email currently means deleting and recreating the account — except
+that deletion is not possible either (6d). Adding `name`, `email` and `phone`
+to `UserUpdate` and the handler would close this; `email` needs the same
+uniqueness check `POST /admin/users/official` already does.
+
+### 6d. There is no delete endpoint
+
+No `DELETE /admin/users/{id}` exists. Given complaints reference `citizenId`,
+`officerId` and `fieldWorkerId`, a hard delete would orphan records — so the
+right shape is almost certainly a soft delete built on 6b rather than a real
+`DELETE`.
+
+### 6e. `POST /admin/users/official` only builds an officer
+
+`SystemOfficialCreate` accepts `role`, but the handler only constructs a
+`MunicipalOfficerModel`. Any other role leaves `new_user` as `None` and
+`db.add(None)` raises a 500. The frontend works around this by sending field
+workers to `POST /workers/` instead, which is fine — but the endpoint should
+either handle the other roles or reject them with a 400 rather than a 500.
+
+---
+
+## 7. Sprint 2 feedback items (FB-01 … FB-07)
+
+Audited against `backend/` and `frontend/src/` on 2026-08-12. Three of the seven
+are done, two are half-done, two have nothing behind them. The endpoints below
+are what the remaining four need — nothing here is speculative, each one is
+already shaped by a screen that is waiting for it.
+
+| | Feedback | Status | What exists today |
+|---|---|---|---|
+| FB-01 | Automatic duplicate warning | **Done** | `ReportIssue.jsx:121` debounced auto-triage on description + coords; duplicates rendered at `:575`. Uses `POST /ai/triage`, which already returns candidates. No backend work needed. |
+| FB-02 | Expected resolution date | **Backend only** | `services/sla.py:78 deadline_for()` already computes it — for the sweep. It is never exposed on a complaint. |
+| FB-03 | Offline-safe evidence upload | **Not started** | No queue or retry anywhere. Mostly frontend, but needs idempotency (7c). |
+| FB-04 | Distance-ordered task list | **Not started** | `main.py:510` takes no parameters and applies no ordering at all. |
+| FB-05 | AI confidence score | **Half** | Shown per complaint with a low-confidence warning (`ComplaintDrawer.jsx:354`). Cannot be sorted or filtered on, which is what the officer actually asked for — "check the low-confidence ones first". |
+| FB-06 | Bulk assignment | **Not started** | No bulk operation exists. |
+| FB-07 | Escalation of overdue complaints | **Half** | The sweep detects breaches and notifies (`services/sla.py`, `notifications.py:337`). There is no way to *ask* for the overdue list, so the officer still has to scroll. |
+
+---
+
+### 7a. FB-02 — expose the SLA deadline on a complaint
+
+The calculation already exists and is already trusted enough to raise
+notifications from. It just needs to come back with the record.
+
+Add to `ComplaintResponse`:
+
+```python
+# When this complaint should be resolved by, from the severity SLA.
+# Null when severity or createdAt is missing -- never a guess.
+expectedResolutionAt: Optional[datetime] = None
+slaBreached: bool = False          # past the deadline and still open
+```
+
+Fill both from `sla.deadline_for(complaint, sla.sla_hours())`. No new endpoint,
+no migration — it is derived at serialisation time.
+
+**Do not** send a "days remaining" integer. The frontend renders relative time
+against the reader's own clock; a server-computed countdown goes stale the
+moment it is cached.
+
+---
+
+### 7b. FB-04 — order a worker's tasks by distance
+
+`GET /complaints/worker/tasks` currently returns rows in whatever order
+PostgreSQL feels like. Extend it:
+
+```
+GET /complaints/worker/tasks?sort=distance&lat=<float>&lng=<float>
+                            &sort=created            (default, current behaviour)
+```
+
+- `sort=distance` **requires** `lat` and `lng` — return **422** if either is
+  missing rather than silently falling back, or the worker gets a list that
+  looks sorted and is not.
+- Tasks with no location sort last, never first.
+- Add `distanceKm: Optional[float]` to the response so the UI can label each
+  card. Null where there is no location.
+
+The same equirectangular approximation `/complaints/nearby` already uses is
+fine — at city scale the error is metres.
+
+---
+
+### 7c. FB-03 — make evidence upload safely retryable
+
+The worker's phone will retry a failed upload. Without a key, a partial success
+followed by a retry produces two copies of the same photo on the complaint.
+
+```
+POST /complaints/{id}/images
+Header: Idempotency-Key: <uuid generated by the client, stable across retries>
+```
+
+Same key + same complaint → return the **original** result, do not store again.
+A small table (`key`, `complaintId`, `responseJson`, `createdAt`) with a 24-hour
+sweep is enough.
+
+Also accept remarks alongside the files so a retry carries the worker's typed
+text rather than losing it:
+
+```python
+remarks: Optional[str] = Form(None)   # appended to status history, not a new field
+```
+
+The queue itself is frontend work and does not block on this — but shipping the
+queue *without* the idempotency key would mean duplicate evidence on every
+flaky connection.
+
+---
+
+### 7d. FB-05 — let the queue be sorted by AI confidence
+
+`aiConfidence` is already on the response. What is missing is the ability to
+bring the doubtful ones to the top without downloading every complaint:
+
+```
+GET /complaints/?sort=aiConfidence&order=asc
+GET /complaints/?aiConfidenceMax=0.6        # only the ones worth re-checking
+GET /complaints/?aiConfidenceMin=0.0
+```
+
+Complaints with **no** confidence (filed before triage, or triage disabled) must
+be excluded from a confidence filter rather than treated as zero — "never
+classified" and "classified badly" are different queues.
+
+---
+
+### 7e. FB-06 — bulk assignment
+
+```
+PATCH /complaints/bulk-assign
+{
+  "complaintIds": ["CMP-...", "CMP-..."],   # 1..50
+  "fieldWorkerId": "..."
+}
+```
+
+Partial success is the normal case here, so do not fail the batch on one bad id:
+
+```json
+{
+  "assigned":  ["CMP-A", "CMP-B"],
+  "failed":  [ { "complaintId": "CMP-C", "reason": "already resolved" } ],
+  "assignedCount": 2, "failedCount": 1
+}
+```
+
+- Cap at 50 per call; **422** above that.
+- Each assignment must go through the same lifecycle guard and raise the same
+  notification as the single-complaint path — a bulk route that bypasses
+  `services/lifecycle.py` will drift from it within a sprint.
+- Reject the whole call only if the worker id is invalid.
+
+---
+
+### 7f. FB-07 — an endpoint for the overdue queue
+
+The sweep knows what has breached. Nothing can ask it.
+
+```
+GET /complaints/escalations?includeAtRisk=true
+```
+
+```json
+{
+  "breached": [ { "complaintId": "...", "expectedResolutionAt": "...",
+                  "hoursOverdue": 41.5, "severity": "HIGH",
+                  "department": "Roads & Transport", "fieldWorkerId": null } ],
+  "atRisk":   [ { "complaintId": "...", "hoursRemaining": 3.2, "...": "..." } ],
+  "breachedCount": 4, "atRiskCount": 2
+}
+```
+
+- Officer- and admin-readable, same rule as `/analytics/*`.
+- `atRisk` = open, inside the window, under 25% of it remaining. Include it only
+  when asked — an officer clearing a backlog does not want tomorrow's problems
+  mixed into today's.
+- Open complaints only. A breached complaint that has since been resolved is
+  history, not a queue item.
+
+This is what turns FB-07 from "notifications fire somewhere" into a screen.
+
+---
+
+### Summary — what to build on the backend branch
+
+| # | Change | Endpoint | Size |
+|---|---|---|---|
+| 7a | SLA deadline on the record | `ComplaintResponse` (extend) | small |
+| 7b | Distance ordering | `GET /complaints/worker/tasks` (extend) | small |
+| 7c | Idempotent evidence upload | `POST /complaints/{id}/images` (extend) | medium |
+| 7d | Confidence sort/filter | `GET /complaints/` (extend) | small |
+| 7e | Bulk assignment | `PATCH /complaints/bulk-assign` (**new**) | medium |
+| 7f | Overdue queue | `GET /complaints/escalations` (**new**) | medium |
+| 6a–6e | User management CRUD | see §6 | medium |
+
+Two genuinely new routes, four extensions, plus the §6 user-management fixes.
 
 ---
 

@@ -21,10 +21,11 @@ import {
 } from '../../components/dashboard/icons';
 import {
   getComplaint, getComplaintHistory, getComplaintMedia,
-  updateComplaintStatus, uploadComplaintImages,
+  updateComplaintStatus,
 } from '../../api/complaints';
 import { TERMINAL_STATUSES } from '../../api/mappers';
 import useAsync from '../../hooks/useAsync';
+import { uploadOrQueue } from '../../lib/uploadQueue';
 
 const MAX_IMAGE_MB = 5;
 const MAX_PHOTOS = 6;
@@ -125,13 +126,32 @@ export default function WorkerTaskDetail() {
     try {
       // Evidence first: a failed upload must be recoverable, not discovered
       // after the status has already moved.
+      //
+      // uploadOrQueue keeps the photos AND the typed remarks when the network
+      // is the problem, and retries when the signal comes back. Losing a
+      // worker's typed note to a dead spot is what made them stop writing them.
+      let queued = false;
       if (photos.length) {
         setUploadPct(10);
-        await uploadComplaintImages(id, photos.map((p) => p.file));
+        const result = await uploadOrQueue({
+          complaintId: id,
+          files: photos.map((p) => p.file),
+          remarks: remarks || '',
+        });
+        queued = result.queued;
         setUploadPct(100);
         setPhotos((cur) => { cur.forEach((p) => URL.revokeObjectURL(p.url)); return []; });
         setNonce((n) => n + 1);
       }
+
+      if (queued) {
+        // The status is deliberately NOT moved. Marking work resolved while its
+        // evidence sits in a queue would show an officer a completed job with
+        // nothing to verify.
+        say('No signal — photos and notes saved on this device and will upload automatically.', 'warning');
+        return;
+      }
+
       await updateComplaintStatus(id, next, remarks || null);
       setRemarks('');
       say(next === 'Resolved' ? 'Submitted for review.' : `Marked ${next}.`);

@@ -40,9 +40,12 @@ export function readError(data) {
  *   body     plain object (sent as JSON), URLSearchParams (form), or FormData
  *   auth     attach the bearer token; defaults to true
  *   params   object appended as a query string, skipping null/undefined
+ *   headers  extra request headers, e.g. Idempotency-Key on a retryable upload
  */
-export async function apiRequest(path, { method = 'GET', body, auth = true, params } = {}) {
-  const headers = {};
+export async function apiRequest(
+  path, { method = 'GET', body, auth = true, params, headers: extraHeaders } = {},
+) {
+  const headers = { ...(extraHeaders || {}) };
   let payload;
 
   if (body instanceof FormData) {
