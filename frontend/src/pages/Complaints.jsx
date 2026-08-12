@@ -16,6 +16,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import StatusBadge from '../components/dashboard/StatusBadge';
+import SlaBadge from '../components/dashboard/SlaBadge';
 import SeverityBadge from '../components/dashboard/SeverityBadge';
 import ComplaintMap from '../components/map/ComplaintMap';
 import { LoadingPanel, ErrorPanel, EmptyPanel } from '../components/dashboard/AsyncStates';
@@ -137,6 +138,11 @@ function ComplaintCard({ c, showDistance, onOpen, index }) {
             <SeverityBadge severity={c.severity} />
           </div>
         </div>
+
+        {/* When the city undertook to fix it. The status rail says what has
+            happened; this says when to expect it to be over, which is the
+            question the history could never answer. */}
+        {open && <SlaBadge complaint={c} showDate className="mt-2" />}
 
         {!showDistance && <Stages status={c.status} />}
 

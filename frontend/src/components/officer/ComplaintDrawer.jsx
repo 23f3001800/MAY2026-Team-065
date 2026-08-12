@@ -13,6 +13,7 @@
 // shows the suggestion, flags disagreement, and offers a one-click accept.
 import React, { useEffect, useState } from 'react';
 import StatusBadge from '../dashboard/StatusBadge';
+import SlaBadge from '../dashboard/SlaBadge';
 import SeverityBadge from '../dashboard/SeverityBadge';
 import PhotoGrid from '../dashboard/PhotoGrid';
 import ComplaintMap from '../map/ComplaintMap';
@@ -170,6 +171,7 @@ export default function ComplaintDrawer({
               <h2 className="font-display font-bold text-ink text-[18px] leading-snug">{complaint.issue}</h2>
               <div className="flex items-center gap-2 mt-2 flex-wrap">
                 <StatusBadge status={complaint.status} />
+                <SlaBadge complaint={complaint} showDate />
                 <SeverityBadge severity={complaint.severity} />
                 <span className="text-[12px] text-ink-faint">{complaint.category}</span>
               </div>
