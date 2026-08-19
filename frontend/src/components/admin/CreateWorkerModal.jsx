@@ -7,13 +7,9 @@
 import React, { useState } from 'react';
 import Modal from './Modal';
 import SkillPicker from './SkillPicker';
+import { Field, TextField, FormError, SubmitRow } from './formFields';
 import { createFieldWorker } from '../../api/workers';
 import { formatSkills } from '../../lib/skills';
-
-const inputClass =
-  'w-full bg-white rounded-lg border border-slate-200 px-3 py-2 text-[13px] text-slate-800 outline-none focus:border-primary transition';
-
-const labelClass = 'block text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-1';
 
 export default function CreateWorkerModal({ onDismiss, onCreated }) {
   const [form, setForm] = useState({ name: '', email: '', phone: '', password: '' });
@@ -47,43 +43,53 @@ export default function CreateWorkerModal({ onDismiss, onCreated }) {
 
   return (
     <Modal title="Add Field Worker" onDismiss={onDismiss}>
-      <form onSubmit={submit} className="space-y-3">
-        <div>
-          <label className={labelClass} htmlFor="fw-name">Full name</label>
-          <input id="fw-name" className={inputClass} value={form.name} onChange={set('name')} required />
-        </div>
-        <div>
-          <label className={labelClass} htmlFor="fw-email">Email</label>
-          <input id="fw-email" className={inputClass} type="email" value={form.email} onChange={set('email')} required />
-        </div>
-        <div>
-          <label className={labelClass} htmlFor="fw-phone">Phone</label>
-          <input id="fw-phone" className={inputClass} value={form.phone} onChange={set('phone')} required />
-        </div>
-        <div>
-          <label className={labelClass} htmlFor="fw-pw">Temporary password</label>
-          <input id="fw-pw" className={inputClass} type="password" value={form.password} onChange={set('password')} required />
-          <p className="text-[11px] text-slate-400 mt-1">
-            The worker signs in with this. It can be changed later from Reset password.
-          </p>
-        </div>
+      <form onSubmit={submit} className="space-y-3.5">
+        <TextField
+          id="fw-name"
+          label="Full name"
+          required
+          value={form.name}
+          onChange={set('name')}
+        />
+        <TextField
+          id="fw-email"
+          label="Email"
+          type="email"
+          required
+          value={form.email}
+          onChange={set('email')}
+          hint="This is how they sign in. It must be unique."
+        />
+        <TextField
+          id="fw-phone"
+          label="Phone"
+          required
+          value={form.phone}
+          onChange={set('phone')}
+        />
+        <TextField
+          id="fw-password"
+          label="Temporary password"
+          type="password"
+          required
+          value={form.password}
+          onChange={set('password')}
+          hint="They can change it later from Reset password."
+        />
 
-        <div>
-          <span className={labelClass}>Skills</span>
+        <Field id="fw-skills" label="Skills" required
+          hint="The departments whose complaints this worker can be assigned. A worker with none is never offered work.">
           <SkillPicker value={skills} onChange={setSkills} />
-          <p className="text-[11px] text-slate-400 mt-1.5">
-            These are the departments whose complaints this worker can be assigned.
-          </p>
-        </div>
+        </Field>
 
-        {error && <p className="text-[13px] font-medium text-red-600">{error}</p>}
-        <button
-          type="submit"
-          disabled={saving}
-          className="w-full inline-flex items-center justify-center gap-2 bg-primary hover:bg-emerald-600 disabled:opacity-60 text-white font-semibold text-[13px] py-2.5 rounded-lg shadow-btn transition-colors"
-        >
-          {saving ? 'Creating…' : 'Create Field Worker'}
-        </button>
+        <FormError>{error}</FormError>
+
+        <SubmitRow
+          busy={saving}
+          label="Create field worker"
+          busyLabel="Creating…"
+          onCancel={onDismiss}
+        />
       </form>
     </Modal>
   );

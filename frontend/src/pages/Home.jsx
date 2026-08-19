@@ -290,11 +290,11 @@ export default function Home() {
           reading -- a channel that looks open at 2am and is not is worse than
           one that says so. */}
       <footer className="border-t-4 border-civic-800 bg-civic-950 text-white">
-        <div className="max-w-[1140px] mx-auto px-5 sm:px-8 py-10">
-          <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-[1.4fr_1fr_1fr]">
+        <div className="max-w-[1140px] mx-auto px-5 sm:px-8 py-8">
+          <div className="grid gap-7 sm:grid-cols-2 lg:grid-cols-[1.4fr_1fr_1fr]">
             <div>
               <CivicWordmark size={30} tone="light" />
-              <p className="text-[13px] text-white/60 leading-relaxed mt-4 max-w-[40ch]">
+              <p className="text-[12.5px] text-white/60 leading-relaxed mt-3 max-w-[40ch]">
                 The municipal grievance redressal service. Report a problem in your area and
                 follow it through to the work being done.
               </p>
@@ -367,7 +367,7 @@ export default function Home() {
             </div>
           </div>
 
-          <div className="flex items-center justify-between gap-4 flex-wrap mt-8 pt-5 border-t border-white/10">
+          <div className="flex items-center justify-between gap-4 flex-wrap mt-6 pt-4 border-t border-white/10">
             <p className="text-[12.5px] text-white/45">
               &copy; {new Date().getFullYear()} Municipal Grievance Redressal Department.
             </p>
