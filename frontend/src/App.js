@@ -1,6 +1,5 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import AuthBackground from './components/AuthBackground';
 import Home from './pages/Home';
 import Login from './pages/Login';
 import Register from './pages/Register';
@@ -50,18 +49,6 @@ function RoleHome() {
   return <Navigate to={user ? homePathForRole(user.role) : '/'} replace />;
 }
 
-// Dark, centered layout for the auth screens (login/register).
-function AuthScreen({ children }) {
-  return (
-    <>
-      <AuthBackground />
-      <div className="flex items-center justify-center min-h-screen px-6 py-6 relative z-10">
-        {children}
-      </div>
-    </>
-  );
-}
-
 function App() {
   return (
     <BrowserRouter>
@@ -69,9 +56,9 @@ function App() {
         {/* Public landing page — redirects a signed-in visitor to their dashboard */}
         <Route path="/" element={<Home />} />
 
-        {/* Public auth screens */}
-        <Route path="/login" element={<AuthScreen><Login /></AuthScreen>} />
-        <Route path="/register" element={<AuthScreen><Register /></AuthScreen>} />
+        {/* Public auth screens — each page renders its own AuthShell frame */}
+        <Route path="/login" element={<Login />} />
+        <Route path="/register" element={<Register />} />
 
         {/* Authenticated citizen area (dark sidebar + light content) */}
         <Route
