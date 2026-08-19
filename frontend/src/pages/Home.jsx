@@ -23,16 +23,37 @@ import {
   IconArrowRight, IconTrack, IconReport, IconCheckCircle, IconClock,
   IconDroplet, IconTrash, IconMapPin, IconBulb, IconBuilding,
 } from '../components/dashboard/icons';
+import { IconMail, IconPhone } from '../components/icons';
 import { getCurrentUser, homePathForRole } from '../api/auth';
 
 // The five departments the service actually runs, matching the seeded category
 // table. Listing them sets an honest expectation about what can be reported.
 const SERVICES = [
-  { icon: IconMapPin, name: 'Roads & Transport', example: 'Potholes, damaged carriageway, blocked footpaths' },
-  { icon: IconDroplet, name: 'Water & Plumbing', example: 'Burst mains, leaks, drainage backing up' },
-  { icon: IconTrash, name: 'Sanitation', example: 'Missed collections, fly-tipping, overflowing bins' },
-  { icon: IconBulb, name: 'Electrical', example: 'Streetlights out, exposed wiring, failed signals' },
-  { icon: IconBuilding, name: 'Public Works', example: 'Damage to parks, benches and public property' },
+  {
+    icon: IconMapPin, name: 'Roads & Transport',
+    example: 'Potholes, damaged carriageway, blocked footpaths',
+    tint: 'bg-amber-50 text-amber-700', rule: 'bg-amber-400',
+  },
+  {
+    icon: IconDroplet, name: 'Water & Plumbing',
+    example: 'Burst mains, leaks, drainage backing up',
+    tint: 'bg-sky-50 text-sky-700', rule: 'bg-sky-400',
+  },
+  {
+    icon: IconTrash, name: 'Sanitation',
+    example: 'Missed collections, fly-tipping, overflowing bins',
+    tint: 'bg-teal-50 text-teal-700', rule: 'bg-teal-500',
+  },
+  {
+    icon: IconBulb, name: 'Electrical',
+    example: 'Streetlights out, exposed wiring, failed signals',
+    tint: 'bg-violet-50 text-violet-700', rule: 'bg-violet-400',
+  },
+  {
+    icon: IconBuilding, name: 'Public Works',
+    example: 'Damage to parks, benches and public property',
+    tint: 'bg-rose-50 text-rose-700', rule: 'bg-rose-400',
+  },
 ];
 
 // The real targets from the backend's SLA configuration. These are commitments
@@ -91,7 +112,19 @@ export default function Home() {
 
       <main>
         {/* ── Hero ───────────────────────────────────────────────── */}
-        <section className="max-w-[1140px] mx-auto px-5 sm:px-8 pt-14 pb-16 lg:pt-20 lg:pb-24">
+        <section className="relative overflow-hidden">
+          {/* A single soft wash rather than a field of blobs: enough colour to
+              stop the page opening on flat paper, quiet enough to keep the type
+              the loudest thing on screen. */}
+          <span
+            aria-hidden="true"
+            className="pointer-events-none absolute -top-40 -right-32 w-[560px] h-[560px] rounded-full bg-gradient-to-br from-teal-200/45 via-sky-100/40 to-transparent blur-3xl"
+          />
+          <span
+            aria-hidden="true"
+            className="pointer-events-none absolute -bottom-56 -left-40 w-[520px] h-[520px] rounded-full bg-gradient-to-tr from-amber-100/50 to-transparent blur-3xl"
+          />
+          <div className="relative max-w-[1140px] mx-auto px-5 sm:px-8 pt-14 pb-16 lg:pt-20 lg:pb-24">
           <div className="grid lg:grid-cols-[1.05fr_0.95fr] gap-12 lg:gap-16 items-center">
             <div className="animate-rise-in">
               <SectionLabel>Municipal grievance service</SectionLabel>
@@ -133,6 +166,7 @@ export default function Home() {
             <div className="animate-rise-in" style={{ animationDelay: '120ms' }}>
               <JourneyStrip />
             </div>
+          </div>
           </div>
         </section>
 
@@ -194,9 +228,13 @@ export default function Home() {
               <li
                 key={s.name}
                 style={{ '--i': i }}
-                className="animate-rise-in stagger group bg-surface rounded-2xl border border-line shadow-sm p-5 hover:shadow-md hover:border-civic-300 transition-all"
+                className="animate-rise-in stagger group relative bg-surface rounded-2xl border border-line shadow-sm p-5 pt-6 overflow-hidden hover:shadow-md hover:-translate-y-0.5 transition-all"
               >
-                <span className="w-11 h-11 rounded-xl bg-civic-50 text-civic-700 flex items-center justify-center">
+                <span
+                  aria-hidden="true"
+                  className={`absolute inset-x-0 top-0 h-1 ${s.rule}`}
+                />
+                <span className={`w-11 h-11 rounded-xl flex items-center justify-center ${s.tint}`}>
                   <s.icon size={20} />
                 </span>
                 <h3 className="font-display font-bold text-[16px] text-ink mt-4">{s.name}</h3>
@@ -229,7 +267,7 @@ export default function Home() {
         </section>
 
         {/* ── Closing ────────────────────────────────────────────── */}
-        <section className="border-t border-line bg-surface">
+        <section className="border-t border-line bg-gradient-to-b from-civic-50 to-surface-sunken">
           <div className="max-w-[1140px] mx-auto px-5 sm:px-8 py-14 lg:py-16 text-center">
             <h2 className="font-display text-[26px] sm:text-[30px] font-bold tracking-[-0.02em] text-ink">
               It takes about a minute
@@ -248,12 +286,95 @@ export default function Home() {
         </section>
       </main>
 
-      <footer className="border-t border-line">
-        <div className="max-w-[1140px] mx-auto px-5 sm:px-8 py-8 flex items-center justify-between gap-4 flex-wrap">
-          <CivicWordmark size={28} />
-          <p className="text-[12.5px] text-ink-muted">
-            A municipal grievance redressal service.
-          </p>
+      {/* Footer. Contact routes are stated plainly, including when nobody is
+          reading -- a channel that looks open at 2am and is not is worse than
+          one that says so. */}
+      <footer className="border-t-4 border-civic-800 bg-civic-950 text-white">
+        <div className="max-w-[1140px] mx-auto px-5 sm:px-8 py-10">
+          <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-[1.4fr_1fr_1fr]">
+            <div>
+              <CivicWordmark size={30} tone="light" />
+              <p className="text-[13px] text-white/60 leading-relaxed mt-4 max-w-[40ch]">
+                The municipal grievance redressal service. Report a problem in your area and
+                follow it through to the work being done.
+              </p>
+            </div>
+
+            <div>
+              <h3 className="text-[11.5px] font-bold uppercase tracking-[0.14em] text-teal-300">
+                Write to us
+              </h3>
+              <ul className="mt-3.5 space-y-2">
+                <li>
+                  <a
+                    href="mailto:support@civicconnect.gov.in"
+                    className="focus-ring rounded inline-flex items-center gap-2 text-[13.5px] text-white/80 hover:text-white transition-colors"
+                  >
+                    <span className="text-teal-400 shrink-0"><IconMail size={14} /></span>
+                    support@civicconnect.gov.in
+                  </a>
+                </li>
+                <li>
+                  <a
+                    href="tel:18000000000"
+                    className="focus-ring rounded inline-flex items-center gap-2 text-[13.5px] text-white/80 hover:text-white transition-colors"
+                  >
+                    <span className="text-teal-400 shrink-0"><IconPhone size={14} /></span>
+                    1800 000 0000
+                  </a>
+                </li>
+                <li className="flex items-start gap-2 text-[13px] text-white/70">
+                  <IconMapPin size={14} className="text-teal-400 shrink-0 mt-[3px]" />
+                  <span>
+                    Municipal Grievance Redressal Department,
+                    <br />
+                    Office of the Commissione
+                  </span>
+                </li>
+              </ul>
+              <p className="text-[12px] text-white/45 leading-relaxed mt-3.5">
+                Monday to Saturday, 9am to 6pm. For anything dangerous or urgent outside those
+                hours, call the emergency services rather than filing a report.
+              </p>
+            </div>
+
+            <div>
+              <h3 className="text-[11.5px] font-bold uppercase tracking-[0.14em] text-teal-300">
+                Service
+              </h3>
+              <ul className="mt-3.5 space-y-2 text-[13.5px]">
+                <li>
+                  <Link to="/privacy" className="focus-ring rounded text-white/80 hover:text-white transition-colors">
+                    Privacy policy
+                  </Link>
+                </li>
+                <li>
+                  <Link to="/terms" className="focus-ring rounded text-white/80 hover:text-white transition-colors">
+                    Terms of use
+                  </Link>
+                </li>
+                <li>
+                  <Link to="/accessibility" className="focus-ring rounded text-white/80 hover:text-white transition-colors">
+                    Accessibility
+                  </Link>
+                </li>
+                <li>
+                  <Link to="/login" className="focus-ring rounded text-white/80 hover:text-white transition-colors">
+                    Track a complaint
+                  </Link>
+                </li>
+              </ul>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between gap-4 flex-wrap mt-8 pt-5 border-t border-white/10">
+            <p className="text-[12.5px] text-white/45">
+              &copy; {new Date().getFullYear()} Municipal Grievance Redressal Department.
+            </p>
+            <p className="text-[12.5px] text-white/45">
+              Reports are handled by the department responsible for them.
+            </p>
+          </div>
         </div>
       </footer>
     </div>
