@@ -2,7 +2,7 @@
 // field_worker, admin) are created by an admin on the backend, never here.
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import AuthCard from '../components/AuthCard';
+import AuthShell, { AsidePoint } from '../components/public/AuthShell';
 import { FormField, TextInput, PasswordInput, Alert, SubmitButton } from '../components/formControls';
 import { IconUser, IconMail, IconLock, IconPhone, IconMapPin } from '../components/icons';
 import { registerCitizen } from '../api/auth';
@@ -54,22 +54,33 @@ export default function Register() {
   };
 
   return (
-    <AuthCard>
-      <div className="mb-6 text-left">
-        <h2 className="font-display text-[28px] font-bold text-[#f8fafc] tracking-tight mb-1.5">
-          Join SmartCivic
-        </h2>
-        <div className="text-sm text-[#94a3b8]">
-          Already have an account?{' '}
-          <Link
-            to="/login"
-            className="text-primary font-semibold transition-fast hover:text-[#f8fafc] hover:underline"
-          >
-            Sign In
-          </Link>
-        </div>
-      </div>
-
+    <AuthShell
+      title="Create an account"
+      subtitle="For residents reporting problems in their area."
+      aside={(
+        <>
+          <h2 className="font-display text-[24px] font-bold leading-snug tracking-[-0.02em]">
+            One account, and the council answers to it
+          </h2>
+          <ul className="space-y-4 mt-6">
+            <AsidePoint label="A reference for every report">
+              Not a form disappearing into an inbox — an identifier you can quote.
+            </AsidePoint>
+            <AsidePoint label="A date it is due by">
+              Set from how urgent the problem is, visible from the moment you submit.
+            </AsidePoint>
+            <AsidePoint label="The last word is yours">
+              Work is not closed until you confirm it, and you can reopen anything that was
+              not really fixed.
+            </AsidePoint>
+          </ul>
+          <p className="text-[12.5px] text-white/45 leading-relaxed mt-8">
+            Your address is used to route reports to the right depot. It is not shown on any
+            complaint you file.
+          </p>
+        </>
+      )}
+    >
       <Alert message={message} />
 
       <form className="flex flex-col gap-4" onSubmit={handleSubmit}>
@@ -147,6 +158,15 @@ export default function Register() {
 
         <SubmitButton loading={loading}>Register</SubmitButton>
       </form>
-    </AuthCard>
+      <p className="text-[14px] text-ink-muted mt-6">
+        Already registered?{' '}
+        <Link
+          to="/login"
+          className="focus-ring rounded font-semibold text-civic-700 hover:underline"
+        >
+          Sign in
+        </Link>
+      </p>
+    </AuthShell>
   );
 }
