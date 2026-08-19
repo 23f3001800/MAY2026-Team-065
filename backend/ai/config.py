@@ -54,6 +54,18 @@ class AISettings:
     gemini_model: str = "gemini-2.5-flash"
     gemini_api_base: str = "https://generativelanguage.googleapis.com/v1beta"
 
+    # -- Azure OpenAI (Azure AI Foundry) ----------------------------------
+    # A second LLM backend behind the same interface. Added because a single
+    # provider is a single point of failure: when the Gemini quota is exhausted
+    # every LLM-backed feature degrades at once, which is what happened during
+    # Sprint 2. The endpoint is the Foundry resource URL, the deployment is the
+    # name given to the model in that resource -- NOT the model name itself,
+    # which is the usual first mistake with Azure OpenAI.
+    azure_api_key: str = ""
+    azure_endpoint: str = ""
+    azure_deployment: str = ""
+    azure_api_version: str = "2024-10-21"
+
     # Wall-clock budget for a single upstream call. Kept short: complaint
     # submission must not hang behind a slow model.
     request_timeout_seconds: float = 12.0
@@ -83,13 +95,44 @@ class AISettings:
         return bool(self.gemini_api_key.strip())
 
     @property
+    def azure_configured(self) -> bool:
+        """All three parts are required -- a key with no deployment cannot call."""
+        return all([
+            self.azure_api_key.strip(),
+            self.azure_endpoint.strip(),
+            self.azure_deployment.strip(),
+        ])
+
+    @property
+    def active_llm(self) -> str:
+        """Which backend will actually serve a request: 'azure', 'gemini' or ''.
+
+        In 'auto', Azure wins when both are configured -- it is the one the team
+        deliberately provisioned, and preferring it makes the fallback direction
+        predictable rather than depending on which key happened to be set.
+        """
+        if self.provider == "rules":
+            return ""
+        if self.provider == "azure":
+            return "azure" if self.azure_configured else ""
+        if self.provider == "azure":
+            return self.azure_configured
+        if self.provider == "gemini":
+            return "gemini" if self.gemini_configured else ""
+        if self.azure_configured:
+            return "azure"
+        return "gemini" if self.gemini_configured else ""
+
+    @property
     def llm_enabled(self) -> bool:
         """True when LLM calls should actually be attempted."""
         if self.provider == "rules":
             return False
+        if self.provider == "azure":
+            return self.azure_configured
         if self.provider == "gemini":
             return True
-        return self.gemini_configured
+        return self.azure_configured or self.gemini_configured
 
 
 def load_settings() -> AISettings:
@@ -99,13 +142,17 @@ def load_settings() -> AISettings:
     environment (and so a redeployed container picks up new values).
     """
     provider = (os.getenv("AI_PROVIDER") or "auto").strip().lower()
-    if provider not in {"auto", "rules", "gemini"}:
+    if provider not in {"auto", "rules", "gemini", "azure"}:
         provider = "auto"
 
     return AISettings(
         provider=provider,
         gemini_api_key=(os.getenv("GEMINI_API_KEY") or "").strip(),
         gemini_model=(os.getenv("GEMINI_MODEL") or "gemini-2.5-flash").strip(),
+        azure_api_key=(os.getenv("AZURE_OPENAI_API_KEY") or "").strip(),
+        azure_endpoint=(os.getenv("AZURE_OPENAI_ENDPOINT") or "").strip().rstrip("/"),
+        azure_deployment=(os.getenv("AZURE_OPENAI_DEPLOYMENT") or "").strip(),
+        azure_api_version=(os.getenv("AZURE_OPENAI_API_VERSION") or "2024-10-21").strip(),
         gemini_api_base=(
             os.getenv("GEMINI_API_BASE") or "https://generativelanguage.googleapis.com/v1beta"
         ).rstrip("/"),
