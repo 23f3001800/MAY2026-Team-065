@@ -212,6 +212,18 @@ class MediaAttachmentModel(Base):
     type: Mapped[str] = mapped_column(String, nullable=False)
     uploadedBy: Mapped[str] = mapped_column(String, nullable=False)
     uploadedAt: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    # Which side of the work this photo documents: "report" is the problem as
+    # filed, "resolution" is the completed work.
+    #
+    # STORED, not inferred. It used to be worked out on the client by guessing
+    # from upload order or by assuming the earliest uploader was the reporter,
+    # and every consumer guessed slightly differently -- which is how a field
+    # worker's completion photo ended up displayed as the citizen's original
+    # report. It is a fact about the upload, so it is recorded at upload time
+    # and every endpoint reads the same value.
+    phase: Mapped[str] = mapped_column(String, nullable=False, server_default="report")
+
     complaintId: Mapped[str] = mapped_column(ForeignKey("complaints.complaintId"))
     
     complaint: Mapped["ComplaintModel"] = relationship(back_populates="media_attachments")
