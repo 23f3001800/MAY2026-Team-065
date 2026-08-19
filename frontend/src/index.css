@@ -61,12 +61,19 @@
   --ink-400: #8593a1;   /* meta, timestamps */
 
   --surface:        #ffffff;
-  --surface-sunken: #f5f4f1;  /* page background — warm off-white */
+  /* Page ground. Was #f5f4f1, a warm off-white so close to the cards sitting
+     on it that the app read as one flat sheet of white. Now a faint civic
+     blue-grey from the same family as --civic-50: cards still read as raised
+     because they are white against it, and the product looks like the service
+     it is rather than a blank page. */
+  --surface-sunken: #eaeef4;
   --surface-raised: #ffffff;
-  --surface-inset:  #fafaf8;
+  /* Wells inside a card -- one step in from white, matching the ground's hue
+     rather than the old warm grey, so the two do not disagree. */
+  --surface-inset:  #f4f6fa;
 
-  --line:        #e4e2dd;
-  --line-strong: #d0cdc6;
+  --line:        #dde2ea;
+  --line-strong: #c5cdd9;
 
   /* Elevation. Two layers each: a tight contact shadow plus a soft ambient
      one. A single layer is what makes a card read as a flat outlined box. */
