@@ -7,6 +7,7 @@
 // Filtering and sorting are client-side; GET /complaints/ takes no query
 // parameters.
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import StatusBadge from '../../components/dashboard/StatusBadge';
 import SeverityBadge from '../../components/dashboard/SeverityBadge';
 import ConfidenceBadge, { DOUBTFUL_BELOW } from '../../components/dashboard/ConfidenceBadge';
@@ -23,6 +24,7 @@ import { listFieldWorkers } from '../../api/workers';
 import { CATEGORIES, ASSIGNABLE_STATUSES } from '../../api/mappers';
 import useAsync from '../../hooks/useAsync';
 import { getCurrentUser } from '../../api/auth';
+import { complaintPath } from '../../api/session';
 import ComplaintMap from '../../components/map/ComplaintMap';
 
 function formatDate(iso) {
@@ -523,7 +525,16 @@ export default function ComplaintQueue({ title, subtitle }) {
                         className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-emerald-200 cursor-pointer"
                       />
                     </td>
-                    <td className="px-3 py-3 text-[12px] font-mono text-slate-500 whitespace-nowrap">{c.id}</td>
+                    <td className="px-3 py-3 text-[12px] font-mono whitespace-nowrap">
+                      {/* The drawer is for a triage pass; the reference opens
+                          the full record for the reading and deciding half. */}
+                      <Link
+                        to={complaintPath(getCurrentUser()?.role, c.id)}
+                        className="focus-ring rounded text-slate-500 hover:text-civic-700 hover:underline"
+                      >
+                        {c.id}
+                      </Link>
+                    </td>
                     <td className="px-3 py-3 text-[13px] font-medium text-slate-800">{c.issue}</td>
                     <td className="px-3 py-3 text-[13px] text-slate-600 whitespace-nowrap">{c.category}</td>
                     <td className="px-3 py-3">
