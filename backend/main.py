@@ -134,6 +134,16 @@ def get_password_hash(password: str) -> str:
 # Sort keys accepted by GET /complaints/. "expectedResolution" is served by a
 # Python sort (see the handler) because the deadline is derived from severity,
 # which has no meaningful SQL ordering of its own.
+# Statuses a complaint can be bulk-assigned FROM: nobody is working it yet.
+# ASSIGNED is excluded on purpose -- it already has a worker, and replacing them
+# is a per-complaint decision, not a batch one.
+ASSIGNABLE_STATUSES = {
+    StatusEnum.PENDING.name,
+    StatusEnum.UNDER_REVIEW.name,
+    StatusEnum.REOPENED.name,
+    StatusEnum.ESCALATED.name,
+}
+
 _COMPLAINT_SORTS = ("created", "aiConfidence", "expectedResolution")
 
 # Ceiling on the rows pulled back for a Python-side sort. Beyond this the
@@ -531,6 +541,8 @@ def _apply_assignment(
     complaint: models.ComplaintModel,
     field_worker: models.FieldWorkerModel,
     current_user: models.UserModel,
+    *,
+    force: bool = False,
 ) -> None:
     """Assign one complaint to one worker, with history and notifications.
 
@@ -546,6 +558,25 @@ def _apply_assignment(
     current_status = str(getattr(complaint.status, "name", complaint.status) or "")
     if current_status in {st.name for st in TERMINAL_STATUSES}:
         raise AssignmentRefused("Complaint is already " + current_status.lower() + ".")
+
+    # Already dispatched work is not bulk-assignable.
+    #
+    # Bulk assignment is for clearing a queue of untouched complaints. Sweeping
+    # up one that a worker has already started and handing it to someone else
+    # discards their progress silently -- and in a batch of fifty nobody would
+    # notice which ones moved. Reassigning live work is a deliberate,
+    # one-at-a-time decision, so it stays on the single-complaint endpoint via
+    # `force`.
+    if not force:
+        if complaint.fieldWorkerId:
+            raise AssignmentRefused(
+                "Already assigned to a field worker. Reassign it individually if that is intended."
+            )
+        if current_status not in ASSIGNABLE_STATUSES:
+            raise AssignmentRefused(
+                "Status is " + current_status.lower()
+                + "; only complaints not yet being worked can be assigned in bulk."
+            )
 
     department = complaint.category.department if complaint.category else None
     if department and department not in (field_worker.skillSet or ""):
@@ -605,7 +636,7 @@ async def assign_field_worker(
         raise HTTPException(status_code=404, detail="Field Worker not found.")
         
     try:
-        _apply_assignment(db, complaint, field_worker, current_user)
+        _apply_assignment(db, complaint, field_worker, current_user, force=True)
     except AssignmentRefused as refused:
         raise HTTPException(status_code=refused.status_code, detail=refused.reason)
 
@@ -613,6 +644,103 @@ async def assign_field_worker(
     await db.refresh(complaint)
 
     return complaint
+
+
+@app.patch("/complaints/bulk-status", response_model=schemas.BulkStatusResult)
+async def bulk_status(
+    payload: schemas.BulkStatusUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: models.UserModel = Depends(get_current_user)
+):
+    """Advance several complaints of the same kind to the next status.
+
+    This is what bulk assignment was being used for, and it is a different
+    operation: assignment picks who does the work, this moves work already in
+    flight along. Conflating them meant an officer trying to advance ten
+    in-progress jobs ended up reassigning them all to one worker.
+
+    `fromStatus` must match each complaint's current status. Anything that has
+    moved since the officer's list was drawn is refused with its actual state
+    rather than being dragged from a status they never saw -- a stale screen is
+    the normal case here, not an edge case.
+
+    Every transition goes through the same lifecycle rules as the
+    single-complaint endpoint, so bulk cannot reach a state the individual
+    action would refuse.
+    """
+    require_roles(current_user, ("officer", "administrator"), "change complaint status")
+
+    from_name = payload.fromStatus.name
+    to_name = payload.toStatus.name
+    if from_name == to_name:
+        raise HTTPException(status_code=422, detail="fromStatus and toStatus are the same.")
+
+    wanted = list(dict.fromkeys(payload.complaintIds))
+    result = await db.execute(
+        select(models.ComplaintModel)
+        .where(models.ComplaintModel.complaintId.in_(wanted))
+        .options(
+            selectinload(models.ComplaintModel.location),
+            selectinload(models.ComplaintModel.category),
+        )
+    )
+    found = {c.complaintId: c for c in result.scalars().all()}
+
+    updated: List[str] = []
+    failed: List[schemas.BulkAssignFailure] = []
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+
+    for complaint_id in wanted:
+        complaint = found.get(complaint_id)
+        if complaint is None:
+            failed.append(schemas.BulkAssignFailure(
+                complaintId=complaint_id, reason="Complaint not found."))
+            continue
+
+        current = str(getattr(complaint.status, "name", complaint.status) or "")
+        if current != from_name:
+            failed.append(schemas.BulkAssignFailure(
+                complaintId=complaint_id,
+                reason="Expected " + from_name.lower() + " but it is " + current.lower() + ".",
+            ))
+            continue
+
+        try:
+            lifecycle.assert_can_set_status(current_user, complaint, to_name)
+        except HTTPException as exc:
+            failed.append(schemas.BulkAssignFailure(
+                complaintId=complaint_id, reason=str(exc.detail)))
+            continue
+
+        complaint.status = to_name
+        complaint.updatedAt = now
+        # resolvedAt is stamped on the FIRST resolution only, matching the
+        # single-complaint path -- a reopen-and-fix cycle keeps the original
+        # turnaround rather than resetting it.
+        if to_name == StatusEnum.RESOLVED.name and complaint.resolvedAt is None:
+            complaint.resolvedAt = now
+
+        db.add(models.StatusHistoryModel(
+            historyId="HIST-" + str(uuid.uuid4())[:8].upper(),
+            complaintId=complaint_id,
+            status=to_name,
+            remarks=payload.remarks or ("Bulk update by " + (current_user.name or "an officer")),
+            timestamp=now,
+        ))
+        notification_service.notify_status_change(
+            db, complaint, new_status=to_name,
+            remarks=payload.remarks, actor=current_user,
+        )
+        updated.append(complaint_id)
+
+    await db.commit()
+
+    return schemas.BulkStatusResult(
+        updated=updated,
+        failed=failed,
+        updatedCount=len(updated),
+        failedCount=len(failed),
+    )
 
 
 @app.patch("/complaints/bulk-assign", response_model=schemas.BulkAssignResult)
