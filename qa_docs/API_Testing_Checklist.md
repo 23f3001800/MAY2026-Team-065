@@ -1,18 +1,20 @@
 # Smart CivicConnect
-## API Testing Checklist
+
+# API Testing Checklist
 
 ---
 
 # Purpose
 
-This checklist will be used to verify that all backend APIs of Smart CivicConnect function correctly, securely, and reliably before deployment.
+This checklist is used to verify that the Smart CivicConnect backend APIs function correctly, securely, reliably, and meet the functional requirements defined for Sprint 1 before deployment.
 
 ---
 
 # 1. Endpoint Verification
 
+- [ ] API route is accessible.
 - [ ] API endpoint URL is correct.
-- [ ] Correct HTTP method is used (GET, POST, PUT, DELETE).
+- [ ] Correct HTTP method is used (GET, POST, PUT, PATCH, DELETE).
 - [ ] API version is correct (if applicable).
 
 ---
@@ -22,7 +24,7 @@ This checklist will be used to verify that all backend APIs of Smart CivicConnec
 - [ ] Required fields are mandatory.
 - [ ] Optional fields are handled correctly.
 - [ ] Input data types are validated.
-- [ ] Invalid inputs return appropriate errors.
+- [ ] Invalid inputs return appropriate validation errors.
 - [ ] Empty request body is handled properly.
 - [ ] Large input values are handled correctly.
 
@@ -32,15 +34,16 @@ This checklist will be used to verify that all backend APIs of Smart CivicConnec
 
 - [ ] Response status code is correct.
 - [ ] Response body follows the expected JSON format.
+- [ ] Response Content-Type is `application/json`.
 - [ ] All expected fields are present.
 - [ ] Data values are accurate.
-- [ ] No unnecessary data is returned.
+- [ ] No unnecessary or sensitive data is returned.
 
 ---
 
-# 4. HTTP Status Codes
+# 4. HTTP Status Code Verification
 
-Verify appropriate status codes are returned:
+Verify that appropriate HTTP status codes are returned.
 
 - [ ] 200 OK
 - [ ] 201 Created
@@ -49,7 +52,7 @@ Verify appropriate status codes are returned:
 - [ ] 403 Forbidden
 - [ ] 404 Not Found
 - [ ] 409 Conflict (if applicable)
-- [ ] 422 Validation Error
+- [ ] 422 Unprocessable Entity
 - [ ] 500 Internal Server Error
 
 ---
@@ -57,6 +60,7 @@ Verify appropriate status codes are returned:
 # 5. Authentication & Authorization
 
 - [ ] Protected APIs require authentication.
+- [ ] JWT token is generated successfully after login.
 - [ ] Invalid token is rejected.
 - [ ] Expired token is rejected.
 - [ ] Users can access only authorized resources.
@@ -77,7 +81,7 @@ Verify appropriate status codes are returned:
 # 7. Error Handling
 
 - [ ] Invalid requests return meaningful error messages.
-- [ ] Missing fields are reported correctly.
+- [ ] Missing required fields are reported correctly.
 - [ ] Server errors are handled gracefully.
 - [ ] Error responses follow a consistent format.
 
@@ -85,7 +89,7 @@ Verify appropriate status codes are returned:
 
 # 8. Performance Checks
 
-- [ ] API responds within acceptable time.
+- [ ] API response time is within acceptable limits (generally under 1 second for local testing).
 - [ ] Multiple requests are handled successfully.
 - [ ] No unexpected timeout occurs.
 
@@ -93,10 +97,10 @@ Verify appropriate status codes are returned:
 
 # 9. Security Checks
 
-- [ ] Sensitive information is not exposed.
+- [ ] Sensitive information is not exposed in API responses.
 - [ ] SQL Injection attempts are handled safely.
 - [ ] Invalid inputs are sanitized.
-- [ ] API keys and tokens are protected.
+- [ ] API keys and JWT tokens are protected.
 - [ ] Passwords are never returned in responses.
 
 ---
@@ -109,29 +113,56 @@ Verify appropriate status codes are returned:
 
 ---
 
-# 11. Test Execution Record
+# 11. Testing Tools
+
+The following tools were used during API testing:
+
+- Swagger UI
+- Postman
+- Newman
+- Pytest
+
+---
+
+# 12. Test Execution Record
 
 | Test ID | API Endpoint | Result | Remarks |
 |---------|--------------|--------|---------|
-| API-001 | | Pass / Fail | |
-| API-002 | | Pass / Fail | |
-| API-003 | | Pass / Fail | |
-| API-004 | | Pass / Fail | |
+| API-001 | | PASS / FAIL / BLOCKED | |
+| API-002 | | PASS / FAIL / BLOCKED | |
+| API-003 | | PASS / FAIL / BLOCKED | |
+| API-004 | | PASS / FAIL / BLOCKED | |
 
 ---
 
 # Checklist Status
 
-Reviewer:
+**Reviewer:**
 
-Date:
+_____________________________
 
-Environment:
+**Execution Date:**
 
-Overall Status:
+_____________________________
+
+**Testing Environment:**
+
+_____________________________
+
+**Application Version:**
+
+_____________________________
+
+### Overall Status
 
 ☐ Passed
 
 ☐ Passed with Minor Issues
 
 ☐ Failed
+
+---
+
+# Notes
+
+Use this checklist during every testing cycle to ensure that newly implemented or modified APIs continue to meet the project's functional, security, and performance requirements. Update the checklist whenever new API endpoints or features are introduced.
