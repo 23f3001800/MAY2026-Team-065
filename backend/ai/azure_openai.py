@@ -41,6 +41,15 @@ class AzureOpenAIClient:
         self._settings = settings
         # An injected client lets tests stub transport without patching globals.
         self._client = client
+        # Which token-limit parameter this deployment accepts.
+        #
+        # The two generations disagree and each rejects the other's spelling:
+        # gpt-4o and earlier take `max_tokens`, while gpt-5 and the o-series
+        # take `max_completion_tokens` and 400 on `max_tokens`. Rather than
+        # guess from the model name -- which is a string the operator chose and
+        # may say nothing about the model -- the first request finds out from
+        # the API and the answer is reused for the life of the client.
+        self._token_param: Optional[str] = None
 
     # -- public API ------------------------------------------------------
 
@@ -77,7 +86,6 @@ class AzureOpenAIClient:
                 {"role": "system", "content": system_instruction},
                 {"role": "user", "content": content},
             ],
-            "max_tokens": max_output_tokens or self._settings.max_output_tokens,
             "response_format": {
                 "type": "json_schema",
                 "json_schema": {
@@ -89,7 +97,7 @@ class AzureOpenAIClient:
         }
 
         try:
-            raw = await self._post(payload)
+            raw = await self._post(payload, tokens=max_output_tokens)
         except AIProviderError as exc:
             # Older deployments and some models reject json_schema outright. Fall
             # back to json_object, which still forces valid JSON but not a shape,
@@ -99,7 +107,7 @@ class AzureOpenAIClient:
                 raise
             logger.info("azure: deployment rejected json_schema, retrying with json_object")
             payload["response_format"] = {"type": "json_object"}
-            raw = await self._post(payload)
+            raw = await self._post(payload, tokens=max_output_tokens)
 
         text = _extract_text(raw)
         try:
@@ -127,9 +135,8 @@ class AzureOpenAIClient:
                 {"role": "system", "content": system_instruction},
                 {"role": "user", "content": prompt},
             ],
-            "max_tokens": max_output_tokens or self._settings.max_output_tokens,
         }
-        return _extract_text(await self._post(payload))
+        return _extract_text(await self._post(payload, tokens=max_output_tokens))
 
     # -- transport -------------------------------------------------------
 
@@ -158,7 +165,9 @@ class AzureOpenAIClient:
             }
         return {"api-key": s.azure_api_key, "Content-Type": "application/json"}
 
-    async def _post(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+    async def _post(
+        self, payload: Dict[str, Any], *, tokens: Optional[int] = None
+    ) -> Dict[str, Any]:
         settings = self._settings
         if not settings.azure_configured:
             raise AIProviderError(
@@ -174,12 +183,39 @@ class AzureOpenAIClient:
             payload = dict(payload, model=settings.azure_model)
 
         headers = self._headers
+        limit = tokens or settings.max_output_tokens
 
+        # Start with whichever spelling is known to work, or the newer one.
+        attempts = [self._token_param] if self._token_param else [
+            "max_completion_tokens", "max_tokens",
+        ]
+
+        last_error: Optional[AIProviderError] = None
+        for name in attempts:
+            attempt = dict(payload)
+            attempt.pop("max_tokens", None)
+            attempt.pop("max_completion_tokens", None)
+            attempt[name] = limit
+            try:
+                result = await self._send(attempt, headers)
+            except AIProviderError as exc:
+                # Only a rejection OF THIS PARAMETER is worth retrying; anything
+                # else is a real failure and retrying would just repeat it.
+                if not _rejects_token_param(exc, name):
+                    raise
+                last_error = exc
+                continue
+            self._token_param = name
+            return result
+
+        raise last_error or AIProviderError("Azure OpenAI rejected every token parameter")
+
+    async def _send(self, payload: Dict[str, Any], headers: Dict[str, str]) -> Dict[str, Any]:
         if self._client is not None:
             response = await self._client.post(self._url, json=payload, headers=headers)
             return _parse_response(response)
 
-        timeout = httpx.Timeout(settings.request_timeout_seconds)
+        timeout = httpx.Timeout(self._settings.request_timeout_seconds)
         async with httpx.AsyncClient(timeout=timeout) as client:
             response = await self._request(client, payload, headers)
         return _parse_response(response)
@@ -196,6 +232,18 @@ class AzureOpenAIClient:
 
 
 # -- helpers -------------------------------------------------------------
+
+def _rejects_token_param(exc: AIProviderError, name: str) -> bool:
+    """Did Azure refuse specifically because of the token-limit parameter?
+
+    Matched on the parameter name plus an unsupported/not-supported phrase, so a
+    quota or content error carrying the word "token" is not mistaken for this.
+    """
+    message = str(exc).lower()
+    if name not in message:
+        return False
+    return "unsupported" in message or "not supported" in message
+
 
 def _strictify(schema: Dict[str, Any]) -> Dict[str, Any]:
     """Adapt a schema to Azure's strict structured-output rules.

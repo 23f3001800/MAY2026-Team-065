@@ -161,6 +161,21 @@ class AIService:
         }
 
     @property
+    def _llm_source(self) -> str:
+        """The label recorded against an LLM-produced result.
+
+        Must name the backend that actually ran. These strings are persisted on
+        the complaint and shown to officers, so "gemini" against a result Azure
+        produced is not a cosmetic slip -- it is the audit trail claiming
+        something untrue about where a severity came from.
+        """
+        return self.settings.active_llm or "rules"
+
+    @property
+    def _vision_source(self) -> str:
+        return (self.settings.active_llm or "rules") + "-vision"
+
+    @property
     def _active_model(self) -> Optional[str]:
         """The model name to report in health, for whichever backend is live."""
         if self.settings.active_llm == "azure":
@@ -225,7 +240,7 @@ class AIService:
                 )
             ]
             + others[:4],
-            source="gemini",
+            source=self._llm_source,
         )
 
     async def _llm_classify(
@@ -291,7 +306,7 @@ class AIService:
                     confidence=max(result.confidence, vision.confidence),
                     reason=f"{result.reason}; raised by photo analysis: {truncate(vision.description, 120)}",
                     signals=result.signals + vision.observations[:3],
-                    source="gemini-vision",
+                    source=self._vision_source,
                 )
 
         if not self.llm_available:
@@ -305,7 +320,7 @@ class AIService:
                 confidence=max(result.confidence, confidence),
                 reason=f"{result.reason}; raised by Gemini: {reason}",
                 signals=result.signals,
-                source="gemini",
+                source=self._llm_source,
             )
 
         return result
@@ -460,7 +475,7 @@ class AIService:
             if isinstance(observations, list)
             else [],
             available=True,
-            source="gemini-vision",
+            source=self._vision_source,
         )
 
     # -- description write-up ---------------------------------------------
@@ -556,8 +571,8 @@ class AIService:
         if not summary:
             summary = rules.summarize(effective_text, chosen, severity_result.severity)
 
-        source = "gemini-vision" if (vision and vision.available) else (
-            "gemini" if self.llm_available else "rules"
+        source = self._vision_source if (vision and vision.available) else (
+            self._llm_source if self.llm_available else "rules"
         )
 
         return TriageResult(
