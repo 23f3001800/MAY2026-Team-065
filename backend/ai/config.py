@@ -54,6 +54,33 @@ class AISettings:
     gemini_model: str = "gemini-2.5-flash"
     gemini_api_base: str = "https://generativelanguage.googleapis.com/v1beta"
 
+    # -- Azure OpenAI (Azure AI Foundry) ----------------------------------
+    # A second LLM backend behind the same interface. Added because a single
+    # provider is a single point of failure: when the Gemini quota is exhausted
+    # every LLM-backed feature degrades at once, which is what happened during
+    # Sprint 2. The endpoint is the Foundry resource URL, the deployment is the
+    # name given to the model in that resource -- NOT the model name itself,
+    # which is the usual first mistake with Azure OpenAI.
+    # Two shapes, because Azure exposes two:
+    #
+    #  1. Azure OpenAI resource -- needs endpoint + deployment. The URL is
+    #     /openai/deployments/{deployment}/chat/completions and auth is the
+    #     api-key header.
+    #  2. Azure AI Foundry model inference -- needs only the key. The endpoint
+    #     is a shared one, the model is named in the body, and auth is a beare
+    #     token. No deployment is created, which is why a key on its own is
+    #     enough.
+    #
+    # Shape 1 is used when an endpoint AND deployment are both set; otherwise a
+    # key alone selects shape 2.
+    azure_api_key: str = ""
+    azure_endpoint: str = ""
+    azure_deployment: str = ""
+    azure_api_version: str = "2024-10-21"
+    # Shape 2 only.
+    azure_inference_endpoint: str = "https://models.inference.ai.azure.com"
+    azure_model: str = "gpt-4o-mini"
+
     # Wall-clock budget for a single upstream call. Kept short: complaint
     # submission must not hang behind a slow model.
     request_timeout_seconds: float = 12.0
@@ -83,13 +110,53 @@ class AISettings:
         return bool(self.gemini_api_key.strip())
 
     @property
+    def azure_mode(self) -> str:
+        """Which Azure shape this configuration describes.
+
+        "deployment" when a resource endpoint and deployment are both given,
+        "inference" when only a key is, and "" when there is no key at all.
+        """
+        if not self.azure_api_key.strip():
+            return ""
+        if self.azure_endpoint.strip() and self.azure_deployment.strip():
+            return "deployment"
+        return "inference"
+
+    @property
+    def azure_configured(self) -> bool:
+        """A key is the minimum. Endpoint and deployment only pick the shape."""
+        return bool(self.azure_mode)
+
+    @property
+    def active_llm(self) -> str:
+        """Which backend will actually serve a request: 'azure', 'gemini' or ''.
+
+        In 'auto', Azure wins when both are configured -- it is the one the team
+        deliberately provisioned, and preferring it makes the fallback direction
+        predictable rather than depending on which key happened to be set.
+        """
+        if self.provider == "rules":
+            return ""
+        if self.provider == "azure":
+            return "azure" if self.azure_configured else ""
+        if self.provider == "azure":
+            return self.azure_configured
+        if self.provider == "gemini":
+            return "gemini" if self.gemini_configured else ""
+        if self.azure_configured:
+            return "azure"
+        return "gemini" if self.gemini_configured else ""
+
+    @property
     def llm_enabled(self) -> bool:
         """True when LLM calls should actually be attempted."""
         if self.provider == "rules":
             return False
+        if self.provider == "azure":
+            return self.azure_configured
         if self.provider == "gemini":
             return True
-        return self.gemini_configured
+        return self.azure_configured or self.gemini_configured
 
 
 def load_settings() -> AISettings:
@@ -99,13 +166,22 @@ def load_settings() -> AISettings:
     environment (and so a redeployed container picks up new values).
     """
     provider = (os.getenv("AI_PROVIDER") or "auto").strip().lower()
-    if provider not in {"auto", "rules", "gemini"}:
+    if provider not in {"auto", "rules", "gemini", "azure"}:
         provider = "auto"
 
     return AISettings(
         provider=provider,
         gemini_api_key=(os.getenv("GEMINI_API_KEY") or "").strip(),
         gemini_model=(os.getenv("GEMINI_MODEL") or "gemini-2.5-flash").strip(),
+        azure_api_key=(os.getenv("AZURE_OPENAI_API_KEY") or "").strip(),
+        azure_endpoint=(os.getenv("AZURE_OPENAI_ENDPOINT") or "").strip().rstrip("/"),
+        azure_deployment=(os.getenv("AZURE_OPENAI_DEPLOYMENT") or "").strip(),
+        azure_api_version=(os.getenv("AZURE_OPENAI_API_VERSION") or "2024-10-21").strip(),
+        azure_inference_endpoint=(
+            os.getenv("AZURE_OPENAI_INFERENCE_ENDPOINT")
+            or "https://models.inference.ai.azure.com"
+        ).strip().rstrip("/"),
+        azure_model=(os.getenv("AZURE_OPENAI_MODEL") or "gpt-4o-mini").strip(),
         gemini_api_base=(
             os.getenv("GEMINI_API_BASE") or "https://generativelanguage.googleapis.com/v1beta"
         ).rstrip("/"),

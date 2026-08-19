@@ -50,6 +50,8 @@ _ADDED_COLUMNS: List[Tuple[str, str, str]] = [
     ("field_workers", "currentLatitude", "DOUBLE PRECISION"),
     ("field_workers", "currentLongitude", "DOUBLE PRECISION"),
     ("field_workers", "locationUpdatedAt", "TIMESTAMP"),
+    # Which side of the work a photo documents: "report" or "resolution".
+    ("media_attachments", "phase", "VARCHAR"),
 ]
 
 # SQLite has no DOUBLE PRECISION / TIMESTAMP spelling difference worth caring
@@ -297,6 +299,49 @@ async def _backfill_is_active(conn: AsyncConnection) -> int:
     return filled
 
 
+async def _backfill_media_phase(conn: AsyncConnection) -> int:
+    """Classify existing photos as report or resolution evidence.
+
+    Existing rows predate the column, so the phase has to be reconstructed. The
+    reporter is the complaint's citizen, and that is the one signal that is
+    actually reliable: anything uploaded by someone other than the citizen who
+    filed it is completion evidence.
+
+    Upload *time* is deliberately not used. A citizen who adds a photo after the
+    work is done would be misfiled as resolution evidence, and a worker who
+    uploads within minutes of the report would be misfiled as the report.
+    """
+    if not await _table_exists(conn, "media_attachments"):
+        return 0
+    if not await _column_exists(conn, "media_attachments", "phase"):
+        return 0
+
+    result = await conn.execute(text(
+        """
+        UPDATE media_attachments AS m
+        SET phase = CASE
+            WHEN c."citizenId" = m."uploadedBy" THEN 'report'
+            ELSE 'resolution'
+        END
+        FROM complaints AS c
+        WHERE c."complaintId" = m."complaintId" AND m.phase IS NULL
+        """
+    ))
+    filled = result.rowcount or 0
+
+    # Anything still NULL has no matching complaint row to judge from. Default
+    # to "report": showing the original problem twice is a smaller error than
+    # presenting an unknown photo as proof the work was done.
+    leftover = await conn.execute(text(
+        "UPDATE media_attachments SET phase = 'report' WHERE phase IS NULL"
+    ))
+    filled += leftover.rowcount or 0
+
+    if filled:
+        logger.info("migration: classified %d media attachment(s) by phase", filled)
+    return filled
+
+
 async def _backfill_notification_defaults(conn: AsyncConnection) -> None:
     """Give pre-existing rows the defaults the model now declares."""
     if not await _table_exists(conn, "notifications"):
@@ -326,6 +371,7 @@ async def run_migrations(engine: AsyncEngine) -> None:
             await _backfill_notification_defaults(conn)
             await _backfill_resolved_at(conn)
             await _backfill_is_active(conn)
+            await _backfill_media_phase(conn)
 
         if added or enum_values_added:
             logger.info(
