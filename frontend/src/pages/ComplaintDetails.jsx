@@ -294,41 +294,52 @@ export default function ComplaintDetails() {
             <FeedbackPanel items={feedback ? [feedback] : []} audience="officer" />
           )}
 
-          {currentUser?.role === 'citizen' && complaint.status === 'Resolved' && (
+          {/* The rating they left, at ANY status.
+              This used to live inside a Resolved-only block, so the moment a
+              citizen confirmed the work -- which moves the complaint to
+              Verified -- their own rating disappeared with the block. Showing a
+              record of what someone said, only while the record is in one
+              particular state, is the wrong condition entirely. */}
+          {currentUser?.role === 'citizen' && feedback && (
             <section className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
-              <h2 className="font-semibold text-slate-800 text-[15px] mb-3">
-                {feedback ? 'Your Feedback' : 'Rate this resolution'}
-              </h2>
-
-              {feedback ? (
-                <div>
-                  <StarRating value={feedback.rating} readOnly />
-                  {feedback.comments && (
-                    <p className="text-[14px] text-slate-600 leading-relaxed mt-3">“{feedback.comments}”</p>
-                  )}
-                  <p className="text-[12px] text-slate-400 mt-2">Submitted {formatStamp(feedback.submittedAt)}</p>
-                </div>
-              ) : (
-                <form onSubmit={handleFeedback} className="space-y-4">
-                  <p className="text-[14px] text-slate-500">How satisfied are you with how this was handled?</p>
-                  <StarRating value={rating} onChange={(n) => { setRating(n); setFeedbackError(''); }} />
-                  <textarea
-                    value={comments}
-                    onChange={(e) => setComments(e.target.value)}
-                    rows={3}
-                    placeholder="Add a comment (optional)…"
-                    className="w-full rounded-xl border border-slate-200 p-3.5 text-[14px] text-slate-800 outline-none resize-y focus:border-primary focus:ring-2 focus:ring-emerald-100 transition"
-                  />
-                  {feedbackError && <p className="text-[13px] font-medium text-red-600">{feedbackError}</p>}
-                  <button
-                    type="submit"
-                    disabled={saving}
-                    className="inline-flex items-center gap-2 bg-primary hover:bg-emerald-600 disabled:opacity-60 text-white font-semibold text-[14px] px-4 py-2.5 rounded-xl shadow-btn transition-colors"
-                  >
-                    <IconSend size={16} /> {saving ? 'Submitting…' : 'Submit Feedback'}
-                  </button>
-                </form>
+              <h2 className="font-semibold text-slate-800 text-[15px] mb-3">Your feedback</h2>
+              <StarRating value={feedback.rating} readOnly />
+              {feedback.comments && (
+                <p className="text-[14px] text-slate-600 leading-relaxed mt-3">“{feedback.comments}”</p>
               )}
+              <p className="text-[12px] text-slate-400 mt-2">
+                Submitted {formatStamp(feedback.submittedAt)}
+              </p>
+            </section>
+          )}
+
+          {/* The form, only while there is finished work to rate and nothing
+              rated yet. Verified is included: confirming the fix and rating it
+              are two separate actions, and someone who did the first should not
+              be locked out of the second. */}
+          {currentUser?.role === 'citizen' && !feedback
+            && ['Resolved', 'Verified'].includes(complaint.status) && (
+            <section className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+              <h2 className="font-semibold text-slate-800 text-[15px] mb-3">Rate this resolution</h2>
+              <form onSubmit={handleFeedback} className="space-y-4">
+                <p className="text-[14px] text-slate-500">How satisfied are you with how this was handled?</p>
+                <StarRating value={rating} onChange={(n) => { setRating(n); setFeedbackError(''); }} />
+                <textarea
+                  value={comments}
+                  onChange={(e) => setComments(e.target.value)}
+                  rows={3}
+                  placeholder="Add a comment (optional)…"
+                  className="w-full rounded-xl border border-slate-200 p-3.5 text-[14px] text-slate-800 outline-none resize-y focus:border-primary focus:ring-2 focus:ring-emerald-100 transition"
+                />
+                {feedbackError && <p className="text-[13px] font-medium text-red-600">{feedbackError}</p>}
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className="inline-flex items-center gap-2 bg-primary hover:bg-emerald-600 disabled:opacity-60 text-white font-semibold text-[14px] px-4 py-2.5 rounded-xl shadow-btn transition-colors"
+                >
+                  <IconSend size={16} /> {saving ? 'Submitting…' : 'Submit Feedback'}
+                </button>
+              </form>
             </section>
           )}
         </div>
