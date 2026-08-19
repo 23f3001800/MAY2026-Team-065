@@ -61,10 +61,25 @@ class AISettings:
     # Sprint 2. The endpoint is the Foundry resource URL, the deployment is the
     # name given to the model in that resource -- NOT the model name itself,
     # which is the usual first mistake with Azure OpenAI.
+    # Two shapes, because Azure exposes two:
+    #
+    #  1. Azure OpenAI resource -- needs endpoint + deployment. The URL is
+    #     /openai/deployments/{deployment}/chat/completions and auth is the
+    #     api-key header.
+    #  2. Azure AI Foundry model inference -- needs only the key. The endpoint
+    #     is a shared one, the model is named in the body, and auth is a beare
+    #     token. No deployment is created, which is why a key on its own is
+    #     enough.
+    #
+    # Shape 1 is used when an endpoint AND deployment are both set; otherwise a
+    # key alone selects shape 2.
     azure_api_key: str = ""
     azure_endpoint: str = ""
     azure_deployment: str = ""
     azure_api_version: str = "2024-10-21"
+    # Shape 2 only.
+    azure_inference_endpoint: str = "https://models.inference.ai.azure.com"
+    azure_model: str = "gpt-4o-mini"
 
     # Wall-clock budget for a single upstream call. Kept short: complaint
     # submission must not hang behind a slow model.
@@ -95,13 +110,22 @@ class AISettings:
         return bool(self.gemini_api_key.strip())
 
     @property
+    def azure_mode(self) -> str:
+        """Which Azure shape this configuration describes.
+
+        "deployment" when a resource endpoint and deployment are both given,
+        "inference" when only a key is, and "" when there is no key at all.
+        """
+        if not self.azure_api_key.strip():
+            return ""
+        if self.azure_endpoint.strip() and self.azure_deployment.strip():
+            return "deployment"
+        return "inference"
+
+    @property
     def azure_configured(self) -> bool:
-        """All three parts are required -- a key with no deployment cannot call."""
-        return all([
-            self.azure_api_key.strip(),
-            self.azure_endpoint.strip(),
-            self.azure_deployment.strip(),
-        ])
+        """A key is the minimum. Endpoint and deployment only pick the shape."""
+        return bool(self.azure_mode)
 
     @property
     def active_llm(self) -> str:
@@ -153,6 +177,11 @@ def load_settings() -> AISettings:
         azure_endpoint=(os.getenv("AZURE_OPENAI_ENDPOINT") or "").strip().rstrip("/"),
         azure_deployment=(os.getenv("AZURE_OPENAI_DEPLOYMENT") or "").strip(),
         azure_api_version=(os.getenv("AZURE_OPENAI_API_VERSION") or "2024-10-21").strip(),
+        azure_inference_endpoint=(
+            os.getenv("AZURE_OPENAI_INFERENCE_ENDPOINT")
+            or "https://models.inference.ai.azure.com"
+        ).strip().rstrip("/"),
+        azure_model=(os.getenv("AZURE_OPENAI_MODEL") or "gpt-4o-mini").strip(),
         gemini_api_base=(
             os.getenv("GEMINI_API_BASE") or "https://generativelanguage.googleapis.com/v1beta"
         ).rstrip("/"),

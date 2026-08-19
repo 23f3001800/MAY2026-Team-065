@@ -136,22 +136,44 @@ class AzureOpenAIClient:
     @property
     def _url(self) -> str:
         s = self._settings
+        if s.azure_mode == "inference":
+            # Foundry model inference: one shared endpoint, model named in the
+            # body, no deployment to create.
+            return s.azure_inference_endpoint + "/chat/completions"
         return (
             s.azure_endpoint
             + "/openai/deployments/" + s.azure_deployment
             + "/chat/completions?api-version=" + s.azure_api_version
         )
 
+    @property
+    def _headers(self) -> Dict[str, str]:
+        s = self._settings
+        if s.azure_mode == "inference":
+            # Bearer, not api-key: the inference endpoint follows the OpenAI
+            # convention rather than the Azure OpenAI resource one.
+            return {
+                "Authorization": "Bearer " + s.azure_api_key,
+                "Content-Type": "application/json",
+            }
+        return {"api-key": s.azure_api_key, "Content-Type": "application/json"}
+
     async def _post(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         settings = self._settings
         if not settings.azure_configured:
             raise AIProviderError(
-                "Azure OpenAI needs AZURE_OPENAI_API_KEY, AZURE_OPENAI_ENDPOINT "
-                "and AZURE_OPENAI_DEPLOYMENT to be configured",
+                "Azure needs at least AZURE_OPENAI_API_KEY. For an Azure OpenAI "
+                "resource, also set AZURE_OPENAI_ENDPOINT and "
+                "AZURE_OPENAI_DEPLOYMENT.",
                 retryable=False,
             )
 
-        headers = {"api-key": settings.azure_api_key, "Content-Type": "application/json"}
+        # The inference endpoint takes the model in the body; the resource
+        # endpoint takes it in the URL, so sending it there would be rejected.
+        if settings.azure_mode == "inference" and "model" not in payload:
+            payload = dict(payload, model=settings.azure_model)
+
+        headers = self._headers
 
         if self._client is not None:
             response = await self._client.post(self._url, json=payload, headers=headers)
