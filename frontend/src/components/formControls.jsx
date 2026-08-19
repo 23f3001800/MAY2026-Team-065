@@ -1,14 +1,23 @@
 // Small presentational building blocks shared by the auth forms.
+//
+// Styled from the design tokens rather than hardcoded dark values. The auth
+// pages used to be the only dark surface in the product, so signing in changed
+// the app's character halfway through; these now sit on the same warm pape
+// ground as everything behind the login.
 import React from 'react';
 import { IconInfo, IconEye, IconEyeOff, IconChevronRight } from './icons';
 
 const INPUT_CLASS =
-  'auth-input w-full bg-[rgba(255,255,255,0.02)] border border-[rgba(255,255,255,0.07)] rounded-xl py-3 text-[#f8fafc] font-primary text-[14px] outline-none transition-smooth focus:bg-[rgba(255,255,255,0.04)] focus:border-primary focus:shadow-input-focus';
+  'w-full bg-surface border border-line rounded-xl py-3 text-ink font-primary text-[14px] '
+  + 'outline-none transition-all placeholder:text-ink-faint '
+  + 'focus:border-civic-500 focus:ring-2 focus:ring-civic-500/15';
 
 export function FormField({ label, children }) {
   return (
     <div className="relative flex flex-col">
-      <label className="text-[12px] font-semibold text-[#94a3b8] mb-1.5 text-left">{label}</label>
+      <label className="text-[12px] font-semibold uppercase tracking-wide text-ink-muted mb-1.5 text-left">
+        {label}
+      </label>
       {children}
     </div>
   );
@@ -19,7 +28,7 @@ export function FormField({ label, children }) {
 export function TextInput({ icon, trailing, ...props }) {
   return (
     <div className="relative flex items-center">
-      <span className="absolute left-[14px] text-[#64748b] flex items-center pointer-events-none z-10">
+      <span className="absolute left-[14px] text-ink-faint flex items-center pointer-events-none z-10">
         {icon}
       </span>
       <input
@@ -38,7 +47,7 @@ export function PasswordInput({ icon, value, onChange, placeholder, ...props }) 
     <button
       type="button"
       onClick={() => setShow((s) => !s)}
-      className="absolute right-[14px] bg-none border-none text-[#64748b] cursor-pointer flex items-center p-0 transition-fast hover:text-[#f8fafc]"
+      className="focus-ring absolute right-[14px] rounded bg-none border-none text-ink-faint cursor-pointer flex items-center p-0 transition-colors hover:text-ink"
       aria-label={show ? 'Hide password' : 'Show password'}
     >
       {show ? <IconEyeOff /> : <IconEye />}
@@ -81,10 +90,10 @@ export function SubmitButton({ loading, children }) {
     <button
       type="submit"
       disabled={loading}
-      className="submit-btn-shimmer submit-gradient border-none rounded-xl py-[14px] text-white font-display text-[15px] font-bold cursor-pointer flex items-center justify-center gap-2 shadow-btn transition-smooth mt-[10px] relative overflow-hidden disabled:opacity-60 disabled:cursor-not-allowed hover:enabled:-translate-y-0.5 hover:enabled:shadow-btn-hover active:enabled:translate-y-0"
+      className="focus-ring w-full bg-civic-800 hover:enabled:bg-civic-900 border-none rounded-xl py-[13px] text-white font-display text-[15px] font-bold cursor-pointer flex items-center justify-center gap-2 shadow-md transition-all mt-2 disabled:opacity-60 disabled:cursor-not-allowed hover:enabled:-translate-y-0.5 active:enabled:translate-y-0"
     >
       {loading ? (
-        <span className="w-[18px] h-[18px] border-2 border-[rgba(255,255,255,0.3)] rounded-full border-t-white animate-spin-slow" />
+        <span className="w-[18px] h-[18px] border-2 border-white/30 rounded-full border-t-white animate-spin-slow" />
       ) : (
         <>
           {children}
