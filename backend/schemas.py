@@ -122,6 +122,28 @@ class BulkAssign(BaseModel):
     fieldWorkerId: str
 
 
+class BulkStatusUpdate(BaseModel):
+    """Move several complaints that are all in the same state to the next one.
+
+    `fromStatus` is required and is the safety catch: the caller states what it
+    believes the complaints are, and anything that has moved since the list was
+    drawn is refused instead of being dragged along. Without it, a batch built
+    from a stale screen would push complaints from states the officer never saw.
+    """
+
+    complaintIds: List[str] = Field(..., min_length=1, max_length=50)
+    fromStatus: StatusEnum
+    toStatus: StatusEnum
+    remarks: Optional[str] = None
+
+
+class BulkStatusResult(BaseModel):
+    updated: List[str]
+    failed: List["BulkAssignFailure"]
+    updatedCount: int
+    failedCount: int
+
+
 class BulkAssignFailure(BaseModel):
     complaintId: str
     reason: str
