@@ -371,6 +371,12 @@ class MediaAttachmentResponse(BaseModel):
     uploadedAt: datetime
     complaintId: str
 
+    # "report" = the problem as filed; "resolution" = the completed work.
+    # Stored at upload time so clients stop inferring it from upload order --
+    # that inference is why a worker's completion photo could appear as the
+    # citizen's original report.
+    phase: str = "report"
+
     class Config:
         from_attributes = True
 

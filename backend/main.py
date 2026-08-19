@@ -940,7 +940,30 @@ async def _load_complaint_for_upload(
     return complaint
 
 
-def _store_upload(complaintId: str, file: UploadFile, uploadedBy: str) -> models.MediaAttachmentModel:
+def _upload_phase(complaint: models.ComplaintModel, uploader: models.UserModel) -> str:
+    """Is this photo the reported problem, or evidence the work is done?
+
+    Decided by WHO is uploading, not when. The citizen who filed the complaint
+    is documenting the problem; anyone else -- the assigned worker, an office
+    -- is documenting the work. Time is not used: a citizen adding a photo afte
+    a repair would be misfiled as completion evidence, and a worker uploading
+    minutes after the report would be misfiled as the report.
+
+    A citizen uploading to a complaint that is already resolved is still filing
+    "report" evidence: they are showing the problem persists, which is the
+    reopen case, and calling it proof of completion would be exactly backwards.
+    """
+    if complaint.citizenId and uploader.userId == complaint.citizenId:
+        return "report"
+    return "resolution"
+
+
+def _store_upload(
+    complaintId: str,
+    file: UploadFile,
+    uploadedBy: str,
+    phase: str = "report",
+) -> models.MediaAttachmentModel:
     """Write one uploaded file to disk and build its MediaAttachment row.
 
     The stored name is always generated (complaintId + random suffix) and never
@@ -964,6 +987,7 @@ def _store_upload(complaintId: str, file: UploadFile, uploadedBy: str) -> models
         fileUrl=f"/uploads/{safe_filename}",
         type=file.content_type,
         uploadedBy=uploadedBy,
+        phase=phase,
     )
 
 
@@ -1068,6 +1092,10 @@ async def upload_complaint_images(
     if not files:
         raise HTTPException(status_code=400, detail="No files were uploaded.")
 
+    # Decided once for the request: every file in one upload documents the same
+    # side of the work.
+    phase = _upload_phase(complaint, current_user)
+
     uploaded_media = []
     first_image: Optional[tuple] = None  # (bytes, mime) kept for AI analysis
 
@@ -1077,7 +1105,7 @@ async def upload_complaint_images(
         contents = await file.read()
         await file.seek(0)
 
-        new_media = _store_upload(complaintId, file, current_user.userId)
+        new_media = _store_upload(complaintId, file, current_user.userId, phase)
         db.add(new_media)
         uploaded_media.append({"mediaId": new_media.mediaId, "fileUrl": new_media.fileUrl})
 
@@ -1215,9 +1243,11 @@ async def upload_complaint_image(
     db: AsyncSession = Depends(get_db),
     current_user: models.UserModel = Depends(get_current_user)
 ):
-    await _load_complaint_for_upload(complaintId, db, current_user)
+    complaint = await _load_complaint_for_upload(complaintId, db, current_user)
 
-    new_media = _store_upload(complaintId, file, current_user.userId)
+    new_media = _store_upload(
+        complaintId, file, current_user.userId, _upload_phase(complaint, current_user)
+    )
     db.add(new_media)
     await db.commit()
 
