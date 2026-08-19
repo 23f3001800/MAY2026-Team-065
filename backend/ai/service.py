@@ -164,7 +164,9 @@ class AIService:
     def _active_model(self) -> Optional[str]:
         """The model name to report in health, for whichever backend is live."""
         if self.settings.active_llm == "azure":
-            return self.settings.azure_deployment
+            # In inference mode there is no deployment; the model is the name.
+            return (self.settings.azure_deployment
+                    or self.settings.azure_model)
         if self.settings.active_llm == "gemini":
             return self.settings.gemini_model
         return None
