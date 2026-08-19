@@ -1,5 +1,6 @@
 from fastapi import (
     FastAPI, Depends, HTTPException, status, UploadFile, File, Form, Header, Query,
+    Response,
 )
 from fastapi.staticfiles import StaticFiles
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
@@ -47,6 +48,7 @@ from routers import ai as ai_router
 from routers import analytics as analytics_router
 from routers import notifications as notifications_router
 from services import lifecycle
+from services import pdf
 from services import notifications as notification_service
 from services import sla as sla_service
 from services import triage as triage_service
@@ -1390,13 +1392,112 @@ async def upload_complaint_image(
 # A printable, self-contained summary of a complaint. Visible to the citizen who
 # filed it and to any official; deliberately NOT to other citizens, since it
 # includes the reporter's contact details.
+def _render_slip_pdf(slip: dict) -> bytes:
+    """Lay the report slip out as a one-page PDF.
+
+    Generated server-side because window.print() prints the whole application --
+    sidebar, header and all -- and depends on the browser's print CSS behaving.
+    A citizen handed an acknowledgement slip should get the same document every
+    time, from any client, including one that never renders it.
+    """
+    page = pdf.Page()
+    y = pdf.PAGE_HEIGHT - pdf.MARGIN
+    right = pdf.PAGE_WIDTH - pdf.MARGIN
+
+    # Masthead.
+    page.rect(0, y - 18, pdf.PAGE_WIDTH, 46, gray=0.96)
+    page.text(pdf.MARGIN, y, "Smart Civic Connect", size=16, bold=True)
+    page.text(pdf.MARGIN, y - 15, "Municipal Grievance Redressal Department", size=9, gray=0.4)
+
+    reference = str(slip.get("complaintId") or "")
+    page.text(right - pdf.text_width(reference, 13), y, reference, size=13, bold=True)
+
+    cur = pdf.Cursor(page, y - 44)
+    cur.page.text(pdf.MARGIN, cur.y, str(slip.get("reportTitle") or "Complaint Report Slip"),
+                  size=12, bold=True)
+    cur.down(6)
+
+    generated = _slip_date(slip.get("generatedAt"))
+    cur.page.text(pdf.MARGIN, cur.y, "Generated " + generated, size=9, gray=0.45)
+    cur.down(10)
+
+    cur.heading("Complaint")
+    cur.field("Reference", reference)
+    cur.field("Status", str(slip.get("status") or "-"))
+    cur.field("Severity", str(slip.get("severity") or "-"))
+    cur.field("Submitted", _slip_date(slip.get("submittedAt")))
+    cur.field("Last updated", _slip_date(slip.get("lastUpdatedAt")))
+    if slip.get("expectedResolutionAt"):
+        cur.field("Expected resolution", _slip_date(slip.get("expectedResolutionAt")))
+
+    category = slip.get("category") or {}
+    cur.heading("Category")
+    cur.field("Type", str(category.get("name") or "-"))
+    cur.field("Department", str(category.get("department") or "-"))
+
+    cur.heading("Description")
+    for line in pdf.wrap(str(slip.get("description") or "-"), 10, right - pdf.MARGIN):
+        cur.page.text(pdf.MARGIN, cur.y, line, size=10)
+        cur.down()
+
+    location = slip.get("location") or {}
+    cur.heading("Location")
+    cur.field("Address", str(location.get("address") or "-"))
+    lat, lng = location.get("latitude"), location.get("longitude")
+    if lat is not None and lng is not None:
+        cur.field("Coordinates", "%.6f, %.6f" % (lat, lng))
+
+    citizen = slip.get("citizenDetails") or {}
+    cur.heading("Reported by")
+    cur.field("Name", str(citizen.get("name") or "-"))
+    cur.field("Email", str(citizen.get("email") or "-"))
+    cur.field("Phone", str(citizen.get("phone") or "-"))
+
+    assignment = slip.get("assignmentDetails") or {}
+    cur.heading("Handling")
+    cur.field("Field worker", str(assignment.get("assignedWorker") or "Unassigned"))
+    cur.field("Officer", str(assignment.get("overseeingOfficer") or "Unassigned"))
+
+    # Footer, pinned to the page rather than following the content, so it does
+    # not drift up a short slip.
+    page.line(pdf.MARGIN, pdf.MARGIN + 26, right, pdf.MARGIN + 26)
+    page.text(pdf.MARGIN, pdf.MARGIN + 14,
+              "This slip acknowledges receipt of the complaint above. "
+              "Quote the reference in any correspondence.",
+              size=8, gray=0.45)
+    page.text(pdf.MARGIN, pdf.MARGIN + 3,
+              "Computer generated - no signature required.", size=8, gray=0.45)
+
+    return pdf.build([page], title="Report Slip " + reference)
+
+
+def _slip_date(value) -> str:
+    """Format a timestamp for print, tolerating both datetimes and strings."""
+    if not value:
+        return "-"
+    if isinstance(value, str):
+        return value.replace("T", " ")[:19]
+    try:
+        return value.strftime("%d %b %Y, %H:%M UTC")
+    except AttributeError:
+        return str(value)
+
+
 @app.get("/complaints/{complaintId}/report-slip")
 async def get_complaint_report_slip(
     complaintId: str,
+    format: str = Query("json", description="json | pdf"),
     db: AsyncSession = Depends(get_db),
     current_user: models.UserModel = Depends(get_current_user)
 ):
-    """Return a structured report slip for printing or download."""
+    """The acknowledgement slip, as JSON or as a PDF.
+
+    ``format=pdf`` returns a one-page document generated here. The frontend used
+    to render the slip and call window.print(), which prints the surrounding
+    application and depends on print CSS behaving in every browser.
+
+    JSON remains the default so existing callers keep working.
+    """
     stmt = (
         select(models.ComplaintModel)
         .where(models.ComplaintModel.complaintId == complaintId)
@@ -1425,7 +1526,7 @@ async def get_complaint_report_slip(
     if not (is_owner or is_official or is_assigned_worker):
         raise HTTPException(status_code=403, detail="Unauthorized to view this report slip.")
 
-    return {
+    slip = {
         "reportTitle": "Municipal Complaint Report Slip",
         "generatedAt": datetime.now(timezone.utc),
         "complaintId": complaint.complaintId,
@@ -1459,7 +1560,21 @@ async def get_complaint_report_slip(
             "source": complaint.aiSource,
             "analysedAt": complaint.aiAnalyzedAt,
         },
+        # The SLA deadline belongs on a slip a citizen keeps: it is the one
+        # thing on the page that tells them when to expect an answer.
+        "expectedResolutionAt": complaint.expectedResolutionAt,
     }
+
+    if (format or "json").lower() == "pdf":
+        document = _render_slip_pdf(slip)
+        filename = "report-slip-" + complaint.complaintId + ".pdf"
+        return Response(
+            content=document,
+            media_type="application/pdf",
+            headers={"Content-Disposition": 'attachment; filename="' + filename + '"'},
+        )
+
+    return slip
 
 
 # --- Citizen self-service ---------------------------------------------------
