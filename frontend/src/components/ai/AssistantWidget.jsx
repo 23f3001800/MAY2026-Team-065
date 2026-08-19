@@ -13,7 +13,7 @@ import { Link } from 'react-router-dom';
 import { askAssistant, aiHealth } from '../../api/ai';
 import { getCurrentUser } from '../../api/auth';
 import {
-  IconMessage, IconX, IconSend, IconSparkles, IconAlertTriangle, IconArrowRight,
+  IconX, IconSend, IconSparkles, IconAlertTriangle, IconArrowRight,
 } from '../dashboard/icons';
 
 // What the assistant opens with, per role. Each says what it can see, because
@@ -132,7 +132,19 @@ export default function AssistantWidget({ role = 'citizen' }) {
           text-white transition-all duration-200 hover:scale-105 active:scale-95
           ${open ? 'bg-civic-900' : 'bg-civic-800 hover:bg-civic-900'}`}
       >
-        {open ? <IconX size={22} /> : <IconMessage size={23} />}
+        {open ? (
+          <IconX size={22} />
+        ) : (
+          <>
+            <IconSparkles size={23} />
+            {/* A quiet halo so the launcher reads as something that responds,
+                without the constant pulsing that makes a page feel restless. */}
+            <span
+              aria-hidden="true"
+              className="absolute inset-0 rounded-full ring-2 ring-teal-300/40 animate-pulse-dot"
+            />
+          </>
+        )}
         {!open && (
           <span className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-teal-400 ring-2 ring-white" aria-hidden="true" />
         )}
