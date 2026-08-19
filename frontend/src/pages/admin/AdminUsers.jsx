@@ -1,24 +1,31 @@
-// User Management — search/filter every account, create officers and field
-// workers, suspend/activate, and reset passwords.
+// User Management -- search/filter every account, create officers and field
+// workers, edit them, suspend/reactivate, and reset passwords.
 //
 // Backed by GET /admin/users, POST /admin/users/official, POST /workers/,
-// PATCH /admin/users/{id}, and PATCH /users/{id}/reset-password.
+// PATCH /admin/users/{id}, DELETE /admin/users/{id} and
+// PATCH /users/{id}/reset-password.
 //
-// Worth knowing: UserModel has no isActive column and FieldWorkerModel has no
-// department column, so the "Suspend" toggle and a worker's department write
-// via PATCH /admin/users/{id} are both accepted by the backend but never
-// actually persist -- only an officer's department does (see api/admin.js).
-// The toggle here is still wired for real (it calls the real endpoint and the
-// backend does return 200), but the UI does not claim the account is
-// actually locked out, since there is no way to confirm that from here.
-import React, { useCallback, useMemo, useState } from 'react';
+// Everything on this screen persists. Through Sprint 1 it did not: the update
+// endpoint reported success while saving nothing, and suspension had no column
+// to write to, so the UI deliberately refused to claim otherwise. Both were
+// fixed server-side, and suspension now blocks sign-in and invalidates tokens
+// already issued.
+//
+// Deleting a user is a soft delete by design. Complaints reference citizenId,
+// officerId and fieldWorkerId, so removing the row would orphan the audit
+// trail; the account is deactivated instead.
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import CreateOfficerModal from '../../components/admin/CreateOfficerModal';
+import EditUserModal from '../../components/admin/EditUserModal';
 import CreateWorkerModal from '../../components/admin/CreateWorkerModal';
 import ResetPasswordModal from '../../components/admin/ResetPasswordModal';
 import UnavailableNote from '../../components/dashboard/UnavailableNote';
 import { LoadingPanel, ErrorPanel, EmptyPanel } from '../../components/dashboard/AsyncStates';
 import { IconSearch, IconChevronDown, IconUserPlus, IconUsers, IconCheckCircle } from '../../components/dashboard/icons';
-import { listUsers, updateUser } from '../../api/admin';
+import { parseSkills } from '../../lib/skills';
+import { listUsers, updateUser, deactivateUser } from '../../api/admin';
+import { listComplaints } from '../../api/complaints';
+import { TERMINAL_STATUSES } from '../../api/mappers';
 import useAsync from '../../hooks/useAsync';
 
 const ROLE_OPTIONS = [
@@ -44,8 +51,34 @@ export default function AdminUsers() {
   const [showCreateOfficer, setShowCreateOfficer] = useState(false);
   const [showCreateWorker, setShowCreateWorker] = useState(false);
   const [resetTarget, setResetTarget] = useState(null);
+  const [editTarget, setEditTarget] = useState(null);
+
+  // How much open work each staff account still holds. Suspending someone who
+  // is mid-job leaves the complaint pointing at an account that cannot sign in,
+  // and nothing on the complaint would say why it had stalled.
+  const [openWork, setOpenWork] = useState({});
   const [toast, setToast] = useState('');
   const [busyId, setBusyId] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    listComplaints()
+      .then((complaints) => {
+        if (cancelled) return;
+        const counts = {};
+        for (const c of complaints || []) {
+          if (TERMINAL_STATUSES.includes(c.status)) continue;
+          for (const id of [c.fieldWorkerId, c.officerId]) {
+            if (id) counts[id] = (counts[id] || 0) + 1;
+          }
+        }
+        setOpenWork(counts);
+      })
+      // Not fatal: without it the suspend guard simply does not fire, which is
+      // the same behaviour this screen had before the guard existed.
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
 
   const flash = useCallback((msg) => {
     setToast(msg);
@@ -61,9 +94,16 @@ export default function AdminUsers() {
   const toggleActive = async (user) => {
     setBusyId(user.id);
     try {
-      await updateUser(user.id, { isActive: !user.isActive });
-      setData((list) => (list || []).map((u) => (u.id === user.id ? { ...u, isActive: !u.isActive } : u)));
-      flash(`${user.name} ${user.isActive ? 'suspended' : 'reactivated'} — backend accepted the request.`);
+      // Suspension is a real state now: it blocks sign-in and invalidates
+      // tokens already issued, so the message says so rather than hedging with
+      // "the backend accepted the request".
+      const updated = user.isActive
+        ? await deactivateUser(user.id)
+        : await updateUser(user.id, { isActive: true });
+      setData((list) => (list || []).map((u) => (u.id === user.id ? updated : u)));
+      flash(user.isActive
+        ? `${user.name} suspended — they can no longer sign in.`
+        : `${user.name} reactivated.`);
     } catch (err) {
       if (err.name !== 'SessionExpiredError') flash(err.message);
     } finally {
@@ -124,7 +164,7 @@ export default function AdminUsers() {
       </div>
 
       {loading ? (
-        <LoadingPanel label="Loading users…" />
+        <LoadingPanel label="Loading users…" variant="table" />
       ) : error ? (
         <ErrorPanel error={error} onRetry={refetch} />
       ) : users.length === 0 ? (
@@ -152,8 +192,24 @@ export default function AdminUsers() {
                         {u.roleLabel}
                       </span>
                     </td>
-                    <td className="px-3 py-3 text-[13px] text-slate-500">{u.department || u.skillSet || '—'}</td>
+                    <td className="px-3 py-3 text-[13px] text-slate-500">
+                      {u.department ? u.department : parseSkills(u.skillSet).length ? (
+                        <span className="flex flex-wrap gap-1">
+                          {parseSkills(u.skillSet).map((s) => (
+                            <span key={s} className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 text-[11px] font-medium whitespace-nowrap">
+                              {s}
+                            </span>
+                          ))}
+                        </span>
+                      ) : '—'}
+                    </td>
                     <td className="px-5 py-3 text-right whitespace-nowrap">
+                      <button
+                        onClick={() => setEditTarget(u)}
+                        className="text-[12px] font-semibold text-slate-600 hover:underline mr-3"
+                      >
+                        Edit
+                      </button>
                       <button
                         onClick={() => setResetTarget(u)}
                         className="text-[12px] font-semibold text-primary hover:underline mr-3"
@@ -177,9 +233,10 @@ export default function AdminUsers() {
       )}
 
       <UnavailableNote>
-        Suspend/Reactivate calls the real endpoint and the backend returns success, but the user
-        table has no column to store that state yet, so it doesn't actually block sign-in. Resetting
-        a password and creating accounts both fully persist.
+        Suspending blocks sign-in immediately, including sessions already open, and is reversible.
+        Accounts are never hard-deleted: complaints reference the people on them, so removing a row
+        would orphan the history. An account holding open complaints cannot be suspended until that
+        work is reassigned.
       </UnavailableNote>
 
       {showCreateOfficer && (
@@ -187,6 +244,20 @@ export default function AdminUsers() {
       )}
       {showCreateWorker && (
         <CreateWorkerModal onDismiss={() => setShowCreateWorker(false)} onCreated={(msg) => handleCreated(setShowCreateWorker, msg)} />
+      )}
+      {editTarget && (
+        <EditUserModal
+          user={editTarget}
+          openWorkCount={openWork[editTarget.id] || 0}
+          onDismiss={() => setEditTarget(null)}
+          onSaved={(updated, msg) => {
+            // Patch the row in place from the response rather than refetching:
+            // the endpoint returns the saved record, so a round trip would only
+            // confirm what we already have.
+            setData((list) => (list || []).map((u) => (u.id === updated.id ? updated : u)));
+            flash(msg);
+          }}
+        />
       )}
       {resetTarget && (
         <ResetPasswordModal

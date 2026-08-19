@@ -50,20 +50,52 @@ export function createOfficer({ name, email, phone, password, department, design
 }
 
 /**
- * Suspend/activate a user, or change an officer's department.
+ * Update an account.
  *
- * Worth knowing: UserModel has no `isActive` column and FieldWorkerModel has
- * no `department` column, so those two writes are accepted by the backend but
- * never persist -- the response says "updated successfully" either way. Only
- * an officer's `department` actually lands in the database. Callers should
- * not assume a 200 here changed anything but department for a
- * municipal_officer.
+ * Everything here now persists. Through Sprint 1 this endpoint answered
+ * "User updated successfully" while saving nothing -- it wrote
+ * `field_worker.skills` where the column is `skillSet` -- so the UI locked the
+ * fields rather than lie about them. The backend was fixed and returns the
+ * updated record, which is why the caller can trust the response instead of
+ * re-reading the list.
+ *
+ * Only send what changed: omitted fields are left alone, so saving a phone
+ * number cannot blank an address.
+ *
+ * @param {object} changes
+ *   name, email, phone   any account
+ *   department           municipal officers only
+ *   skills               field workers only, as an array
+ *   isActive             false suspends: blocks sign-in and existing tokens
+ * @returns the updated user, already mapped
  */
-export function updateUser(userId, { isActive, department } = {}) {
-  return apiRequest(`/admin/users/${encodeURIComponent(userId)}`, {
+export async function updateUser(userId, changes = {}) {
+  const body = {};
+  for (const key of ['name', 'email', 'phone', 'department', 'skills', 'isActive']) {
+    if (changes[key] !== undefined) body[key] = changes[key];
+  }
+  const data = await apiRequest(`/admin/users/${encodeURIComponent(userId)}`, {
     method: 'PATCH',
-    body: { isActive, department },
+    body,
   });
+  return fromApiUser(data);
+}
+
+/**
+ * Deactivate an account. A SOFT delete.
+ *
+ * Complaints reference citizenId, officerId and fieldWorkerId, and status
+ * history records who made every transition, so removing the row would orphan
+ * the audit trail. The account is marked inactive instead, which blocks
+ * sign-in and invalidates tokens already issued.
+ *
+ * Reverse it with updateUser(id, { isActive: true }).
+ */
+export async function deactivateUser(userId) {
+  const data = await apiRequest(`/admin/users/${encodeURIComponent(userId)}`, {
+    method: 'DELETE',
+  });
+  return fromApiUser(data);
 }
 
 export function resetUserPassword(userId, newPassword) {
@@ -71,4 +103,19 @@ export function resetUserPassword(userId, newPassword) {
     method: 'PATCH',
     body: { newPassword },
   });
+}
+
+/**
+ * POST /admin/sla/sweep
+ *
+ * Scans for complaints that have breached their expected resolution window and
+ * raises a notification for each. This is the "alert officers when complaints
+ * breach expected resolution timelines" requirement.
+ *
+ * It is a manual trigger, which is worth being honest about in the UI: nothing
+ * runs it on a schedule yet, so breaches are only detected when somebody
+ * presses the button.
+ */
+export function runSlaSweep() {
+  return apiRequest('/admin/sla/sweep', { method: 'POST' });
 }

@@ -1,23 +1,58 @@
-// Colored pill for a complaint status. Maps the backend StatusEnum values
-// to light-theme tints.
+// Colored pill for a complaint status.
+//
+// Each status carries a dot as well as a colour. Colour alone fails for the
+// ~8% of men with a colour-vision deficiency, and these pills are how the whole
+// app communicates state — the dot plus the label is what actually does the
+// work, with colour as reinforcement.
 import React from 'react';
 
 const STYLES = {
-  'New': 'bg-emerald-100 text-emerald-700',
-  'Assigned': 'bg-amber-100 text-amber-700',
-  'In Progress': 'bg-blue-100 text-blue-700',
-  'Resolved': 'bg-violet-100 text-violet-700',
-  'Rejected': 'bg-red-100 text-red-700',
-  'Critical': 'bg-red-100 text-red-700',
-  'Closed': 'bg-slate-200 text-slate-700',
-  'Merged': 'bg-slate-200 text-slate-600',
+  // Intake & triage
+  'New': { chip: 'bg-emerald-50 text-emerald-700 ring-emerald-600/15', dot: 'bg-emerald-500' },
+  'Under Review': { chip: 'bg-sky-50 text-sky-700 ring-sky-600/15', dot: 'bg-sky-500' },
+  // Action & dispatch
+  'Assigned': { chip: 'bg-amber-50 text-amber-800 ring-amber-600/15', dot: 'bg-amber-500' },
+  'In Progress': { chip: 'bg-blue-50 text-blue-700 ring-blue-600/15', dot: 'bg-blue-500' },
+  'On Hold': { chip: 'bg-slate-100 text-slate-600 ring-slate-500/15', dot: 'bg-slate-400' },
+  'Escalated': { chip: 'bg-orange-50 text-orange-800 ring-orange-600/20', dot: 'bg-orange-500' },
+  // Closure & validation
+  'Resolved': { chip: 'bg-violet-50 text-violet-700 ring-violet-600/15', dot: 'bg-violet-500' },
+  'Verified': { chip: 'bg-teal-50 text-teal-700 ring-teal-600/20', dot: 'bg-teal-600' },
+  'Reopened': { chip: 'bg-rose-50 text-rose-700 ring-rose-600/15', dot: 'bg-rose-500' },
+  'Rejected': { chip: 'bg-red-50 text-red-700 ring-red-600/15', dot: 'bg-red-500' },
+  // Legacy / non-status labels still passed in a few places.
+  'Critical': { chip: 'bg-red-50 text-red-700 ring-red-600/15', dot: 'bg-red-500' },
+  'Merged': { chip: 'bg-slate-100 text-slate-600 ring-slate-500/15', dot: 'bg-slate-400' },
 };
 
-export default function StatusBadge({ status }) {
-  const cls = STYLES[status] || 'bg-slate-100 text-slate-600';
+// What each status is CALLED on screen, where the stored name misleads.
+// RESOLVED is the worker's report that the work is done — not the closure.
+// Verification is the citizen's call (services/lifecycle.py), so "Resolved"
+// told everyone it was finished when it was actually waiting on someone.
+const DISPLAY_LABEL = {
+  Resolved: 'Awaiting Review',
+};
+
+const FALLBACK = { chip: 'bg-slate-100 text-slate-600 ring-slate-500/15', dot: 'bg-slate-400' };
+
+// Statuses that mean "someone is working on this right now" get a live dot.
+const ACTIVE = new Set(['In Progress', 'Escalated']);
+
+export default function StatusBadge({ status, className = '' }) {
+  const { chip, dot } = STYLES[status] || FALLBACK;
+  const live = ACTIVE.has(status);
+
   return (
-    <span className={`inline-block px-2.5 py-1 rounded-full text-[11px] font-semibold whitespace-nowrap ${cls}`}>
-      {status}
+    <span
+      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold whitespace-nowrap ring-1 ring-inset ${chip} ${className}`}
+    >
+      <span className="relative flex w-1.5 h-1.5" aria-hidden="true">
+        {live && (
+          <span className={`absolute inline-flex w-full h-full rounded-full opacity-60 animate-ping ${dot}`} />
+        )}
+        <span className={`relative inline-flex w-1.5 h-1.5 rounded-full ${dot}`} />
+      </span>
+      {DISPLAY_LABEL[status] || status}
     </span>
   );
 }

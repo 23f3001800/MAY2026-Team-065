@@ -1,22 +1,25 @@
 // Complaint endpoints. Every function returns UI-shaped data (see mappers.js);
 // callers never see the wire format.
 import { apiRequest } from './client';
+import { API_BASE_URL } from '../config';
 import {
-  fromApiComplaint, fromApiFeedback, toApiStatus, UI_ONLY_STATUSES,
+  fromApiComplaint, fromApiFeedback, fromApiHistory, fromApiMedia,
+  toApiStatus, toApiSeverity, UI_ONLY_STATUSES,
 } from './mappers';
 
 /**
- * Files a complaint, then uploads the photo if there is one.
+ * Files a complaint, then uploads its photos.
  *
  * The backend takes these as two calls -- POST /complaints/ is JSON only, and
- * the image goes to a separate endpoint keyed by the new complaint id. They are
- * not in one transaction, so the photo can fail after the complaint is safely
- * filed. Rather than hide that, the image error comes back alongside the
- * complaint and the caller decides how to word it.
+ * images go to a separate endpoint keyed by the new complaint id. They are not
+ * in one transaction, so photos can fail after the complaint is safely filed.
+ * Rather than hide that, the image error comes back alongside the complaint and
+ * the caller decides how to word it.
  *
+ * @param {File[]} [images] any number of photos, sent in one batch request
  * @returns {{ complaint: object, imageError: string|null }}
  */
-export async function createComplaint({ description, categoryId, latitude, longitude, address, image }) {
+export async function createComplaint({ description, categoryId, latitude, longitude, address, images = [] }) {
   const created = await apiRequest('/complaints/', {
     method: 'POST',
     body: {
@@ -27,10 +30,11 @@ export async function createComplaint({ description, categoryId, latitude, longi
   });
 
   const complaint = fromApiComplaint(created);
-  if (!image) return { complaint, imageError: null };
+  const files = Array.from(images || []).filter(Boolean);
+  if (!files.length) return { complaint, imageError: null };
 
   try {
-    await uploadComplaintImage(complaint.id, image);
+    await uploadComplaintImages(complaint.id, files);
     return { complaint, imageError: null };
   } catch (err) {
     return { complaint, imageError: err.message };
@@ -49,8 +53,21 @@ export function uploadComplaintImage(complaintId, file) {
 
 // Scoped server-side by role: citizens get their own, officers and admins get
 // everything. Field workers must use listMyTasks instead.
-export async function listComplaints() {
-  const data = await apiRequest('/complaints/');
+/**
+ * @param {object} [opts]
+ *   sort              'created' | 'aiConfidence' | 'expectedResolution'
+ *   order             'asc' | 'desc'
+ *   aiConfidenceMax   only complaints the classifier was at most this sure of
+ *
+ * Complaints that were never classified carry no confidence and the backend
+ * excludes them from a confidence filter rather than treating them as zero --
+ * "never classified" and "classified badly" are different queues.
+ */
+export async function listComplaints(opts = {}) {
+  const { sort, order, aiConfidenceMax, aiConfidenceMin, limit, offset } = opts;
+  const data = await apiRequest('/complaints/', {
+    params: { sort, order, aiConfidenceMax, aiConfidenceMin, limit, offset },
+  });
   return (data || []).map(fromApiComplaint);
 }
 
@@ -59,8 +76,19 @@ export async function getComplaint(complaintId) {
   return fromApiComplaint(data);
 }
 
-export async function listMyTasks() {
-  const data = await apiRequest('/complaints/worker/tasks');
+/**
+ * A worker's own tasks.
+ *
+ * With `origin`, the backend orders them by distance from that point and
+ * returns distanceKm on each. Without it, they come back newest first. The
+ * backend refuses sort=distance with no coordinates rather than silently
+ * falling back, so this only asks for it when it has a real position.
+ */
+export async function listMyTasks({ origin } = {}) {
+  const params = origin
+    ? { sort: 'distance', lat: origin.latitude, lng: origin.longitude }
+    : undefined;
+  const data = await apiRequest('/complaints/worker/tasks', { params });
   return (data || []).map(fromApiComplaint);
 }
 
@@ -73,6 +101,35 @@ export async function listNearbyComplaints({ latitude, longitude, radiusKm = 5 }
     params: { latitude, longitude, radius_km: radiusKm },
   });
   return (data || []).map(fromApiComplaint);
+}
+
+/**
+ * Assign many complaints to one worker.
+ *
+ * Partial success is normal and is reported per complaint: one already-resolved
+ * complaint does not fail the rest. Returns the backend's shape unchanged so
+ * the caller can show exactly which ones did not take, and why.
+ *
+ * @returns {{assigned: string[], failed: {complaintId, reason}[],
+ *            assignedCount: number, failedCount: number}}
+ */
+export function bulkAssign(complaintIds, fieldWorkerId) {
+  return apiRequest('/complaints/bulk-assign', {
+    method: 'PATCH',
+    body: { complaintIds, fieldWorkerId },
+  });
+}
+
+/**
+ * Open complaints past their SLA deadline.
+ *
+ * Not date-filtered: a complaint from months ago that is still open is the
+ * point of it. `atRisk` is only populated when asked for.
+ */
+export async function listEscalations({ includeAtRisk = false } = {}) {
+  return apiRequest('/complaints/escalations', {
+    params: { includeAtRisk: includeAtRisk ? 'true' : undefined },
+  });
 }
 
 export async function assignFieldWorker(complaintId, fieldWorkerId) {
@@ -108,6 +165,79 @@ export async function recategoriseComplaint(complaintId, categoryId) {
     body: { categoryId },
   });
   return fromApiComplaint(data);
+}
+
+/**
+ * The complaint's audit trail: every status transition with its timestamp and
+ * remarks. Until this endpoint existed the detail page could only show
+ * "reported" and "last updated".
+ */
+export async function getComplaintHistory(complaintId) {
+  const data = await apiRequest(`/complaints/${encodeURIComponent(complaintId)}/history`);
+  return (data || []).map(fromApiHistory);
+}
+
+/**
+ * Photos attached to a complaint — both the citizen's original evidence and
+ * the field worker's resolution proof. `uploadedBy` is the user id, so callers
+ * that need to split the two compare it against the complaint's citizenId.
+ */
+export async function getComplaintMedia(complaintId) {
+  const data = await apiRequest(`/complaints/${encodeURIComponent(complaintId)}/media`);
+  return (data || []).map((m) => fromApiMedia(m, API_BASE_URL));
+}
+
+// Batch upload. The single-file endpoint still exists; this one takes several
+// in one request, which is what the worker's evidence step wants.
+/**
+ * @param {string} complaintId
+ * @param {File[]} files
+ * @param {object} [opts]
+ *   remarks         the worker's note, recorded in status history
+ *   idempotencyKey  kept stable across retries of the SAME upload
+ *
+ * The key is what makes a retry safe. Without it, a partial success followed by
+ * a retry puts a second copy of the same photo on the complaint — evidence that
+ * reads as two separate visits. With it, the backend replays the original
+ * response and stores nothing new.
+ */
+export function uploadComplaintImages(complaintId, files, { remarks, idempotencyKey } = {}) {
+  const form = new FormData();
+  for (const f of files) form.append('files', f);
+  if (remarks) form.append('remarks', remarks);
+  return apiRequest(`/complaints/${encodeURIComponent(complaintId)}/images`, {
+    method: 'POST',
+    body: form,
+    headers: idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : undefined,
+  });
+}
+
+// Officer/admin severity override. Separate from the status PATCH because the
+// backend records it as its own audited action.
+export async function overrideSeverity(complaintId, severity, remarks) {
+  const data = await apiRequest(`/complaints/${encodeURIComponent(complaintId)}/severity`, {
+    method: 'PATCH',
+    body: { severity: toApiSeverity(severity), remarks: remarks || null },
+  });
+  return fromApiComplaint(data);
+}
+
+/**
+ * Folds a duplicate into the complaint it repeats. This is the action behind
+ * the AI's duplicate flag — until now the UI could show the flag but not act
+ * on it.
+ */
+export async function mergeComplaint(complaintId, intoComplaintId, remarks) {
+  const data = await apiRequest(`/complaints/${encodeURIComponent(complaintId)}/merge`, {
+    method: 'POST',
+    body: { intoComplaintId, remarks: remarks || null },
+  });
+  return fromApiComplaint(data);
+}
+
+// The citizen's acknowledgement slip for a filed complaint.
+export function getReportSlip(complaintId) {
+  return apiRequest(`/complaints/${encodeURIComponent(complaintId)}/report-slip`);
 }
 
 export async function submitFeedback(complaintId, { rating, comments }) {

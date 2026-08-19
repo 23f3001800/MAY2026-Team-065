@@ -1,20 +1,29 @@
 // Complaint Details — the full record behind one complaint.
 //
-// Backed by GET /complaints/{id}. Note what that response does NOT include:
-// status history, media, assigned worker, or existing feedback. The backend
-// stores status history and media, but exposes no endpoint to read them, so
-// those sections are honestly marked unavailable rather than faked.
-// TODO(raja-api): GET /complaints/{id}/history, /media, /feedback.
-import React, { useMemo, useState } from 'react';
+// Three requests: GET /complaints/{id} for the record, /history for the audit
+// trail, and /media for the photos. History and media load independently of the
+// complaint, so a failure in either degrades that one panel instead of blanking
+// the page.
+//
+// Still not readable from the backend: existing feedback. A rating submitted
+// here shows until reload and then disappears, which the form says out loud.
+import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import StatusBadge from '../components/dashboard/StatusBadge';
+import SlaBadge from '../components/dashboard/SlaBadge';
 import SeverityBadge from '../components/dashboard/SeverityBadge';
 import { LoadingPanel, ErrorPanel } from '../components/dashboard/AsyncStates';
+import EvidencePanel from '../components/dashboard/EvidencePanel';
+import ReportSlipModal from '../components/dashboard/ReportSlipModal';
+import ComplaintMap from '../components/map/ComplaintMap';
 import {
-  IconArrowLeft, IconMapPin, IconInbox, IconStar, IconBuilding, IconSend, IconClock,
+  IconArrowLeft, IconMapPin, IconInbox, IconStar, IconBuilding, IconSend,
+  IconExternal, IconReport as IconFileText,
 } from '../components/dashboard/icons';
-import { getComplaint, submitFeedback } from '../api/complaints';
+import { getComplaint, getComplaintHistory, getComplaintMedia, submitFeedback } from '../api/complaints';
 import useAsync from '../hooks/useAsync';
+import { splitEvidence } from '../lib/evidence';
+import { getCurrentUser } from '../api/auth';
 
 function formatStamp(iso) {
   const d = new Date(iso);
@@ -54,6 +63,16 @@ function StarRating({ value, onChange, readOnly = false }) {
   );
 }
 
+// Dot colour per lifecycle stage, matching StatusBadge's palette.
+const DOT = {
+  'New': 'bg-emerald-500',
+  'Assigned': 'bg-amber-500',
+  'In Progress': 'bg-blue-500',
+  'Resolved': 'bg-violet-500',
+  'Rejected': 'bg-red-500',
+  'Closed': 'bg-slate-500',
+};
+
 function SummaryRow({ icon: Icon, label, children }) {
   return (
     <div className="flex items-start gap-3 py-2.5">
@@ -75,25 +94,62 @@ export default function ComplaintDetails() {
   const [comments, setComments] = useState('');
   const [feedbackError, setFeedbackError] = useState('');
   const [saving, setSaving] = useState(false);
+  const [slipOpen, setSlipOpen] = useState(false);
 
-  // What the response does tell us about timing, presented as a two-point
-  // timeline rather than a fabricated lifecycle.
-  const timeline = useMemo(() => {
-    if (!complaint) return [];
-    const entries = [{ label: 'Reported', at: complaint.reportedAt }];
-    if (complaint.updatedAt && complaint.updatedAt !== complaint.reportedAt) {
-      entries.push({ label: `Updated — now ${complaint.status}`, at: complaint.updatedAt });
-    }
-    return entries;
-  }, [complaint]);
+  // History and media load beside the complaint rather than as part of it, so
+  // one failing does not take out the page.
+  const [history, setHistory] = useState([]);
+  const [media, setMedia] = useState([]);
+  const [sideError, setSideError] = useState('');
+
+  const [mediaNonce, setMediaNonce] = useState(0);
+
+  // POST /complaints/{id}/images accepts the owning citizen or the ASSIGNED
+  // field worker only — an officer uploading would get a 403. The response
+  // carries no citizenId or assignee, so ownership cannot be proven here;
+  // the control is offered by role and the backend remains the authority.
+  // A citizen adds "before" context, a worker adds "after" evidence.
+  const currentUser = getCurrentUser();
+  const canUpload = currentUser?.role === 'citizen' || currentUser?.role === 'field_worker';
+  const uploadKind = currentUser?.role === 'field_worker' ? 'after' : 'before';
+
+  useEffect(() => {
+    let alive = true;
+    Promise.allSettled([getComplaintHistory(id), getComplaintMedia(id)])
+      .then(([h, m]) => {
+        if (!alive) return;
+        if (h.status === 'fulfilled') setHistory(h.value);
+        if (m.status === 'fulfilled') setMedia(m.value);
+        const failed = [h, m].filter((r) => r.status === 'rejected'
+          && r.reason?.name !== 'SessionExpiredError');
+        if (failed.length) setSideError(failed[0].reason?.message || 'Could not load attachments.');
+      });
+    return () => { alive = false; };
+  }, [id, mediaNonce]);
+
+  // Oldest first — a timeline reads top-down in the order things happened.
+  const timeline = useMemo(
+    () => [...history].sort((a, b) => new Date(a.at) - new Date(b.at)),
+    [history],
+  );
+
+  // Photos uploaded at or after the complaint was marked Resolved are the field
+  // worker's completion evidence. ComplaintResponse now carries citizenId, so
+  // the reporter's own photos are identified rather than inferred from upload
+  // order — see lib/evidence.js, which keeps the old heuristic as a fallback
+  // for records filed before that field existed.
+  const { before: reportPhotos, after: resolutionPhotos } = useMemo(
+    () => splitEvidence(media, complaint?.reportedAt, complaint?.citizenId),
+    [media, complaint?.reportedAt, complaint?.citizenId],
+  );
 
   if (loading) {
-    return <div className="max-w-[1200px] mx-auto"><LoadingPanel label="Loading complaint…" /></div>;
+    return <div className="max-w-[1400px] mx-auto"><LoadingPanel label="Loading complaint…" variant="detail" /></div>;
   }
 
   if (error) {
     return (
-      <div className="max-w-[1200px] mx-auto space-y-4">
+      <div className="max-w-[1400px] mx-auto space-y-4">
         <Link to="/my-complaints" className="inline-flex items-center gap-2 text-[13px] font-medium text-slate-500 hover:text-primary">
           <IconArrowLeft size={16} /> Back to My Complaints
         </Link>
@@ -104,7 +160,7 @@ export default function ComplaintDetails() {
 
   if (!complaint) {
     return (
-      <div className="max-w-[1200px] mx-auto">
+      <div className="max-w-[1400px] mx-auto">
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-12 flex flex-col items-center text-center">
           <div className="w-14 h-14 rounded-2xl bg-slate-100 text-slate-400 flex items-center justify-center mb-4">
             <IconInbox size={26} />
@@ -140,7 +196,7 @@ export default function ComplaintDetails() {
   };
 
   return (
-    <div className="max-w-[1200px] mx-auto space-y-5">
+    <div className="max-w-[1400px] mx-auto space-y-5">
       <Link to="/my-complaints" className="inline-flex items-center gap-2 text-[13px] font-medium text-slate-500 hover:text-primary transition-colors">
         <IconArrowLeft size={16} /> Back to My Complaints
       </Link>
@@ -153,16 +209,71 @@ export default function ComplaintDetails() {
             <span className="text-slate-300">·</span>
             <StatusBadge status={complaint.status} />
             <SeverityBadge severity={complaint.severity} />
+            <SlaBadge complaint={complaint} showDate />
           </div>
         </div>
+
+        {/* The digital acknowledgement the citizen is entitled to on filing. */}
+        <button
+          onClick={() => setSlipOpen(true)}
+          className="focus-ring lift inline-flex items-center gap-2 bg-white border border-line text-ink-body hover:border-primary hover:text-primary font-semibold text-[13px] px-3.5 py-2 rounded-xl shadow-sm transition-all"
+        >
+          <IconFileText size={15} /> Acknowledgement slip
+        </button>
       </div>
+
+      {slipOpen && <ReportSlipModal complaintId={complaint.id} onDismiss={() => setSlipOpen(false)} />}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 items-start">
         <div className="lg:col-span-2 space-y-5">
           <section className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
             <h2 className="font-semibold text-slate-800 text-[15px] mb-2">Description</h2>
             <p className="text-[14px] text-slate-600 leading-relaxed whitespace-pre-line">{complaint.description}</p>
+
           </section>
+
+          <EvidencePanel
+            complaintId={complaint.id}
+            reportPhotos={reportPhotos}
+            resolutionPhotos={resolutionPhotos}
+            canUpload={canUpload}
+            uploadKind={uploadKind}
+            onUploaded={() => setMediaNonce((n) => n + 1)}
+          />
+
+          {/* Location. The embedded map is the primary view — this app already
+              has one, and bouncing someone to a third-party site to answer
+              "where is this?" is worse than showing it. Google Maps stays as a
+              secondary link, because it is what gives turn-by-turn directions
+              and Leaflet does not. */}
+          {complaint.coords && (
+            <section className="bg-surface rounded-xl border border-line shadow-sm p-5">
+              <div className="flex items-baseline justify-between gap-3 mb-3 flex-wrap">
+                <div>
+                  <h2 className="font-display text-[16px] font-bold text-ink">Location</h2>
+                  <p className="text-[12px] text-ink-muted mt-0.5">{complaint.location}</p>
+                </div>
+                <a
+                  href={`https://www.google.com/maps/dir/?api=1&destination=${complaint.coords.latitude},${complaint.coords.longitude}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="focus-ring inline-flex items-center gap-1.5 text-[12px] font-semibold text-ink-muted hover:text-civic-700 transition-colors"
+                >
+                  <IconExternal size={13} /> Directions
+                </a>
+              </div>
+              <ComplaintMap complaints={[complaint]} height="340px" />
+              <p className="text-[11px] text-ink-faint mt-2 font-mono">
+                {complaint.coords.latitude.toFixed(5)}, {complaint.coords.longitude.toFixed(5)}
+              </p>
+            </section>
+          )}
+
+          {sideError && (
+            <p className="text-[12px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+              Some attachments could not be loaded: {sideError}
+            </p>
+          )}
 
           {/* Feedback — the backend accepts it only for RESOLVED complaints. */}
           {complaint.status === 'Resolved' && (
@@ -228,24 +339,34 @@ export default function ComplaintDetails() {
           </section>
 
           <section className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
-            <h2 className="font-semibold text-slate-800 text-[15px] mb-4">Timeline</h2>
-            <ol className="relative">
-              {timeline.map((entry, i) => (
-                <li key={entry.label} className="relative pl-7 pb-5 last:pb-0">
-                  {i < timeline.length - 1 && (
-                    <span className="absolute left-[7px] top-4 bottom-0 w-px bg-slate-200" aria-hidden="true" />
-                  )}
-                  <span className="absolute left-0 top-1 w-[15px] h-[15px] rounded-full border-2 border-white ring-2 ring-slate-100 bg-primary" />
-                  <div className="text-[13px] font-semibold text-slate-800">{entry.label}</div>
-                  <div className="text-[12px] text-slate-400">{formatStamp(entry.at)}</div>
-                </li>
-              ))}
-            </ol>
-            <p className="flex items-start gap-2 text-[12px] text-slate-400 border-t border-slate-100 pt-3 mt-1">
-              <IconClock size={13} className="mt-0.5 shrink-0" />
-              The full transition history is recorded by the backend but not yet readable, so only
-              the first and last events are shown.
-            </p>
+            <h2 className="font-semibold text-slate-800 text-[15px] mb-4">Status Timeline</h2>
+
+            {timeline.length === 0 ? (
+              <p className="text-[13px] text-slate-500">
+                No transitions recorded yet — this complaint has not moved since it was filed
+                on {formatStamp(complaint.reportedAt)}.
+              </p>
+            ) : (
+              <ol className="relative">
+                {timeline.map((entry, i) => (
+                  <li
+                    key={entry.id}
+                    style={{ '--i': i }}
+                    className="relative pl-7 pb-5 last:pb-0 animate-rise-in stagger"
+                  >
+                    {i < timeline.length - 1 && (
+                      <span className="absolute left-[7px] top-4 bottom-0 w-px bg-slate-200" aria-hidden="true" />
+                    )}
+                    <span className={`absolute left-0 top-1 w-[15px] h-[15px] rounded-full border-2 border-white ring-2 ring-slate-100 ${DOT[entry.status] || 'bg-slate-400'}`} />
+                    <div className="text-[13px] font-semibold text-slate-800">{entry.status}</div>
+                    <div className="text-[12px] text-slate-400">{formatStamp(entry.at)}</div>
+                    {entry.remarks && (
+                      <p className="text-[13px] text-slate-600 mt-1 leading-snug">{entry.remarks}</p>
+                    )}
+                  </li>
+                ))}
+              </ol>
+            )}
           </section>
         </div>
       </div>

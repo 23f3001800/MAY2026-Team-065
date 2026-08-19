@@ -6,6 +6,7 @@ import Sidebar from '../components/dashboard/Sidebar';
 import Topbar from '../components/dashboard/Topbar';
 import { OFFICER_NAV } from '../components/officer/officerNav';
 import { getCurrentUser, clearSession } from '../api/auth';
+import AssistantWidget from '../components/ai/AssistantWidget';
 
 export default function OfficerLayout() {
   const navigate = useNavigate();
@@ -18,7 +19,7 @@ export default function OfficerLayout() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 flex">
+    <div className="min-h-screen bg-surface-sunken flex">
       <Sidebar
         open={sidebarOpen}
         items={OFFICER_NAV}
@@ -28,11 +29,12 @@ export default function OfficerLayout() {
       />
 
       <div className="flex-1 min-w-0 flex flex-col">
-        <Topbar user={user} showLocation={false} onMenu={() => setSidebarOpen(true)} />
-        <main className="flex-1 p-4 sm:p-6 lg:p-8">
+        <Topbar user={user} notificationsHref="/officer/notifications" showLocation={false} onMenu={() => setSidebarOpen(true)} />
+        <main className="flex-1 p-4 sm:p-6 lg:p-8 bg-gradient-to-b from-civic-50/40 to-transparent bg-no-repeat [background-size:100%_260px]">
           <Outlet />
         </main>
       </div>
+      <AssistantWidget role="municipal_officer" />
     </div>
   );
 }

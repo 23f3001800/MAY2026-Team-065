@@ -7,37 +7,29 @@ import Register from './pages/Register';
 import CitizenLayout from './layouts/CitizenLayout';
 import CitizenDashboard from './pages/CitizenDashboard';
 import ReportIssue from './pages/ReportIssue';
-import MyComplaints from './pages/MyComplaints';
+import Complaints from './pages/Complaints';
 import ComplaintDetails from './pages/ComplaintDetails';
 import Notifications from './pages/Notifications';
-import NearbyIssues from './pages/NearbyIssues';
-import TrackComplaints from './pages/TrackComplaints';
 import AIAssistant from './pages/AIAssistant';
 import Feedback from './pages/Feedback';
 import AdminLayout from './layouts/AdminLayout';
 import AdminDashboard from './pages/admin/AdminDashboard';
 import AdminUsers from './pages/admin/AdminUsers';
 import AdminComplaints from './pages/admin/AdminComplaints';
-import AdminDepartments from './pages/admin/AdminDepartments';
-import AdminCategories from './pages/admin/AdminCategories';
-import AdminAnalytics from './pages/admin/AdminAnalytics';
 import AdminReports from './pages/admin/AdminReports';
-import AdminSettings from './pages/admin/AdminSettings';
 import OfficerLayout from './layouts/OfficerLayout';
 import OfficerDashboard from './pages/officer/OfficerDashboard';
 import OfficerComplaints from './pages/officer/OfficerComplaints';
 import OfficerWorkers from './pages/officer/OfficerWorkers';
-import OfficerAnalytics from './pages/officer/OfficerAnalytics';
+import OfficerVerification from './pages/officer/OfficerVerification';
+import OfficerEscalations from './pages/officer/OfficerEscalations';
 import WorkerLayout from './layouts/WorkerLayout';
 import WorkerDashboard from './pages/worker/WorkerDashboard';
 import WorkerTasks from './pages/worker/WorkerTasks';
-import WorkerMap from './pages/worker/WorkerMap';
-import WorkerHistory from './pages/worker/WorkerHistory';
+import WorkerTaskDetail from './pages/worker/WorkerTaskDetail';
+import WorkerPerformance from './pages/worker/WorkerPerformance';
 import WorkerProfile from './pages/worker/WorkerProfile';
 import Profile from './pages/shared/Profile';
-import Settings from './pages/shared/Settings';
-import RoleActivity from './pages/shared/RoleActivity';
-import { listComplaints, listMyTasks } from './api/complaints';
 import { getCurrentUser, homePathForRole } from './api/auth';
 
 // Gate for an authenticated area. Sends signed-out visitors to /login, and
@@ -91,15 +83,16 @@ function App() {
         >
           <Route path="/dashboard" element={<CitizenDashboard />} />
           <Route path="/report" element={<ReportIssue />} />
-          <Route path="/my-complaints" element={<MyComplaints />} />
+          <Route path="/complaints" element={<Complaints />} />
+          <Route path="/my-complaints" element={<Navigate to="/complaints" replace />} />
           <Route path="/complaints/:id" element={<ComplaintDetails />} />
-          <Route path="/track" element={<TrackComplaints />} />
-          <Route path="/nearby" element={<NearbyIssues />} />
+          <Route path="/track" element={<Navigate to="/complaints" replace />} />
+          <Route path="/nearby" element={<Navigate to="/complaints" replace />} />
           <Route path="/notifications" element={<Notifications />} />
           <Route path="/ai-assistant" element={<AIAssistant />} />
           <Route path="/feedback" element={<Feedback />} />
           <Route path="/profile" element={<Profile />} />
-          <Route path="/settings" element={<Settings />} />
+          <Route path="/settings" element={<Navigate to="/profile" replace />} />
         </Route>
 
         {/* Authenticated admin area */}
@@ -113,11 +106,14 @@ function App() {
           <Route path="/admin/dashboard" element={<AdminDashboard />} />
           <Route path="/admin/users" element={<AdminUsers />} />
           <Route path="/admin/complaints" element={<AdminComplaints />} />
-          <Route path="/admin/departments" element={<AdminDepartments />} />
-          <Route path="/admin/categories" element={<AdminCategories />} />
-          <Route path="/admin/analytics" element={<AdminAnalytics />} />
+          <Route path="/admin/complaints/:id" element={<ComplaintDetails />} />
+          <Route path="/admin/departments" element={<Navigate to="/admin/dashboard" replace />} />
+          <Route path="/admin/categories" element={<Navigate to="/admin/dashboard" replace />} />
+          <Route path="/admin/analytics" element={<Navigate to="/admin/dashboard" replace />} />
           <Route path="/admin/reports" element={<AdminReports />} />
-          <Route path="/admin/settings" element={<AdminSettings />} />
+          <Route path="/admin/notifications" element={<Notifications />} />
+          <Route path="/admin/profile" element={<Profile />} />
+          <Route path="/admin/settings" element={<Navigate to="/admin/profile" replace />} />
         </Route>
 
         {/* Authenticated municipal officer area */}
@@ -130,20 +126,17 @@ function App() {
         >
           <Route path="/officer/dashboard" element={<OfficerDashboard />} />
           <Route path="/officer/complaints" element={<OfficerComplaints />} />
+          {/* Same detail view the citizen sees, inside the officer's layout.
+              /complaints/:id is guarded to citizens, so linking an officer
+              there bounced them to their dashboard. */}
+          <Route path="/officer/complaints/:id" element={<ComplaintDetails />} />
+          <Route path="/officer/verification" element={<OfficerVerification />} />
+          <Route path="/officer/escalations" element={<OfficerEscalations />} />
           <Route path="/officer/workers" element={<OfficerWorkers />} />
-          <Route path="/officer/analytics" element={<OfficerAnalytics />} />
-          <Route
-            path="/officer/notifications"
-            element={
-              <RoleActivity
-                fetchComplaints={listComplaints}
-                viewHref="/officer/complaints"
-                emptyMessage="Complaints you're tied to will show up here once there's activity."
-              />
-            }
-          />
+          <Route path="/officer/analytics" element={<Navigate to="/officer/dashboard" replace />} />
+          <Route path="/officer/notifications" element={<Notifications />} />
           <Route path="/officer/profile" element={<Profile />} />
-          <Route path="/officer/settings" element={<Settings />} />
+          <Route path="/officer/settings" element={<Navigate to="/officer/profile" replace />} />
         </Route>
 
         {/* Authenticated field worker area */}
@@ -156,20 +149,13 @@ function App() {
         >
           <Route path="/worker/dashboard" element={<WorkerDashboard />} />
           <Route path="/worker/tasks" element={<WorkerTasks />} />
-          <Route path="/worker/map" element={<WorkerMap />} />
-          <Route path="/worker/history" element={<WorkerHistory />} />
-          <Route
-            path="/worker/notifications"
-            element={
-              <RoleActivity
-                fetchComplaints={listMyTasks}
-                viewHref="/worker/tasks"
-                emptyMessage="Tasks assigned to you will show up here once there's activity."
-              />
-            }
-          />
+          <Route path="/worker/tasks/:id" element={<WorkerTaskDetail />} />
+          <Route path="/worker/map" element={<Navigate to="/worker/tasks" replace />} />
+          <Route path="/worker/history" element={<Navigate to="/worker/tasks" replace />} />
+          <Route path="/worker/notifications" element={<Notifications />} />
+          <Route path="/worker/performance" element={<WorkerPerformance />} />
           <Route path="/worker/profile" element={<WorkerProfile />} />
-          <Route path="/worker/settings" element={<Settings />} />
+          <Route path="/worker/settings" element={<Navigate to="/worker/profile" replace />} />
         </Route>
 
         {/* Default: route to the signed-in user's home, else /login. */}

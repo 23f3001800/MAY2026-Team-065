@@ -11,6 +11,7 @@ import { IconChevronDown, IconReport } from '../../components/dashboard/icons';
 import { CATEGORIES, ASSIGNABLE_STATUSES } from '../../api/mappers';
 import { listComplaints } from '../../api/complaints';
 import useAsync from '../../hooks/useAsync';
+import SlaSweepPanel from '../../components/admin/SlaSweepPanel';
 
 const SEVERITIES = ['Low', 'Medium', 'High', 'Critical'];
 const CATEGORY_LABELS = CATEGORIES.map((c) => c.label);
@@ -91,8 +92,10 @@ export default function AdminReports() {
         </button>
       </div>
 
+      <SlaSweepPanel />
+
       {loading ? (
-        <LoadingPanel label="Loading complaints…" />
+        <LoadingPanel label="Loading complaints…" variant="table" />
       ) : error ? (
         <ErrorPanel error={error} onRetry={refetch} />
       ) : (
