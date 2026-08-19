@@ -37,6 +37,17 @@ const MAX_IMAGES = 5;
 const TRIAGE_DELAY_MS = 350;
 const MIN_CHARS_TO_CLASSIFY = 15;
 
+// Three steps, not the six a brief might suggest. Two of those six -- running
+// the classifier and reading its answer -- are things the system does, not
+// things a citizen does, and putting a "step" around waiting makes the form
+// feel longer than it is. Classification runs while the description is typed
+// and its result is shown in place.
+const STEPS = [
+  { key: 'what', label: 'What happened', hint: 'A photo and a sentence' },
+  { key: 'where', label: 'Where it is', hint: 'We use your location' },
+  { key: 'check', label: 'Check and send', hint: 'Confirm before filing' },
+];
+
 export default function ReportIssue() {
   const { categories: CATEGORIES } = useCategories();
   const navigate = useNavigate();
@@ -58,16 +69,14 @@ export default function ReportIssue() {
 
   const [triage, setTriage] = useState(null);
   const [triaging, setTriaging] = useState(false);
-  // Which classification steps have actually completed. Each entry is a real
-  // network call that returned — no timer-driven bar, because /ai/triage is a
-  // single request and any percentage inside it would be fabricated.
-  const [aiStage, setAiStage] = useState(null);
 
-  // AI description drafting.
+  // Which step is on screen. The form is one object throughout -- stepping is
+  // presentation only, so going back never discards what was typed.
+  const [step, setStep] = useState(0);
+
   const [drafting, setDrafting] = useState(false);
   const [priorDescription, setPriorDescription] = useState(null); // for undo
 
-  const selected = CATEGORIES.find((c) => c.categoryId === categoryId);
 
   const suggestedCategory = (() => {
     const top = triage?.category?.suggestions?.[0];
@@ -128,7 +137,6 @@ export default function ReportIssue() {
     let cancelled = false;
     const timer = setTimeout(async () => {
       setTriaging(true);
-      setAiStage({ done: 0, total: 2, label: 'Reading your description' });
       try {
         const result = await runTriage({
           description: text,
@@ -137,19 +145,13 @@ export default function ReportIssue() {
           longitude: coords?.longitude,
         });
         if (!cancelled) {
-          setAiStage({ done: 2, total: 2, label: 'Classification complete' });
           setTriage(result);
         }
       } catch {
         // Never block filing on the AI being up.
         if (!cancelled) setTriage(null);
       } finally {
-        if (!cancelled) {
-          setTriaging(false);
-          // Clear the strip shortly after completion so it does not linger as
-          // permanent chrome on a form the citizen is still filling in.
-          setTimeout(() => setAiStage(null), 1600);
-        }
+        if (!cancelled) setTriaging(false);
       }
     }, TRIAGE_DELAY_MS);
 
@@ -223,10 +225,8 @@ export default function ReportIssue() {
     if (!photos.length) return;
     setDrafting(true);
     setMessage({ text: '', type: '' });
-    setAiStage({ done: 0, total: 2, label: 'Looking at your photo' });
     try {
       const res = await analyzeImage(photos[0].file);
-      setAiStage({ done: 1, total: 2, label: 'Drafting a description' });
       if (res?.available === false) {
         setMessage({ text: res.unavailableReason || 'Photo analysis is not switched on.', type: 'warning' });
         return;
@@ -242,7 +242,6 @@ export default function ReportIssue() {
       setMessage({ text: 'Photo analysis is unavailable right now.', type: 'warning' });
     } finally {
       setDrafting(false);
-      setTimeout(() => setAiStage(null), 1600);
     }
   };
 
@@ -313,17 +312,86 @@ export default function ReportIssue() {
   };
 
   const messageStyles = {
-    error: 'bg-red-50 text-red-700 border-red-200',
-    warning: 'bg-amber-50 text-amber-800 border-amber-200',
-    success: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+    error: 'bg-danger-50 text-danger-700 border-danger-100',
+    warning: 'bg-caution-50 text-caution-800 border-caution-100',
+    success: 'bg-teal-50 text-teal-800 border-teal-100',
   };
 
   const duplicates = triage?.duplicates?.candidates || [];
 
+  // What blocks moving on. Stated per step so the button can say why it is
+  // disabled instead of simply refusing.
+  const blocking = (() => {
+    if (step === 0) {
+      if (description.trim().length < MIN_CHARS_TO_CLASSIFY) {
+        return 'Describe the problem in a sentence or two.';
+      }
+      return null;
+    }
+    if (step === 1) {
+      if (!coords) return 'Your location is needed so the right depot is sent.';
+      if (!address.trim()) return 'Add a street or landmark.';
+      return null;
+    }
+    if (!categoryId) return 'Choose the category this falls under.';
+    return null;
+  })();
+
   return (
-    <div className="max-w-[760px] mx-auto">
-      <h1 className="font-display text-2xl font-bold text-ink mb-1">Report an Issue</h1>
-      <p className="text-[14px] text-ink-muted mb-6">Tell us what's wrong and where — we'll route it to the right team.</p>
+    <div className="max-w-[820px] mx-auto pb-10">
+      <header className="mb-6">
+        <h1 className="font-display text-[26px] font-bold text-ink leading-tight">
+          Report a problem
+        </h1>
+        <p className="text-[14px] text-ink-muted mt-1">
+          It takes about a minute. You will get a reference and a date it is due by.
+        </p>
+      </header>
+
+      {/* Progress. Steps already passed are clickable, so going back to change
+          an answer does not mean starting again. */}
+      <ol className="flex items-stretch gap-2 mb-6">
+        {STEPS.map((s2, i) => {
+          const done = i < step;
+          const current = i === step;
+          return (
+            <li key={s2.key} className="flex-1">
+              <button
+                type="button"
+                disabled={i > step}
+                onClick={() => setStep(i)}
+                className={`focus-ring w-full text-left rounded-xl border px-3.5 py-3 transition-all ${
+                  current
+                    ? 'bg-surface border-civic-400 shadow-sm'
+                    : done
+                      ? 'bg-teal-50/60 border-teal-100 hover:border-teal-300'
+                      : 'bg-surface-inset border-line opacity-60 cursor-not-allowed'
+                }`}
+              >
+                <span className="flex items-center gap-2">
+                  <span
+                    className={`w-5 h-5 rounded-full text-[11px] font-bold flex items-center justify-center shrink-0 ${
+                      done
+                        ? 'bg-teal-500 text-white'
+                        : current
+                          ? 'bg-civic-700 text-white'
+                          : 'bg-line text-ink-faint'
+                    }`}
+                  >
+                    {done ? <IconCheckCircle size={12} /> : i + 1}
+                  </span>
+                  <span className={`text-[13px] font-semibold truncate ${current ? 'text-ink' : 'text-ink-body'}`}>
+                    {s2.label}
+                  </span>
+                </span>
+                <span className="block text-[11.5px] text-ink-faint mt-1 pl-7 truncate">
+                  {s2.hint}
+                </span>
+              </button>
+            </li>
+          );
+        })}
+      </ol>
 
       {message.text && (
         <div className={`mb-5 px-4 py-3 rounded-xl text-[13px] font-medium border ${messageStyles[message.type] || messageStyles.error}`}>
@@ -331,290 +399,333 @@ export default function ReportIssue() {
         </div>
       )}
 
-      <form onSubmit={handleSubmit} className="bg-white rounded-2xl border border-line shadow-sm p-6 space-y-7">
-        {/* 1. Photos — first, because a photo can write the description. */}
-        <section>
-          <h2 className="font-semibold text-ink text-[15px] mb-1">1. Add Photos</h2>
-          <p className="text-[13px] text-ink-muted mb-3">
-            Up to {MAX_IMAGES}. A clear photo lets us draft the description for you.
-          </p>
+      <form onSubmit={handleSubmit} className="space-y-5">
+        {/* ── Step 1: what happened ─────────────────────────────── */}
+        {step === 0 && (
+          <div className="space-y-5 animate-rise-in">
+            <section className="bg-surface rounded-2xl border border-line shadow-sm p-5">
+              <h2 className="font-display text-[15px] font-bold text-ink">Add a photo</h2>
+              <p className="text-[13px] text-ink-muted mt-1 mb-4">
+                Optional, but it is the fastest way to explain the problem — and we can write the
+                description from it.
+              </p>
 
-          <label
-            onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
-            onDragLeave={() => setDragging(false)}
-            onDrop={handleDrop}
-            className={`cursor-pointer rounded-xl border-2 border-dashed p-6 flex flex-col items-center justify-center text-center transition-colors ${
-              dragging ? 'border-primary bg-emerald-50' : 'border-slate-300 hover:border-primary hover:bg-slate-50'
-            }`}
-          >
-            <input
-              ref={fileRef}
-              type="file"
-              accept="image/png,image/jpeg"
-              multiple
-              className="hidden"
-              onChange={(e) => addFiles(e.target.files)}
-            />
-            <span className="w-10 h-10 rounded-full bg-emerald-50 text-primary flex items-center justify-center mb-2">
-              <IconUpload size={20} />
-            </span>
-            <span className="text-[13px] font-medium text-ink-body">Click to upload or drag &amp; drop</span>
-            <span className="text-[12px] text-ink-faint mt-0.5">
-              JPG or PNG, up to {MAX_IMAGE_MB}MB each · {photos.length}/{MAX_IMAGES} added
-            </span>
-          </label>
-
-          {photos.length > 0 && (
-            <div className="grid grid-cols-3 sm:grid-cols-5 gap-3 mt-3">
-              {photos.map((p, i) => (
-                <div key={p.id} className="relative group animate-scale-in">
-                  <img src={p.url} alt="" className="w-full aspect-square object-cover rounded-xl border border-line" />
-                  {i === 0 && (
-                    <span className="absolute bottom-1 left-1 text-[9px] font-semibold bg-slate-900/70 text-white px-1.5 py-0.5 rounded">
-                      Used for AI
-                    </span>
-                  )}
+              <div
+                onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+                onDragLeave={() => setDragging(false)}
+                onDrop={handleDrop}
+                className={`rounded-xl border-2 border-dashed px-5 py-7 text-center transition-colors ${
+                  dragging ? 'border-civic-500 bg-civic-50' : 'border-line bg-surface-inset'
+                }`}
+              >
+                <IconUpload size={22} className="mx-auto text-ink-faint" />
+                <p className="text-[13.5px] text-ink-body mt-2">
+                  Drag a photo here, or{' '}
                   <button
                     type="button"
-                    onClick={() => removePhoto(p.id)}
-                    className="focus-ring absolute -top-2 -right-2 w-6 h-6 rounded-full bg-red-500 text-white flex items-center justify-center shadow"
-                    aria-label="Remove photo"
+                    onClick={() => fileRef.current?.click()}
+                    className="focus-ring rounded font-semibold text-civic-700 hover:underline"
                   >
-                    <IconX size={13} />
+                    choose a file
                   </button>
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
-
-        {/* 2. Description, with AI drafting */}
-        <section>
-          <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
-            <h2 className="font-semibold text-ink text-[15px]">2. Describe the Issue</h2>
-            <div className="flex items-center gap-2">
-              {priorDescription !== null && (
-                <button
-                  type="button"
-                  onClick={undoDraft}
-                  className="focus-ring text-[12px] font-semibold text-ink-muted hover:text-ink px-2 py-1 rounded-md hover:bg-slate-100 transition"
-                >
-                  Undo
-                </button>
-              )}
-              <button
-                type="button"
-                onClick={draftFromPhoto}
-                disabled={!photos.length || drafting}
-                title={photos.length ? 'Describe the first photo' : 'Add a photo first'}
-                className="focus-ring inline-flex items-center gap-1.5 text-[12px] font-semibold text-primary bg-emerald-50 hover:bg-emerald-100 disabled:opacity-40 disabled:cursor-not-allowed px-2.5 py-1.5 rounded-lg transition"
-              >
-                <IconSparkles size={13} /> Write from photo
-              </button>
-              <button
-                type="button"
-                onClick={improveWriting}
-                disabled={description.trim().length < MIN_CHARS_TO_CLASSIFY || drafting}
-                className="focus-ring inline-flex items-center gap-1.5 text-[12px] font-semibold text-ink-body bg-slate-100 hover:bg-slate-200 disabled:opacity-40 disabled:cursor-not-allowed px-2.5 py-1.5 rounded-lg transition"
-              >
-                <IconRefresh size={13} /> Improve
-              </button>
-            </div>
-          </div>
-
-          <div className="relative">
-            <textarea
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              rows={4}
-              placeholder="What's wrong? A sentence or two is plenty — or add a photo and let us draft it."
-              className="focus-ring w-full rounded-xl border border-line p-3.5 text-[14px] text-ink outline-none resize-y transition"
-            />
-            {drafting && (
-              <div className="absolute inset-0 rounded-xl bg-white/70 flex items-center justify-center">
-                <span className="inline-flex items-center gap-2 text-[13px] font-medium text-primary">
-                  <span className="w-4 h-4 border-2 border-emerald-200 rounded-full border-t-primary animate-spin-slow" />
-                  Writing…
-                </span>
+                </p>
+                <p className="text-[11.5px] text-ink-faint mt-1">
+                  Up to {MAX_IMAGES} photos, {MAX_IMAGE_MB}MB each.
+                </p>
+                <input
+                  ref={fileRef}
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  hidden
+                  onChange={(e) => addFiles(e.target.files)}
+                />
               </div>
-            )}
-          </div>
-        </section>
 
-        {/* 3. Category */}
-        <section>
-          <h2 className="font-semibold text-ink text-[15px] mb-3">3. Category</h2>
-          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-            {CATEGORIES.map((c) => {
-              const Icon = CATEGORY_ICONS[c.categoryId] || IconMoreHorizontal;
-              const active = categoryId === c.categoryId;
-              return (
-                <button
-                  type="button"
-                  key={c.categoryId}
-                  onClick={() => setCategoryId(c.categoryId)}
-                  title={c.name}
-                  className={`focus-ring flex flex-col items-center gap-2 py-4 px-2 rounded-xl border text-[13px] font-medium transition-colors ${
-                    active
-                      ? 'border-primary bg-emerald-50 text-primary'
-                      : 'border-line text-ink-body hover:border-slate-300 hover:bg-slate-50'
-                  }`}
-                >
-                  <Icon size={22} />
-                  {c.label}
-                </button>
-              );
-            })}
-          </div>
-          {selected && (
-            <p className="text-[12px] text-ink-faint mt-2">Routes to the {selected.department} department.</p>
-          )}
-        </section>
+              {photos.length > 0 && (
+                <>
+                  <ul className="grid grid-cols-3 sm:grid-cols-4 gap-2.5 mt-4">
+                    {photos.map((ph) => (
+                      <li key={ph.id} className="relative group">
+                        <img
+                          src={ph.url}
+                          alt="Attached"
+                          className="w-full aspect-[4/3] object-cover rounded-lg border border-line"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => removePhoto(ph.id)}
+                          aria-label="Remove photo"
+                          className="focus-ring absolute -top-1.5 -right-1.5 w-6 h-6 rounded-full bg-ink text-white flex items-center justify-center shadow-md"
+                        >
+                          <IconX size={12} />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
 
-        {/* 4. Location */}
-        <section>
-          <h2 className="font-semibold text-ink text-[15px] mb-3">4. Location</h2>
-          <div className="flex items-center gap-2 rounded-xl border border-line px-3 focus-within:border-primary focus-within:ring-2 focus-within:ring-emerald-100 transition">
-            <IconMapPin size={18} className="text-primary shrink-0" />
-            <input
-              value={address}
-              onChange={(e) => setAddress(e.target.value)}
-              placeholder={geocoding ? 'Looking up address…' : 'Street address or landmark'}
-              className="flex-1 py-3 text-[14px] text-ink outline-none bg-transparent"
-            />
-            <button
-              type="button"
-              onClick={captureLocation}
-              disabled={locating}
-              className="focus-ring shrink-0 inline-flex items-center gap-1 text-[12px] font-semibold text-primary hover:underline disabled:opacity-60"
-            >
-              <IconCrosshair size={14} /> {locating ? 'Locating…' : 'Use Current Location'}
-            </button>
-          </div>
-          <p className={`text-[12px] mt-2 ${coords ? 'text-ink-faint' : 'text-amber-700'}`}>
-            {coords
-              ? `GPS captured: ${coords.latitude.toFixed(5)}, ${coords.longitude.toFixed(5)}${geocoding ? ' · finding address…' : ''}`
-              : 'GPS coordinates are required — tap "Use Current Location" to capture them.'}
-          </p>
-        </section>
+                  <button
+                    type="button"
+                    onClick={draftFromPhoto}
+                    disabled={drafting}
+                    className="focus-ring inline-flex items-center gap-2 mt-4 text-[13px] font-semibold text-civic-700 bg-civic-50 hover:bg-civic-100 disabled:opacity-60 px-3.5 py-2 rounded-lg transition-colors"
+                  >
+                    <IconSparkles size={14} />
+                    {drafting ? 'Reading the photo…' : 'Describe this photo for me'}
+                  </button>
+                </>
+              )}
+            </section>
 
-        {/* Background classification progress. Shown while the request is in
-            flight so the citizen knows work is happening on their behalf. */}
-        {aiStage && (
-          <div role="status" aria-live="polite" className="rounded-lg border border-line bg-surface-inset px-3.5 py-2.5">
-            <div className="flex items-center justify-between gap-2 text-[12px]">
-              <span className="inline-flex items-center gap-1.5 text-ink-body font-medium">
-                <IconSparkles size={13} className="text-civic-600" />
-                {aiStage.label}
-              </span>
-              <span className="text-ink-faint tnum">
-                {Math.round((aiStage.done / aiStage.total) * 100)}%
-              </span>
-            </div>
-            <div className="mt-1.5 h-1 rounded-full bg-line overflow-hidden">
-              <div
-                className="h-full rounded-full bg-civic-600 transition-[width] duration-500"
-                style={{ width: `${(aiStage.done / aiStage.total) * 100}%` }}
+            <section className="bg-surface rounded-2xl border border-line shadow-sm p-5">
+              <div className="flex items-baseline justify-between gap-3 flex-wrap">
+                <h2 className="font-display text-[15px] font-bold text-ink">What is wrong?</h2>
+                {triaging && (
+                  <span className="inline-flex items-center gap-1.5 text-[12px] text-ink-muted">
+                    <IconRefresh size={12} className="animate-spin-slow" />
+                    Working out the category…
+                  </span>
+                )}
+              </div>
+
+              <textarea
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                rows={5}
+                placeholder="For example: the streetlight outside 42 Kasturba Road has been out for a week and the crossing is completely dark at night."
+                className="w-full mt-3 rounded-xl border border-line bg-surface p-3.5 text-[14px] text-ink outline-none resize-y focus:border-civic-500 focus:ring-2 focus:ring-civic-500/15 transition"
               />
-            </div>
+
+              <div className="flex items-center gap-3 flex-wrap mt-2">
+                <span className="text-[11.5px] text-ink-faint">
+                  {description.trim().length} characters
+                </span>
+                {description.trim().length >= MIN_CHARS_TO_CLASSIFY && (
+                  <button
+                    type="button"
+                    onClick={improveWriting}
+                    disabled={drafting}
+                    className="focus-ring text-[12.5px] font-semibold text-civic-700 hover:underline disabled:opacity-60"
+                  >
+                    {drafting ? 'Rewriting…' : 'Tidy up my wording'}
+                  </button>
+                )}
+                {priorDescription !== null && (
+                  <button
+                    type="button"
+                    onClick={undoDraft}
+                    className="focus-ring text-[12.5px] font-semibold text-ink-muted hover:text-ink"
+                  >
+                    Undo
+                  </button>
+                )}
+              </div>
+
+              {/* The duplicate warning, as soon as there is something to warn
+                  about. Shown here rather than at submit: telling someone their
+                  report is a duplicate after they have written it is too late
+                  to save them the writing. */}
+              {duplicates.length > 0 && (
+                <div className="mt-4 rounded-xl border border-caution-100 bg-caution-50 p-3.5">
+                  <p className="text-[13px] font-semibold text-caution-800">
+                    {duplicates.length === 1
+                      ? 'Someone may have reported this already'
+                      : `${duplicates.length} similar reports are already open nearby`}
+                  </p>
+                  <ul className="mt-2 space-y-1.5">
+                    {duplicates.slice(0, 3).map((d) => (
+                      <li key={d.complaintId} className="text-[12.5px] text-caution-800">
+                        <span className="font-mono">{d.complaintId}</span>
+                        {d.description ? ` — ${d.description.slice(0, 70)}` : ''}
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="text-[12px] text-caution-800/80 mt-2 leading-snug">
+                    You can still file yours — more reports of the same problem raise its priority.
+                  </p>
+                </div>
+              )}
+            </section>
           </div>
         )}
 
-        {/* 5. Live AI assessment */}
-        {(triaging || triage) && (
-          <section className="rounded-xl border border-line bg-slate-50 p-4">
-            <div className="flex items-center gap-2 mb-3">
-              <IconSparkles size={14} className="text-primary" />
-              <h2 className="font-semibold text-ink text-[14px]">AI assessment</h2>
-              {triaging && <span className="text-[11px] text-ink-faint">checking…</span>}
-              {!triaging && triage?.source && (
-                <span className="text-[10px] text-ink-faint ml-auto">
-                  {triage.source === 'rules' ? 'Rules engine' : 'Model'}
-                </span>
-              )}
+        {/* ── Step 2: where ─────────────────────────────────────── */}
+        {step === 1 && (
+          <section className="bg-surface rounded-2xl border border-line shadow-sm p-5 animate-rise-in">
+            <h2 className="font-display text-[15px] font-bold text-ink">Where is it?</h2>
+            <p className="text-[13px] text-ink-muted mt-1 mb-4">
+              Your device's location is used so the report reaches the depot that covers that
+              street. You can correct the address if it is not quite right.
+            </p>
+
+            <div className={`rounded-xl border px-4 py-3.5 flex items-start gap-3 ${
+              coords ? 'border-teal-100 bg-teal-50/60' : 'border-caution-100 bg-caution-50'
+            }`}>
+              <IconMapPin size={16} className={coords ? 'text-teal-700 mt-0.5' : 'text-caution-700 mt-0.5'} />
+              <div className="min-w-0 flex-1">
+                {coords ? (
+                  <>
+                    <p className="text-[13px] font-semibold text-ink">Location captured</p>
+                    <p className="text-[12px] text-ink-muted font-mono mt-0.5">
+                      {coords.latitude.toFixed(5)}, {coords.longitude.toFixed(5)}
+                    </p>
+                  </>
+                ) : (
+                  <p className="text-[13px] text-caution-800">
+                    {locating ? 'Getting your location…' : 'No location yet.'}
+                  </p>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={captureLocation}
+                disabled={locating}
+                className="focus-ring shrink-0 inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-civic-700 bg-surface border border-line px-3 py-1.5 rounded-lg hover:border-civic-400 disabled:opacity-60 transition-colors"
+              >
+                <IconCrosshair size={13} className={locating ? 'animate-spin-slow' : ''} />
+                {coords ? 'Update' : 'Use my location'}
+              </button>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div className="bg-white rounded-lg border border-line p-3">
-                <div className="text-[11px] text-ink-faint">Suggested category</div>
-                <div className="text-[14px] font-semibold text-ink mt-0.5">
-                  {suggestedCategory?.label || '—'}
-                </div>
-                {suggestedCategory && suggestedCategory.categoryId !== categoryId && (
-                  <button
-                    type="button"
-                    onClick={() => setCategoryId(suggestedCategory.categoryId)}
-                    className="focus-ring mt-2 text-[12px] font-semibold text-primary hover:underline"
-                  >
-                    Use this instead
-                  </button>
-                )}
-                {suggestedCategory && suggestedCategory.categoryId === categoryId && (
-                  <div className="mt-1.5 inline-flex items-center gap-1 text-[11px] text-primary">
-                    <IconCheckCircle size={12} /> matches your choice
-                  </div>
-                )}
-              </div>
-
-              <div className="bg-white rounded-lg border border-line p-3">
-                <div className="text-[11px] text-ink-faint">Predicted severity</div>
-                <div className="text-[14px] font-semibold text-ink mt-0.5">
-                  {triage?.severity?.severity
-                    ? triage.severity.severity.charAt(0) + triage.severity.severity.slice(1).toLowerCase()
-                    : '—'}
-                </div>
-                {triage?.severity?.reason && (
-                  <p className="text-[11px] text-ink-muted mt-1 leading-snug">{triage.severity.reason}</p>
-                )}
-              </div>
-            </div>
-
-            {/* Catching a duplicate here costs the citizen nothing and saves an
-                officer a merge later. It never blocks submission — the issue
-                nearby may genuinely be a different one. */}
-            {duplicates.length > 0 && (
-              <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3">
-                <div className="flex items-center gap-1.5 text-[12px] font-semibold text-amber-900 mb-2">
-                  <IconAlertTriangle size={13} />
-                  Someone may have reported this already
-                </div>
-                <ul className="space-y-1.5">
-                  {duplicates.slice(0, 3).map((d) => (
-                    <li key={d.complaintId} className="flex items-center gap-2 text-[12px]">
-                      <Link to={`/complaints/${d.complaintId}`} className="font-mono text-primary hover:underline">
-                        {d.complaintId}
-                      </Link>
-                      <span className="text-ink-muted truncate flex-1">{d.description}</span>
-                      {typeof d.distanceKm === 'number' && (
-                        <span className="text-ink-faint whitespace-nowrap">
-                          {d.distanceKm < 1 ? `${Math.round(d.distanceKm * 1000)}m` : `${d.distanceKm.toFixed(1)}km`}
-                        </span>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-                <p className="text-[11px] text-amber-800 mt-2">
-                  Still different? Carry on — reporting it again helps us see how widespread it is.
-                </p>
-              </div>
-            )}
+            <label className="block text-[11px] font-semibold uppercase tracking-wide text-ink-muted mt-5 mb-1.5" htmlFor="ri-address">
+              Street or landmark
+            </label>
+            <input
+              id="ri-address"
+              value={address}
+              onChange={(e) => setAddress(e.target.value)}
+              placeholder={geocoding ? 'Looking up the address…' : 'e.g. 42 Kasturba Road, near the school gate'}
+              className="w-full rounded-xl border border-line bg-surface px-3.5 py-2.5 text-[14px] text-ink outline-none focus:border-civic-500 focus:ring-2 focus:ring-civic-500/15 transition"
+            />
+            <p className="text-[11.5px] text-ink-faint mt-1.5">
+              Filled in from your coordinates where we can. A landmark helps the crew find it.
+            </p>
           </section>
         )}
 
-        <button
-          type="submit"
-          disabled={loading}
-          className="focus-ring w-full inline-flex items-center justify-center gap-2 bg-primary hover:bg-emerald-600 disabled:opacity-60 disabled:cursor-not-allowed text-white font-semibold text-[15px] py-3.5 rounded-xl shadow-btn transition-colors"
-        >
-          {loading ? (
-            <span className="w-[18px] h-[18px] border-2 border-white/40 rounded-full border-t-white animate-spin-slow" />
-          ) : (
-            <>
-              <IconSend size={18} /> Submit Complaint
-            </>
+        {/* ── Step 3: check and send ────────────────────────────── */}
+        {step === 2 && (
+          <div className="space-y-5 animate-rise-in">
+            <section className="bg-surface rounded-2xl border border-line shadow-sm p-5">
+              <div className="flex items-baseline justify-between gap-3 flex-wrap">
+                <h2 className="font-display text-[15px] font-bold text-ink">Category</h2>
+                {suggestedCategory && (
+                  <span className="inline-flex items-center gap-1.5 text-[12px] text-civic-700">
+                    <IconSparkles size={12} />
+                    Suggested: {suggestedCategory.label}
+                  </span>
+                )}
+              </div>
+              <p className="text-[13px] text-ink-muted mt-1 mb-4">
+                Change it if the suggestion is wrong — an officer checks this before anyone is
+                sent out.
+              </p>
+
+              <div className="grid sm:grid-cols-2 gap-2.5">
+                {CATEGORIES.map((c) => {
+                  const Icon = CATEGORY_ICONS[c.categoryId] || IconMoreHorizontal;
+                  const active = categoryId === c.categoryId;
+                  const isSuggested = suggestedCategory?.categoryId === c.categoryId;
+                  return (
+                    <button
+                      key={c.categoryId}
+                      type="button"
+                      onClick={() => setCategoryId(c.categoryId)}
+                      className={`focus-ring flex items-center gap-3 text-left rounded-xl border px-3.5 py-3 transition-all ${
+                        active
+                          ? 'border-civic-500 bg-civic-50 shadow-sm'
+                          : 'border-line bg-surface hover:border-civic-300'
+                      }`}
+                    >
+                      <span className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${
+                        active ? 'bg-civic-700 text-white' : 'bg-surface-inset text-ink-muted'
+                      }`}>
+                        <Icon size={17} />
+                      </span>
+                      <span className="min-w-0">
+                        <span className="block text-[13.5px] font-semibold text-ink truncate">
+                          {c.label}
+                        </span>
+                        <span className="block text-[11.5px] text-ink-faint truncate">
+                          {isSuggested ? 'Suggested for you' : c.department}
+                        </span>
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
+
+            <section className="bg-surface rounded-2xl border border-line shadow-sm p-5">
+              <h2 className="font-display text-[15px] font-bold text-ink mb-3">Your report</h2>
+              <dl className="divide-y divide-line">
+                <div className="flex gap-4 py-2.5">
+                  <dt className="w-24 shrink-0 text-[12px] uppercase tracking-wide text-ink-faint">Problem</dt>
+                  <dd className="text-[13.5px] text-ink-body leading-relaxed">{description.trim()}</dd>
+                </div>
+                <div className="flex gap-4 py-2.5">
+                  <dt className="w-24 shrink-0 text-[12px] uppercase tracking-wide text-ink-faint">Where</dt>
+                  <dd className="text-[13.5px] text-ink-body">{address.trim() || '—'}</dd>
+                </div>
+                <div className="flex gap-4 py-2.5">
+                  <dt className="w-24 shrink-0 text-[12px] uppercase tracking-wide text-ink-faint">Photos</dt>
+                  <dd className="text-[13.5px] text-ink-body">
+                    {photos.length ? `${photos.length} attached` : 'None'}
+                  </dd>
+                </div>
+              </dl>
+              <p className="text-[12px] text-ink-faint mt-3 leading-relaxed">
+                Once filed you will get a reference number and a date it is due by, set from how
+                urgent the problem is.
+              </p>
+            </section>
+          </div>
+        )}
+
+        {/* ── Navigation ────────────────────────────────────────── */}
+        <div className="flex items-center gap-3 flex-wrap">
+          {step > 0 && (
+            <button
+              type="button"
+              onClick={() => setStep((n) => n - 1)}
+              className="focus-ring bg-surface border border-line hover:border-civic-400 text-ink-body font-semibold text-[14px] px-5 py-2.5 rounded-xl transition-colors"
+            >
+              Back
+            </button>
           )}
-        </button>
+
+          {step < STEPS.length - 1 ? (
+            <button
+              type="button"
+              onClick={() => setStep((n) => n + 1)}
+              disabled={Boolean(blocking)}
+              className="focus-ring lift inline-flex items-center gap-2 bg-civic-800 hover:enabled:bg-civic-900 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold text-[14px] px-5 py-2.5 rounded-xl shadow-sm transition-all"
+            >
+              Continue
+            </button>
+          ) : (
+            <button
+              type="submit"
+              disabled={loading || Boolean(blocking)}
+              className="focus-ring lift inline-flex items-center gap-2 bg-civic-800 hover:enabled:bg-civic-900 disabled:opacity-50 disabled:cursor-not-allowed text-white font-display font-bold text-[15px] px-6 py-3 rounded-xl shadow-md transition-all"
+            >
+              <IconSend size={16} /> {loading ? 'Filing…' : 'File this report'}
+            </button>
+          )}
+
+          {/* Say what is missing rather than leaving a dead button. */}
+          {blocking && (
+            <span className="text-[12.5px] text-ink-muted">{blocking}</span>
+          )}
+        </div>
       </form>
+
+      <p className="text-[12.5px] text-ink-faint mt-6">
+        Changed your mind?{' '}
+        <Link to="/complaints" className="focus-ring rounded font-semibold text-civic-700 hover:underline">
+          See your existing complaints
+        </Link>
+      </p>
     </div>
   );
 }
