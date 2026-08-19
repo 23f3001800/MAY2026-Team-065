@@ -11,7 +11,10 @@
 import React, { useEffect, useMemo, useRef } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { SEVERITY_COLOR, pinIcon, escapeHtml, plottable } from './pin';
+import {
+  SEVERITY_COLOR, pinIcon, clusterIcon, escapeHtml, plottable, groupByPoint,
+  worstSeverity,
+} from './pin';
 
 /**
  * @param {Array}  complaints  UI-shaped complaints; those without `coords` are skipped
@@ -25,6 +28,11 @@ export default function ComplaintMap({ complaints = [], height = '420px', onSele
   const layerRef = useRef(null);
 
   const plotted = useMemo(() => plottable(complaints), [complaints]);
+
+  // Complaints reported at the same spot are drawn as ONE pin carrying a count,
+  // not stacked invisibly on top of each other. Without this a junction with
+  // thirteen reports shows a single marker and the map under-reports the work.
+  const groups = useMemo(() => groupByPoint(plotted), [plotted]);
 
   // Create the map once.
   useEffect(() => {
@@ -60,34 +68,64 @@ export default function ComplaintMap({ complaints = [], height = '420px', onSele
 
     layer.clearLayers();
 
-    plotted.forEach((c) => {
-      const resolved = c.status === 'Resolved' || c.status === 'Closed';
-      const marker = L.marker([c.coords.latitude, c.coords.longitude], {
-        icon: pinIcon(c.severity, resolved),
-        title: c.issue,
-      });
+    groups.forEach((group) => {
+      const { lat, lng, items } = group;
+      const single = items.length === 1;
+      const c = items[0];
 
-      marker.bindPopup(`
-        <div style="min-width:180px">
-          <div style="font-weight:600;font-size:13px;color:#0f172a;line-height:1.35">${escapeHtml(c.issue)}</div>
-          <div style="font-family:ui-monospace,monospace;font-size:11px;color:#94a3b8;margin-top:2px">${escapeHtml(c.id)}</div>
-          <div style="font-size:12px;color:#475569;margin-top:6px">${escapeHtml(c.status)} · ${escapeHtml(c.severity)}</div>
-          <div style="font-size:12px;color:#64748b;margin-top:2px">${escapeHtml(c.location || '')}</div>
-          <a href="/complaints/${encodeURIComponent(c.id)}" data-complaint="${escapeHtml(c.id)}"
-             style="display:inline-block;margin-top:8px;font-size:12px;font-weight:600;color:#10b981;text-decoration:none">
-             Open complaint →</a>
-        </div>`);
+      const marker = single
+        ? L.marker([lat, lng], {
+            icon: pinIcon(c.severity, c.status === 'Resolved' || c.status === 'Closed'),
+            title: c.issue,
+          })
+        : L.marker([lat, lng], {
+            icon: clusterIcon(items.length, worstSeverity(items)),
+            title: `${items.length} complaints reported here`,
+          });
+
+      if (single) {
+        marker.bindPopup(`
+          <div style="min-width:180px">
+            <div style="font-weight:600;font-size:13px;color:#0f172a;line-height:1.35">${escapeHtml(c.issue)}</div>
+            <div style="font-family:ui-monospace,monospace;font-size:11px;color:#94a3b8;margin-top:2px">${escapeHtml(c.id)}</div>
+            <div style="font-size:12px;color:#475569;margin-top:6px">${escapeHtml(c.status)} · ${escapeHtml(c.severity)}</div>
+            <div style="font-size:12px;color:#64748b;margin-top:2px">${escapeHtml(c.location || '')}</div>
+            <a href="/complaints/${encodeURIComponent(c.id)}" data-complaint="${escapeHtml(c.id)}"
+               style="display:inline-block;margin-top:8px;font-size:12px;font-weight:600;color:#10b981;text-decoration:none">
+               Open complaint →</a>
+          </div>`);
+      } else {
+        // Every complaint at the point is listed, so the count is not a dead
+        // end -- a reader can reach any of them.
+        const rows = items.slice(0, 12).map((item) => `
+          <a href="/complaints/${encodeURIComponent(item.id)}" data-complaint="${escapeHtml(item.id)}"
+             style="display:block;padding:5px 0;border-top:1px solid #e2e8f0;text-decoration:none;color:#0f172a">
+            <div style="font-size:12px;font-weight:500;line-height:1.3">${escapeHtml(item.issue)}</div>
+            <div style="font-size:11px;color:#64748b;margin-top:1px">${escapeHtml(item.status)} · ${escapeHtml(item.severity)}</div>
+          </a>`).join('');
+        const more = items.length > 12
+          ? `<div style="font-size:11px;color:#94a3b8;padding-top:6px">and ${items.length - 12} more</div>`
+          : '';
+        marker.bindPopup(`
+          <div style="min-width:220px;max-height:260px;overflow:auto">
+            <div style="font-weight:600;font-size:13px;color:#0f172a">${items.length} complaints reported here</div>
+            <div style="font-size:11px;color:#64748b;margin-bottom:4px">${escapeHtml(items[0].location || '')}</div>
+            ${rows}${more}
+          </div>`);
+      }
 
       // Let the host page intercept navigation rather than doing a full reload,
       // which would throw away the SPA's state.
       marker.on('popupopen', (e) => {
-        const link = e.popup.getElement()?.querySelector('a[data-complaint]');
-        if (link && onSelect) {
+        const links = e.popup.getElement()?.querySelectorAll('a[data-complaint]') || [];
+        links.forEach((link) => {
           link.addEventListener('click', (ev) => {
+            if (!onSelect) return;
             ev.preventDefault();
-            onSelect(c);
+            const id = link.getAttribute('data-complaint');
+            onSelect(items.find((item) => item.id === id) || items[0]);
           });
-        }
+        });
       });
 
       layer.addLayer(marker);
@@ -101,7 +139,7 @@ export default function ComplaintMap({ complaints = [], height = '420px', onSele
         { padding: [36, 36], maxZoom: 16 },
       );
     }
-  }, [plotted, onSelect]);
+  }, [plotted, groups, onSelect]);
 
   // Optional "you are here" dot.
   useEffect(() => {
