@@ -663,7 +663,17 @@ paths:
   /complaints/{complaintId}/report-slip:
     get:
       summary: Get Complaint Report Slip
-      description: Return a structured report slip for printing or download.
+      description: 'The acknowledgement slip, as JSON or as a PDF.
+
+
+        ``format=pdf`` returns a one-page document generated here. The frontend used
+
+        to render the slip and call window.print(), which prints the surrounding
+
+        application and depends on print CSS behaving in every browser.
+
+
+        JSON remains the default so existing callers keep working.'
       operationId: get_complaint_report_slip_complaints__complaintId__report_slip_get
       security:
       - OAuth2PasswordBearer: []
@@ -674,6 +684,15 @@ paths:
         schema:
           type: string
           title: Complaintid
+      - name: format
+        in: query
+        required: false
+        schema:
+          type: string
+          description: json | pdf
+          default: json
+          title: Format
+        description: json | pdf
       responses:
         '200':
           description: Successful Response
