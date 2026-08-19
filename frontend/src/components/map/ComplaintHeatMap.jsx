@@ -19,7 +19,10 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { SEVERITY_COLOR, pinIcon, escapeHtml, plottable } from './pin';
+import {
+  SEVERITY_COLOR, pinIcon, clusterIcon, escapeHtml, plottable, groupByPoint,
+  worstSeverity,
+} from './pin';
 
 // The density shading. Deliberately not the civic navy: this encodes pressure,
 // and reusing the brand anchor would make a quiet area look "on brand" rather
@@ -41,6 +44,10 @@ export default function ComplaintHeatMap({ complaints = [], height = '460px' }) 
   const [ready, setReady] = useState(false);
 
   const plotted = useMemo(() => plottable(complaints), [complaints]);
+
+  // Reports at one spot are one counted pin. Seventeen complaints across three
+  // junctions previously drew three pins and looked like fourteen were missing.
+  const groups = useMemo(() => groupByPoint(plotted), [plotted]);
 
   useEffect(() => {
     if (mapRef.current || !containerRef.current) return undefined;
@@ -76,35 +83,54 @@ export default function ComplaintHeatMap({ complaints = [], height = '460px' }) 
     layer.clearLayers();
     if (!plotted.length) return;
 
-    for (const c of plotted) {
-      const w = WEIGHT[c.severity] || 1;
-      const at = [c.coords.latitude, c.coords.longitude];
+    for (const group of groups) {
+      const { lat, lng, items } = group;
+      const at = [lat, lng];
+      // Density weight is the sum over everything at this point, so a junction
+      // with twelve reports burns hotter than one with a single report -- which
+      // is the entire question this map answers.
+      const weight = items.reduce((total, c) => total + (WEIGHT[c.severity] || 1), 0);
 
-      // The density halo. Broad and very faint, so overlapping complaints
-      // compound into a hot spot while a lone one stays quiet.
       L.circleMarker(at, {
-        radius: 22 * w, stroke: false, fillColor: HALO, fillOpacity: 0.10,
+        radius: Math.min(22 * Math.sqrt(weight), 70),
+        stroke: false,
+        fillColor: HALO,
+        fillOpacity: 0.10,
       }).addTo(layer);
 
-      // The pin. One per complaint, always, so the map answers "how many and
-      // where" even when there are too few for any density to show.
-      L.marker(at, { icon: pinIcon(c.severity), title: c.issue })
-        .bindPopup(
-          `<div style="min-width:170px">` +
-          `<div style="font-weight:600;font-size:13px;color:#0f172a;line-height:1.35">${escapeHtml(c.issue || 'Complaint')}</div>` +
-          `<div style="font-family:ui-monospace,monospace;font-size:11px;color:#94a3b8;margin-top:2px">${escapeHtml(c.id || '')}</div>` +
-          `<div style="font-size:12px;color:#475569;margin-top:6px">${escapeHtml(c.severity)} · ${escapeHtml(c.status)}</div>` +
-          `<div style="font-size:12px;color:#64748b;margin-top:2px">${escapeHtml(c.category || '')}</div>` +
-          `</div>`,
-        )
-        .addTo(layer);
+      const severity = worstSeverity(items);
+      const marker = items.length === 1
+        ? L.marker(at, { icon: pinIcon(severity), title: items[0].issue })
+        : L.marker(at, {
+            icon: clusterIcon(items.length, severity),
+            title: `${items.length} complaints reported here`,
+          });
+
+      const heading = items.length === 1
+        ? `<div style="font-weight:600;font-size:13px;color:#0f172a;line-height:1.35">${escapeHtml(items[0].issue || 'Complaint')}</div>`
+        : `<div style="font-weight:600;font-size:13px;color:#0f172a">${items.length} complaints reported here</div>`;
+
+      const breakdown = {};
+      for (const c of items) breakdown[c.category] = (breakdown[c.category] || 0) + 1;
+      const lines = Object.entries(breakdown)
+        .sort((a, b) => b[1] - a[1])
+        .map(([name, n]) => `<div style="font-size:12px;color:#475569">${escapeHtml(name)} · ${n}</div>`)
+        .join('');
+
+      marker.bindPopup(`
+        <div style="min-width:190px">
+          ${heading}
+          <div style="font-size:11px;color:#94a3b8;margin:2px 0 6px">${escapeHtml(items[0].location || '')}</div>
+          ${lines}
+        </div>`);
+      marker.addTo(layer);
     }
 
     // Fit to the data, but never outside India — a single bad coordinate should
     // not drag the view off the country.
     const dataBounds = L.latLngBounds(plotted.map((c) => [c.coords.latitude, c.coords.longitude]));
     map.fitBounds(dataBounds.isValid() ? dataBounds.pad(0.15) : INDIA_BOUNDS, { maxZoom: 15 });
-  }, [plotted]);
+  }, [plotted, groups]);
 
   useEffect(() => {
     const onResize = () => mapRef.current?.invalidateSize();
@@ -130,7 +156,7 @@ export default function ComplaintHeatMap({ complaints = [], height = '460px' }) 
       {plotted.length > 0 && (
         <div className="absolute bottom-3 left-3 z-[400] bg-surface/95 backdrop-blur rounded-lg border border-line shadow-sm px-3 py-2">
           <div className="text-[10px] font-semibold uppercase tracking-wide text-ink-muted mb-1.5">
-            {plotted.length} plotted · by severity
+            {plotted.length} plotted at {groups.length} location{groups.length === 1 ? '' : 's'}
           </div>
           <div className="flex items-center gap-2.5 flex-wrap">
             {Object.entries(SEVERITY_COLOR).map(([label, color]) => (

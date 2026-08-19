@@ -22,7 +22,6 @@ import OperationsBrief from '../../components/metrics/OperationsBrief';
 import Provenance from '../../components/metrics/Provenance';
 import { LoadingPanel, ErrorPanel, EmptyPanel } from '../../components/dashboard/AsyncStates';
 import { IconRefresh, IconArrowRight, IconUsers, IconClock } from '../../components/dashboard/icons';
-import { getCurrentUser } from '../../api/auth';
 import { complaintPath } from '../../api/session';
 import { listComplaints } from '../../api/complaints';
 import { getOverview, getResolutionPerformance, getAging } from '../../api/analytics';
@@ -73,7 +72,6 @@ function SectionHeader({ title, subtitle, action }) {
 }
 
 export default function OfficerDashboard() {
-  const user = getCurrentUser();
   const { data, error, loading, refetch } = useAsync(loadDashboard, []);
 
   const metrics = useMemo(() => computeMetrics(data?.complaints), [data]);
@@ -106,7 +104,6 @@ export default function OfficerDashboard() {
   const topCategories = useMemo(() => ranked(metrics.byCategory, 5), [metrics]);
   const trend = useMemo(() => volumeSeries(data?.complaints, 30), [data]);
 
-  const firstName = (user?.name || 'there').split(' ')[0];
   const asOf = data?.loadedAt
     ? data.loadedAt.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
     : null;
@@ -133,7 +130,7 @@ export default function OfficerDashboard() {
       <header className="flex items-end justify-between gap-4 flex-wrap">
         <div>
           <h1 className="font-display text-[26px] font-bold text-ink leading-tight">
-            Good day, {firstName}
+            Operations overview
           </h1>
           <p className="text-[14px] text-ink-muted mt-1">
             Every complaint across the city, and what needs you first.
