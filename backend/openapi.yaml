@@ -260,6 +260,57 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /complaints/bulk-status:
+    patch:
+      summary: Bulk Status
+      description: 'Advance several complaints of the same kind to the next status.
+
+
+        This is what bulk assignment was being used for, and it is a different
+
+        operation: assignment picks who does the work, this moves work already in
+
+        flight along. Conflating them meant an officer trying to advance ten
+
+        in-progress jobs ended up reassigning them all to one worker.
+
+
+        `fromStatus` must match each complaint''s current status. Anything that has
+
+        moved since the officer''s list was drawn is refused with its actual state
+
+        rather than being dragged from a status they never saw -- a stale screen is
+
+        the normal case here, not an edge case.
+
+
+        Every transition goes through the same lifecycle rules as the
+
+        single-complaint endpoint, so bulk cannot reach a state the individual
+
+        action would refuse.'
+      operationId: bulk_status_complaints_bulk_status_patch
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BulkStatusUpdate'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BulkStatusResult'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - OAuth2PasswordBearer: []
   /complaints/bulk-assign:
     patch:
       summary: Bulk Assign
@@ -612,7 +663,17 @@ paths:
   /complaints/{complaintId}/report-slip:
     get:
       summary: Get Complaint Report Slip
-      description: Return a structured report slip for printing or download.
+      description: 'The acknowledgement slip, as JSON or as a PDF.
+
+
+        ``format=pdf`` returns a one-page document generated here. The frontend used
+
+        to render the slip and call window.print(), which prints the surrounding
+
+        application and depends on print CSS behaving in every browser.
+
+
+        JSON remains the default so existing callers keep working.'
       operationId: get_complaint_report_slip_complaints__complaintId__report_slip_get
       security:
       - OAuth2PasswordBearer: []
@@ -623,6 +684,15 @@ paths:
         schema:
           type: string
           title: Complaintid
+      - name: format
+        in: query
+        required: false
+        schema:
+          type: string
+          description: json | pdf
+          default: json
+          title: Format
+        description: json | pdf
       responses:
         '200':
           description: Successful Response
@@ -2074,6 +2144,65 @@ components:
         other nineteen, and the caller needs to know exactly which ones did not
 
         take rather than being told the whole thing worked.'
+    BulkStatusResult:
+      properties:
+        updated:
+          items:
+            type: string
+          type: array
+          title: Updated
+        failed:
+          items:
+            $ref: '#/components/schemas/BulkAssignFailure'
+          type: array
+          title: Failed
+        updatedCount:
+          type: integer
+          title: Updatedcount
+        failedCount:
+          type: integer
+          title: Failedcount
+      type: object
+      required:
+      - updated
+      - failed
+      - updatedCount
+      - failedCount
+      title: BulkStatusResult
+    BulkStatusUpdate:
+      properties:
+        complaintIds:
+          items:
+            type: string
+          type: array
+          maxItems: 50
+          minItems: 1
+          title: Complaintids
+        fromStatus:
+          $ref: '#/components/schemas/StatusEnum'
+        toStatus:
+          $ref: '#/components/schemas/StatusEnum'
+        remarks:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Remarks
+      type: object
+      required:
+      - complaintIds
+      - fromStatus
+      - toStatus
+      title: BulkStatusUpdate
+      description: 'Move several complaints that are all in the same state to the next one.
+
+
+        `fromStatus` is required and is the safety catch: the caller states what it
+
+        believes the complaints are, and anything that has moved since the list was
+
+        drawn is refused instead of being dragged along. Without it, a batch built
+
+        from a stale screen would push complaints from states the officer never saw.'
     CategorizeRequest:
       properties:
         description:
@@ -2719,6 +2848,10 @@ components:
         complaintId:
           type: string
           title: Complaintid
+        phase:
+          type: string
+          title: Phase
+          default: report
       type: object
       required:
       - mediaId

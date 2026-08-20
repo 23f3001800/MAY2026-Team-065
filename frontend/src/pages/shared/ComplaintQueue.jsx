@@ -7,8 +7,10 @@
 // Filtering and sorting are client-side; GET /complaints/ takes no query
 // parameters.
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import StatusBadge from '../../components/dashboard/StatusBadge';
 import SeverityBadge from '../../components/dashboard/SeverityBadge';
+import ConfidenceBadge, { DOUBTFUL_BELOW } from '../../components/dashboard/ConfidenceBadge';
 import ComplaintDrawer from '../../components/officer/ComplaintDrawer';
 import { LoadingPanel, ErrorPanel, EmptyPanel } from '../../components/dashboard/AsyncStates';
 import { IconSearch, IconChevronDown } from '../../components/dashboard/icons';
@@ -22,6 +24,7 @@ import { listFieldWorkers } from '../../api/workers';
 import { CATEGORIES, ASSIGNABLE_STATUSES } from '../../api/mappers';
 import useAsync from '../../hooks/useAsync';
 import { getCurrentUser } from '../../api/auth';
+import { complaintPath } from '../../api/session';
 import ComplaintMap from '../../components/map/ComplaintMap';
 
 function formatDate(iso) {
@@ -134,7 +137,7 @@ export default function ComplaintQueue({ title, subtitle }) {
         // A complaint with no score was never classified. That is a different
         // queue from "classified badly", so it is excluded rather than treated
         // as zero-confidence and floated to the top.
-        return typeof c.ai?.confidence === 'number' && c.ai.confidence < 0.6;
+        return typeof c.ai?.confidence === 'number' && c.ai.confidence < DOUBTFUL_BELOW;
       })
       .sort((a, b) => {
         if (sortBy === 'confidence') {
@@ -496,6 +499,9 @@ export default function ComplaintQueue({ title, subtitle }) {
                   <th className="font-semibold px-3 py-3">ID</th>
                   <th className="font-semibold px-3 py-3">Issue</th>
                   <th className="font-semibold px-3 py-3">Category</th>
+                  {/* The key the queue can be ordered by. Without it on screen,
+                      "least confident first" is indistinguishable from no order. */}
+                  <th className="font-semibold px-3 py-3">AI confidence</th>
                   <th className="font-semibold px-3 py-3">Severity</th>
                   <th className="font-semibold px-3 py-3">Location</th>
                   <th className="font-semibold px-3 py-3">Status</th>
@@ -519,9 +525,21 @@ export default function ComplaintQueue({ title, subtitle }) {
                         className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-emerald-200 cursor-pointer"
                       />
                     </td>
-                    <td className="px-3 py-3 text-[12px] font-mono text-slate-500 whitespace-nowrap">{c.id}</td>
+                    <td className="px-3 py-3 text-[12px] font-mono whitespace-nowrap">
+                      {/* The drawer is for a triage pass; the reference opens
+                          the full record for the reading and deciding half. */}
+                      <Link
+                        to={complaintPath(getCurrentUser()?.role, c.id)}
+                        className="focus-ring rounded text-slate-500 hover:text-civic-700 hover:underline"
+                      >
+                        {c.id}
+                      </Link>
+                    </td>
                     <td className="px-3 py-3 text-[13px] font-medium text-slate-800">{c.issue}</td>
                     <td className="px-3 py-3 text-[13px] text-slate-600 whitespace-nowrap">{c.category}</td>
+                    <td className="px-3 py-3">
+                      <ConfidenceBadge value={c.ai?.confidence} />
+                    </td>
                     <td className="px-3 py-3"><SeverityBadge severity={c.severity} /></td>
                     <td className="px-3 py-3 text-[13px] text-slate-500 whitespace-nowrap">{c.location}</td>
                     <td className="px-3 py-3"><StatusBadge status={c.status} /></td>
@@ -552,7 +570,10 @@ export default function ComplaintQueue({ title, subtitle }) {
                   <div className="flex items-center gap-2 mt-2 text-[12px] text-slate-500">
                     <span>{c.category}</span><span>·</span><span>{c.location}</span>
                   </div>
-                  <div className="mt-2"><SeverityBadge severity={c.severity} /></div>
+                  <div className="mt-2 flex items-center gap-2 flex-wrap">
+                    <SeverityBadge severity={c.severity} />
+                    <ConfidenceBadge value={c.ai?.confidence} showMeter={false} />
+                  </div>
                 </button>
               </li>
             ))}

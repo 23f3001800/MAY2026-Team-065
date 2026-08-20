@@ -1,73 +1,181 @@
-# API Testing Report -- Smart CivicConnect
+# API Testing Report – Smart CivicConnect
+
+---
 
 ## Project
 
-Smart CivicConnect Backend API
+**Smart CivicConnect Backend API**
+
+---
 
 ## Tester
 
-Rishabh Prasad (QA Engineer / Code Reviewer)
+**Rishabh Prasad**  
+QA Engineer / Code Reviewer
+
+---
 
 ## Testing Environment
 
--   Backend: FastAPI (Uvicorn)
--   API Documentation: Swagger UI
--   API Client: Postman
--   Base URL: http://127.0.0.1:8000
+| Component | Details |
+|-----------|---------|
+| Backend Framework | FastAPI (Uvicorn) |
+| API Documentation | Swagger UI |
+| API Testing Tool | Postman |
+| Automation Tool | Newman |
+| Automated Test Framework | Pytest |
+| Base URL | http://127.0.0.1:8000 |
 
-## Testing Scope
+---
 
-The following API modules were tested:
+# Testing Scope
 
--   Authentication
--   Complaints
--   Workers
--   Admin
--   Users
--   Notifications
--   Feedback
--   Image Upload
--   Complaint Assignment
--   Complaint Status Update
--   Complaint Recategorization
+The following backend modules were tested during Sprint 1:
 
-## Summary
+- Authentication
+- Complaints
+- Workers
+- Administration
+- Users
+- Notifications
+- Feedback
+- Complaint Assignment
+- Complaint Status Update
+- Complaint Recategorization
+- Image Upload
 
-  Metric                         Result
-  ---------------------------- --------
-  Total Endpoints Tested             21
-  Collection Runner Executed        Yes
-  Total Tests Executed               63
-  Passed                             63
-  Failed                              0
-  Runtime Errors                      0
-  Average Response Time          \~7 ms
+---
 
-## Functional Validation
+# Test Summary
 
--   User registration and login verified.
--   Complaint creation and retrieval verified.
--   Complaint assignment to field worker verified.
--   Worker task retrieval verified.
--   Worker availability update verified.
--   Complaint status updated through lifecycle.
--   Feedback submission verified for resolved complaints.
--   Notifications retrieved successfully.
--   Admin analytics verified.
--   Municipal officer creation verified.
--   User update endpoint verified.
+| Metric | Result |
+|---------|--------|
+| Total Endpoints Tested | 21 |
+| Total API Requests Executed | 21 |
+| Total Assertions Executed | 63 |
+| Passed Assertions | 63 |
+| Failed Assertions | 0 |
+| Runtime Errors | 0 |
+| Average Response Time | ~7 ms |
+| Overall Result | **PASS** |
 
-## Validation Cases Observed
+---
 
--   HTTP 422 returned for invalid or incomplete request bodies.
--   HTTP 400 returned for valid business-rule violations (e.g.,
-    duplicate category assignment).
--   Authorization restrictions behaved correctly for protected
-    endpoints.
+# Functional Validation
 
-## Conclusion
+The following functionalities were successfully verified:
 
-All implemented endpoints executed successfully during functional API
-testing. The Postman Collection Runner completed with 63 passing tests,
-no failed assertions, and no runtime errors. Input validation,
-authorization checks, and business-rule validations behaved as expected.
+- User registration
+- User authentication and login
+- Complaint creation
+- Complaint retrieval
+- Complaint assignment to field workers
+- Worker task retrieval
+- Worker availability update
+- Complaint status update
+- Feedback submission for resolved complaints
+- Notification retrieval
+- Administrative analytics
+- Municipal officer creation
+- User information update
+
+---
+
+# Test Execution Evidence
+
+## Manual Testing
+
+The APIs were manually verified using **Swagger UI**.
+
+The following checks were performed:
+
+- Endpoint accessibility
+- Request payload validation
+- Response verification
+- HTTP status code validation
+- Authentication using JWT tokens
+- Role-based authorization (Citizen, Administrator, Municipal Officer, Field Worker)
+
+---
+
+## Automated Testing
+
+Automated testing was performed using multiple tools.
+
+| Tool | Purpose | Status |
+|------|---------|--------|
+| Swagger UI | Manual API Verification | ✅ Passed |
+| Postman Collection Runner | Functional API Testing | ✅ Passed |
+| Newman CLI | Automated Collection Execution | ✅ Passed |
+| Pytest | Automated Smoke Testing | ✅ Passed |
+
+---
+
+## Automated Test Results
+
+### Postman Collection Runner
+
+- Requests Executed: **21**
+- Assertions: **63**
+- Failed Assertions: **0**
+- Runtime Errors: **0**
+
+### Pytest
+
+```
+==========================
+5 tests collected
+
+5 passed
+
+Execution completed successfully.
+==========================
+```
+
+---
+
+# Validation Cases Observed
+
+The following validation scenarios were verified successfully:
+
+- HTTP **400 Bad Request** for business-rule validation failures.
+- HTTP **401 Unauthorized** for unauthenticated requests.
+- HTTP **403 Forbidden** for unauthorized role access.
+- HTTP **422 Unprocessable Entity** for invalid request payloads.
+- Appropriate validation messages returned for invalid inputs.
+
+Example:
+
+- Attempting to assign an already assigned complaint category correctly returned **HTTP 400**.
+- Invalid or incomplete request bodies correctly returned **HTTP 422**.
+
+---
+
+# Observations
+
+- All implemented APIs responded correctly.
+- Authentication and authorization behaved as expected.
+- Input validation prevented invalid data from being processed.
+- Business-rule validations were enforced successfully.
+- No unexpected server crashes or runtime exceptions were observed during testing.
+- Average API response time remained within acceptable limits.
+
+---
+
+# Conclusion
+
+Functional and automated testing of the Smart CivicConnect backend APIs was successfully completed.
+
+The testing process included:
+
+- Manual API verification using Swagger UI
+- Functional API testing using Postman Collection Runner
+- Automated execution using Newman
+- Automated smoke testing using Pytest
+
+A total of **21 API endpoints** and **63 assertions** were executed successfully with:
+
+- **0 Failed Assertions**
+- **0 Runtime Errors**
+
+Overall, the implemented APIs behaved as expected, and the backend is considered **stable for the completion of Sprint 1**. The identified validation responses (HTTP 400, 401, 403, and 422) were expected behaviours and confirmed that authentication, authorization, and input validation mechanisms are functioning correctly.

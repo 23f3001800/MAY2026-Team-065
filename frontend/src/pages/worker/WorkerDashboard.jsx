@@ -16,7 +16,6 @@ import { LoadingPanel, ErrorPanel } from '../../components/dashboard/AsyncStates
 import {
   IconMapPin, IconCheckCircle, IconClipboard, IconClock,
 } from '../../components/dashboard/icons';
-import { getCurrentUser } from '../../api/auth';
 import { listMyTasks } from '../../api/complaints';
 import { setMyAvailability } from '../../api/workers';
 import useAsync from '../../hooks/useAsync';
@@ -28,8 +27,6 @@ const AVAIL_STYLE = {
 
 export default function WorkerDashboard() {
   const navigate = useNavigate();
-  const user = getCurrentUser();
-  const firstName = user?.name?.split(' ')[0] || 'there';
 
   const { data, error, loading, refetch } = useAsync(() => listMyTasks(), []);
   const tasks = useMemo(() => data || [], [data]);
@@ -71,7 +68,7 @@ export default function WorkerDashboard() {
     <div className="max-w-[1100px] mx-auto space-y-5 animate-rise-in">
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="font-display text-2xl font-bold text-slate-900">Hi, {firstName}</h1>
+          <h1 className="font-display text-2xl font-bold text-slate-900">Today's work</h1>
           <p className="text-[14px] text-slate-500">Here are the tasks assigned to you.</p>
         </div>
         <div className="flex items-center gap-2">
