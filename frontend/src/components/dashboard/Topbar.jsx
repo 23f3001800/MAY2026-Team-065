@@ -35,7 +35,7 @@ export default function Topbar({
           {initial}
         </div>
         <div className="hidden sm:block leading-tight">
-          <div className="text-[13px] font-semibold text-slate-800">Hi, {name}</div>
+          <div className="text-[13px] font-semibold text-slate-800">{user?.name || name}</div>
           <div className="text-[11px] text-slate-400 capitalize">{user?.role?.replace('_', ' ') || 'citizen'}</div>
         </div>
       </div>

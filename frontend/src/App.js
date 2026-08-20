@@ -22,6 +22,7 @@ import OfficerComplaints from './pages/officer/OfficerComplaints';
 import OfficerWorkers from './pages/officer/OfficerWorkers';
 import OfficerVerification from './pages/officer/OfficerVerification';
 import OfficerEscalations from './pages/officer/OfficerEscalations';
+import OfficerComplaintView from './pages/officer/OfficerComplaintView';
 import WorkerLayout from './layouts/WorkerLayout';
 import WorkerDashboard from './pages/worker/WorkerDashboard';
 import WorkerTasks from './pages/worker/WorkerTasks';
@@ -116,7 +117,7 @@ function App() {
           {/* Same detail view the citizen sees, inside the officer's layout.
               /complaints/:id is guarded to citizens, so linking an officer
               there bounced them to their dashboard. */}
-          <Route path="/officer/complaints/:id" element={<ComplaintDetails />} />
+          <Route path="/officer/complaints/:id" element={<OfficerComplaintView />} />
           <Route path="/officer/verification" element={<OfficerVerification />} />
           <Route path="/officer/escalations" element={<OfficerEscalations />} />
           <Route path="/officer/workers" element={<OfficerWorkers />} />

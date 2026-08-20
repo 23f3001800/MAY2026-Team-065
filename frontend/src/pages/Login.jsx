@@ -1,8 +1,10 @@
-// Login page — universal for all four roles. The backend resolves the role
-// from the credentials and returns it in the user object, so no role picker
-// is needed here.
+// Sign in. Universal for all four roles — the backend resolves the role from
+// the credentials, so there is no role picker to get wrong.
+//
+// The authentication logic is unchanged from the version this replaces; only
+// the frame around it moved from the dark glass card to the civic shell.
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import AuthShell, { AuthCard, NavLink } from '../components/auth/AuthShell';
 import { CityLineArt } from '../components/auth/AuthScene';
 import {
@@ -19,11 +21,19 @@ const FEATURES = [
 
 export default function Login() {
   const navigate = useNavigate();
+  const [params] = useSearchParams();
+
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [remember, setRemember] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState({ text: '', type: '' });
+  // A session that timed out redirects here with ?expired=1. Saying so beats
+  // leaving someone to wonder why they were thrown out mid-task.
+  const [message, setMessage] = useState(() => (
+    params.get('expired')
+      ? { text: 'Your session ended. Please sign in again.', type: 'error' }
+      : { text: '', type: '' }
+  ));
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -36,7 +46,7 @@ export default function Login() {
     try {
       const data = await login({ email, password });
       saveSession(data);
-      setMessage({ text: 'Logged in successfully. Redirecting…', type: 'success' });
+      setMessage({ text: 'Signed in. Taking you to your dashboard…', type: 'success' });
       navigate(homePathForRole(data.user?.role), { replace: true });
     } catch (err) {
       setMessage({ text: err.message, type: 'error' });

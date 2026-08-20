@@ -21,6 +21,41 @@ backend/uploads/
 # OS files
 .DS_Store
 
+# Environment variables (secrets)
+.env
+.env.*
+
+
+# Windows metadata
+*:Zone.Identifier
+
+# Accidental npm folder
+${APPDATA}\npm/
+
+
+__pycache__/
+*.pyc
+.pytest_cache/
+# Virtual environment
+backend/.venv/
+.venv/
+venv/
+ENV/
+
+# Python cache and temporary files
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Databases
+backend/smart_civic.db
+*.db
+*.sqlite3
+
+# OS files
+.DS_Store
+
 # Windows metadata
 *:Zone.Identifier
 

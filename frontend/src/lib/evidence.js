@@ -28,9 +28,23 @@ export function splitEvidence(media = [], reportedAt, citizenId) {
   );
   if (!items.length) return { before: [], after: [] };
 
-  // Exact path: ComplaintResponse now carries citizenId, so the reporter's
-  // photos can be identified rather than inferred. Everything below this is a
-  // fallback for records where it is missing.
+  // Best path: the backend now records `phase` on each upload, so nothing has
+  // to be inferred at all. It is a fact about who uploaded and when, decided
+  // where those facts live.
+  //
+  // Used only when EVERY item carries it. A partially-populated set would mean
+  // splitting some photos on the stored value and others on a guess, which is
+  // how the two halves disagreed in the first place.
+  if (items.length && items.every((m) => m.phase)) {
+    return {
+      before: items.filter((m) => m.phase === 'report'),
+      after: items.filter((m) => m.phase !== 'report'),
+    };
+  }
+
+  // Next best: ComplaintResponse carries citizenId, so the reporter's photos
+  // can be identified rather than inferred. Everything below is a fallback fo
+  // records older than both fields.
   if (citizenId) {
     return {
       before: items.filter((m) => m.uploadedBy === citizenId),

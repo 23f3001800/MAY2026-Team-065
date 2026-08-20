@@ -22,7 +22,6 @@ import {
 } from '../components/dashboard/icons';
 import { listComplaints } from '../api/complaints';
 import { computeMetrics, ranked, volumeSeries } from '../lib/complaintMetrics';
-import { getCurrentUser } from '../api/auth';
 import useAsync from '../hooks/useAsync';
 
 /**
@@ -68,7 +67,6 @@ function Stat({ label, value, of, tone = 'neutral', icon: Icon, sub }) {
 }
 
 export default function CitizenDashboard() {
-  const user = getCurrentUser();
   const { data, error, loading, refetch } = useAsync(() => listComplaints(), []);
   const complaints = useMemo(() => data || [], [data]);
   const metrics = useMemo(() => computeMetrics(complaints), [complaints]);
@@ -81,7 +79,6 @@ export default function CitizenDashboard() {
     [complaints],
   );
 
-  const firstName = (user?.name || 'there').split(' ')[0];
   const total = complaints.length;
 
   // Charts need a shape to show. Below this a donut is three slices of nothing
@@ -100,7 +97,7 @@ export default function CitizenDashboard() {
       <header className="flex items-end justify-between gap-4 flex-wrap">
         <div>
           <h1 className="font-display text-[26px] font-bold text-ink leading-tight">
-            Hello, {firstName}
+            Overview
           </h1>
           <p className="text-[14px] text-ink-muted mt-1">
             {total === 0
