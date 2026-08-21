@@ -86,7 +86,7 @@ export default function AdminReports() {
         <button
           onClick={() => downloadCsv(filtered)}
           disabled={filtered.length === 0}
-          className="inline-flex items-center gap-2 bg-primary hover:bg-emerald-600 disabled:opacity-50 text-white font-semibold text-[14px] px-4 py-2.5 rounded-xl shadow-btn transition-colors"
+          className="inline-flex items-center gap-2 bg-primary hover:bg-leaf-700 disabled:opacity-50 text-white font-semibold text-[14px] px-4 py-2.5 rounded-xl shadow-btn transition-colors"
         >
           <IconReport size={16} /> Export CSV ({filtered.length})
         </button>

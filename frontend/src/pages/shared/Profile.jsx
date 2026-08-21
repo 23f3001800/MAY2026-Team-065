@@ -183,7 +183,7 @@ export default function Profile() {
             <button
               type="submit"
               disabled={savingProfile}
-              className="focus-ring inline-flex items-center gap-2 bg-primary hover:bg-emerald-600 disabled:opacity-60 text-white font-semibold text-[14px] px-4 py-2.5 rounded-xl shadow-btn transition-colors"
+              className="focus-ring inline-flex items-center gap-2 bg-primary hover:bg-leaf-700 disabled:opacity-60 text-white font-semibold text-[14px] px-4 py-2.5 rounded-xl shadow-btn transition-colors"
             >
               <IconCheckCircle size={16} /> {savingProfile ? 'Saving…' : 'Save changes'}
             </button>

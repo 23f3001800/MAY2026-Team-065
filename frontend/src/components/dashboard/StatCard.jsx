@@ -11,7 +11,7 @@ import useCountUp from '../../hooks/useCountUp';
 
 // tone -> icon + colour classes. Kept here so the page only passes a tone key.
 const TONES = {
-  emerald: { icon: IconClipboard, ring: 'bg-emerald-50 text-emerald-600', glow: 'group-hover:ring-emerald-200' },
+  emerald: { icon: IconClipboard, ring: 'bg-leaf-50 text-leaf-600', glow: 'group-hover:ring-leaf-200' },
   blue: { icon: IconHourglass, ring: 'bg-blue-50 text-blue-600', glow: 'group-hover:ring-blue-200' },
   purple: { icon: IconCheckCircle, ring: 'bg-violet-50 text-violet-600', glow: 'group-hover:ring-violet-200' },
   amber: { icon: IconAlertTriangle, ring: 'bg-amber-50 text-amber-600', glow: 'group-hover:ring-amber-200' },
@@ -44,7 +44,7 @@ export default function StatCard({ label, value, trend, tone, onClick }) {
       </div>
 
       {trend && (
-        <div className="mt-2 flex items-center gap-1 text-[12px] font-medium text-emerald-600">
+        <div className="mt-2 flex items-center gap-1 text-[12px] font-medium text-leaf-600">
           <IconTrendingUp size={14} />
           {trend}
         </div>

@@ -48,7 +48,7 @@ export function ErrorPanel({ error, onRetry }) {
       {onRetry && (
         <button
           onClick={onRetry}
-          className="focus-ring lift mt-5 inline-flex items-center gap-2 bg-primary hover:bg-emerald-600 text-white font-semibold text-[14px] px-4 py-2.5 rounded-xl shadow-btn hover:shadow-btn-hover transition-all"
+          className="focus-ring lift mt-5 inline-flex items-center gap-2 bg-primary hover:bg-leaf-700 text-white font-semibold text-[14px] px-4 py-2.5 rounded-xl shadow-btn hover:shadow-btn-hover transition-all"
         >
           <IconRefresh size={16} /> Try again
         </button>

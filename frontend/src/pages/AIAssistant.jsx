@@ -224,7 +224,7 @@ export default function AIAssistant() {
           type="submit"
           disabled={!question.trim() || sending || unavailable}
           aria-label="Send"
-          className="focus-ring shrink-0 w-9 h-9 rounded-xl bg-primary hover:bg-emerald-600 disabled:bg-slate-200 disabled:text-slate-400 text-white flex items-center justify-center transition-colors"
+          className="focus-ring shrink-0 w-9 h-9 rounded-xl bg-primary hover:bg-leaf-700 disabled:bg-slate-200 disabled:text-slate-400 text-white flex items-center justify-center transition-colors"
         >
           <IconSend size={16} />
         </button>

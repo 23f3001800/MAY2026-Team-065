@@ -63,7 +63,7 @@ function SectionHeader({ title, subtitle, action }) {
   return (
     <div className="flex items-end justify-between gap-3 mb-3 flex-wrap">
       <div>
-        <h2 className="font-display text-[15px] font-bold text-ink">{title}</h2>
+        <h2 className="font-display text-[15px] font-bold text-leaf-700">{title}</h2>
         {subtitle && <p className="text-[12px] text-ink-muted mt-0.5">{subtitle}</p>}
       </div>
       {action}
@@ -129,7 +129,7 @@ export default function OfficerDashboard() {
       {/* Page header */}
       <header className="flex items-end justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="font-display text-[26px] font-bold text-ink leading-tight">
+          <h1 className="font-display text-[28px] font-bold text-ink leading-tight">
             Operations overview
           </h1>
           <p className="text-[14px] text-ink-muted mt-1">
@@ -144,7 +144,7 @@ export default function OfficerDashboard() {
           )}
           <button
             onClick={refetch}
-            className="focus-ring lift inline-flex items-center gap-2 bg-surface border border-line hover:border-civic-400 text-ink-body font-semibold text-[13px] px-3.5 py-2 rounded-lg shadow-sm transition-all"
+            className="focus-ring lift inline-flex items-center gap-2 bg-surface border border-line hover:border-leaf-400 text-ink-body font-semibold text-[13px] px-3.5 py-2 rounded-lg shadow-sm transition-all"
           >
             <IconRefresh size={15} /> Refresh
           </button>
@@ -285,7 +285,7 @@ export default function OfficerDashboard() {
                     </div>
                     <div className="mt-1.5 h-1.5 rounded-full bg-surface-inset overflow-hidden">
                       <div
-                        className={`h-full rounded-full animate-grow-x origin-left ${skewed ? 'bg-caution-500' : 'bg-civic-600'}`}
+                        className={`h-full rounded-full animate-grow-x origin-left ${skewed ? 'bg-caution-500' : 'bg-leaf-600'}`}
                         style={{ width: `${width}%` }}
                       />
                     </div>
@@ -316,7 +316,7 @@ export default function OfficerDashboard() {
             action={
               <Link
                 to="/officer/complaints"
-                className="inline-flex items-center gap-1 text-[13px] font-semibold text-civic-700 hover:underline"
+                className="inline-flex items-center gap-1 text-[13px] font-semibold text-leaf-700 hover:underline"
               >
                 Open the queue <IconArrowRight size={14} />
               </Link>
@@ -377,7 +377,7 @@ export default function OfficerDashboard() {
                         </div>
                         <div className="mt-1.5 h-1.5 rounded-full bg-surface-inset overflow-hidden">
                           <div
-                            className="h-full rounded-full bg-civic-600 origin-left animate-grow-x"
+                            className="h-full rounded-full bg-leaf-600 origin-left animate-grow-x"
                             style={{ width: `${pct}%` }}
                           />
                         </div>
@@ -399,7 +399,7 @@ export default function OfficerDashboard() {
             <SectionHeader
               title="Field workers"
               action={
-                <Link to="/officer/workers" className="text-[13px] font-semibold text-civic-700 hover:underline">
+                <Link to="/officer/workers" className="text-[13px] font-semibold text-leaf-700 hover:underline">
                   All
                 </Link>
               }

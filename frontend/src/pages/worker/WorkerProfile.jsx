@@ -274,7 +274,7 @@ export default function WorkerProfile() {
           <button
             type="submit"
             disabled={saving || !dirty}
-            className="px-4 py-2 rounded-lg text-[13px] font-semibold bg-primary hover:bg-emerald-600 disabled:opacity-50 disabled:cursor-not-allowed text-white transition-colors"
+            className="px-4 py-2 rounded-lg text-[13px] font-semibold bg-primary hover:bg-leaf-700 disabled:opacity-50 disabled:cursor-not-allowed text-white transition-colors"
           >
             {saving ? 'Saving…' : 'Save details'}
           </button>
@@ -353,7 +353,7 @@ export default function WorkerProfile() {
           <button
             onClick={() => setAvailability(true)}
             disabled={busyAvail || available}
-            className="px-4 py-2 rounded-lg text-[13px] font-semibold bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 text-white transition-colors"
+            className="px-4 py-2 rounded-lg text-[13px] font-semibold bg-emerald-500 hover:bg-leaf-700 disabled:opacity-50 text-white transition-colors"
           >
             Available
           </button>
