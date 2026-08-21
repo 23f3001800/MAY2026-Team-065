@@ -70,7 +70,7 @@ export function BarList({ data = [], total, onSelect, valueSuffix = '', emptyMes
               className={`w-full text-left ${onSelect ? 'focus-ring group cursor-pointer' : ''}`}
             >
               <div className="flex items-baseline justify-between gap-2 text-[13px]">
-                <span className={`text-ink-body truncate ${onSelect ? 'group-hover:text-civic-700' : ''}`}>
+                <span className={`text-ink-body truncate ${onSelect ? 'group-hover:text-leaf-700' : ''}`}>
                   {label}
                 </span>
                 <span className="shrink-0 font-semibold text-ink tnum">

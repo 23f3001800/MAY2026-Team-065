@@ -127,7 +127,7 @@ export default function AdminUsers() {
           </button>
           <button
             onClick={() => setShowCreateOfficer(true)}
-            className="inline-flex items-center gap-2 bg-primary hover:bg-emerald-600 text-white font-semibold text-[13px] px-3.5 py-2.5 rounded-xl shadow-btn transition-colors"
+            className="inline-flex items-center gap-2 bg-primary hover:bg-leaf-700 text-white font-semibold text-[13px] px-3.5 py-2.5 rounded-xl shadow-btn transition-colors"
           >
             <IconUserPlus size={15} /> Officer
           </button>

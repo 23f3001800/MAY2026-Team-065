@@ -42,7 +42,7 @@ export default function ResetPasswordModal({ user, onDismiss, onDone }) {
         <button
           type="submit"
           disabled={saving}
-          className="w-full inline-flex items-center justify-center gap-2 bg-primary hover:bg-emerald-600 disabled:opacity-60 text-white font-semibold text-[13px] py-2.5 rounded-lg shadow-btn transition-colors"
+          className="w-full inline-flex items-center justify-center gap-2 bg-primary hover:bg-leaf-700 disabled:opacity-60 text-white font-semibold text-[13px] py-2.5 rounded-lg shadow-btn transition-colors"
         >
           {saving ? 'Resetting…' : 'Reset Password'}
         </button>

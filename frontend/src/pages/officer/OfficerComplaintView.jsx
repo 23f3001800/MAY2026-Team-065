@@ -211,7 +211,7 @@ export default function OfficerComplaintView() {
                   href={`https://www.google.com/maps/dir/?api=1&destination=${complaint.coords.latitude},${complaint.coords.longitude}`}
                   target="_blank"
                   rel="noreferrer"
-                  className="focus-ring inline-flex items-center gap-1.5 text-[13px] font-semibold text-civic-700 hover:underline rounded"
+                  className="focus-ring inline-flex items-center gap-1.5 text-[13px] font-semibold text-leaf-700 hover:underline rounded"
                 >
                   Directions <IconExternal size={13} />
                 </a>
@@ -251,7 +251,7 @@ export default function OfficerComplaintView() {
               <ol className="space-y-3">
                 {timeline.map((h, i) => (
                   <li key={h.id || i} className="flex gap-3">
-                    <span className="mt-1.5 w-2 h-2 rounded-full bg-civic-500 shrink-0" aria-hidden="true" />
+                    <span className="mt-1.5 w-2 h-2 rounded-full bg-leaf-500 shrink-0" aria-hidden="true" />
                     <div className="min-w-0">
                       <div className="flex items-baseline gap-2 flex-wrap">
                         <StatusBadge status={h.status} />
@@ -294,7 +294,7 @@ export default function OfficerComplaintView() {
                 const w = workers.find((x) => x.id === e.target.value);
                 if (w) run(() => assignFieldWorker(complaint.id, w.id), `Assigned to ${w.name}.`);
               }}
-              className="w-full bg-surface rounded-lg border border-line px-3 py-2.5 text-[13.5px] text-ink outline-none focus:border-civic-500 focus:ring-2 focus:ring-civic-500/15 disabled:opacity-50"
+              className="w-full bg-surface rounded-lg border border-line px-3 py-2.5 text-[13.5px] text-ink outline-none focus:border-leaf-500 focus:ring-2 focus:ring-leaf-500/15 disabled:opacity-50"
             >
               <option value="">Choose a field worker…</option>
               {workers.map((w) => (
@@ -319,7 +319,7 @@ export default function OfficerComplaintView() {
                     () => updateComplaintStatus(complaint.id, s, null),
                     `Marked ${s}.`,
                   )}
-                  className="focus-ring text-[12.5px] font-semibold px-3 py-2 rounded-lg border border-line bg-surface hover:border-civic-400 hover:bg-surface-inset disabled:opacity-50 transition-colors"
+                  className="focus-ring text-[12.5px] font-semibold px-3 py-2 rounded-lg border border-line bg-surface hover:border-leaf-400 hover:bg-surface-inset disabled:opacity-50 transition-colors"
                 >
                   {s}
                 </button>
@@ -337,7 +337,7 @@ export default function OfficerComplaintView() {
                     () => overrideSeverity(complaint.id, s, 'Reviewed by an officer.'),
                     `Severity set to ${s}.`,
                   )}
-                  className="focus-ring text-[12.5px] font-semibold px-3 py-1.5 rounded-lg border border-line bg-surface hover:border-civic-400 disabled:opacity-50 transition-colors"
+                  className="focus-ring text-[12.5px] font-semibold px-3 py-1.5 rounded-lg border border-line bg-surface hover:border-leaf-400 disabled:opacity-50 transition-colors"
                 >
                   {s}
                 </button>
@@ -351,7 +351,7 @@ export default function OfficerComplaintView() {
           {complaint.ai && (
             <Card title="AI triage">
               <div className="flex items-center gap-2 mb-3">
-                <IconSparkles size={14} className="text-civic-600" />
+                <IconSparkles size={14} className="text-leaf-600" />
                 <ConfidenceBadge value={complaint.ai.confidence} />
               </div>
               <dl className="space-y-2 text-[12.5px]">

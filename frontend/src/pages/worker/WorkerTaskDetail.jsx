@@ -41,8 +41,8 @@ function stamp(iso) {
 }
 
 const DOT = {
-  New: 'bg-teal-500', 'Under Review': 'bg-civic-400', Assigned: 'bg-caution-500',
-  'In Progress': 'bg-civic-600', 'On Hold': 'bg-ink-faint', Escalated: 'bg-caution-600',
+  New: 'bg-teal-500', 'Under Review': 'bg-leaf-400', Assigned: 'bg-caution-500',
+  'In Progress': 'bg-leaf-600', 'On Hold': 'bg-ink-faint', Escalated: 'bg-caution-600',
   Resolved: 'bg-teal-600', Verified: 'bg-teal-700', Reopened: 'bg-danger-600',
   Rejected: 'bg-danger-600',
 };
@@ -186,7 +186,7 @@ export default function WorkerTaskDetail() {
     <div className="max-w-[900px] mx-auto pb-28 animate-rise-in">
       <Link
         to="/worker/tasks"
-        className="focus-ring inline-flex items-center gap-2 text-[13px] font-semibold text-ink-muted hover:text-civic-700 transition-colors mb-4"
+        className="focus-ring inline-flex items-center gap-2 text-[13px] font-semibold text-ink-muted hover:text-leaf-700 transition-colors mb-4"
       >
         <IconArrowLeft size={16} /> All tasks
       </Link>
@@ -219,8 +219,8 @@ export default function WorkerTaskDetail() {
                 <p className="text-[13px] text-ink-muted">No coordinates recorded for this task.</p>
               </div>}
           <div className="bg-surface p-4 flex items-center gap-3 flex-wrap">
-            <span className="w-9 h-9 rounded-xl bg-civic-50 flex items-center justify-center shrink-0">
-              <IconMapPin size={17} className="text-civic-700" />
+            <span className="w-9 h-9 rounded-xl bg-leaf-50 flex items-center justify-center shrink-0">
+              <IconMapPin size={17} className="text-leaf-700" />
             </span>
             <div className="min-w-0 flex-1">
               <div className="text-[14px] font-semibold text-ink leading-snug">{task.location}</div>
@@ -233,7 +233,7 @@ export default function WorkerTaskDetail() {
                 href={mapsUrl}
                 target="_blank"
                 rel="noreferrer"
-                className="focus-ring lift shrink-0 inline-flex items-center gap-2 bg-civic-700 hover:bg-civic-800 text-white font-semibold text-[13px] px-4 py-2.5 rounded-xl transition-all"
+                className="focus-ring lift shrink-0 inline-flex items-center gap-2 bg-leaf-600 hover:bg-leaf-700 text-white font-semibold text-[13px] px-4 py-2.5 rounded-xl transition-all"
               >
                 <IconArrowRight size={15} /> Directions
               </a>
@@ -264,11 +264,11 @@ export default function WorkerTaskDetail() {
             Photos of the finished work. The citizen sees these when confirming the fix.
           </p>
 
-          <label className="focus-ring flex flex-col items-center justify-center gap-2 cursor-pointer rounded-xl border-2 border-dashed border-line hover:border-civic-400 hover:bg-surface-inset py-7 transition-colors">
+          <label className="focus-ring flex flex-col items-center justify-center gap-2 cursor-pointer rounded-xl border-2 border-dashed border-line hover:border-leaf-400 hover:bg-surface-inset py-7 transition-colors">
             <input type="file" accept="image/png,image/jpeg" multiple className="hidden"
               disabled={busy} onChange={(e) => addPhotos(e.target.files)} />
-            <span className="w-11 h-11 rounded-full bg-civic-50 flex items-center justify-center">
-              <IconCamera size={20} className="text-civic-700" />
+            <span className="w-11 h-11 rounded-full bg-leaf-50 flex items-center justify-center">
+              <IconCamera size={20} className="text-leaf-700" />
             </span>
             <span className="text-[14px] font-semibold text-ink-body">Take or choose photos</span>
             <span className="text-[11px] text-ink-faint">{photos.length}/{MAX_PHOTOS} · up to {MAX_IMAGE_MB}MB each</span>
@@ -360,7 +360,7 @@ export default function WorkerTaskDetail() {
             <button
               onClick={() => run(action.next)}
               disabled={busy}
-              className="focus-ring flex-[2] inline-flex items-center justify-center gap-2 py-3.5 rounded-xl bg-civic-700 hover:bg-civic-800 disabled:opacity-50 text-white text-[15px] font-bold shadow-lg transition-all"
+              className="focus-ring flex-[2] inline-flex items-center justify-center gap-2 py-3.5 rounded-xl bg-leaf-600 hover:bg-leaf-700 disabled:opacity-50 text-white text-[15px] font-bold shadow-lg transition-all"
             >
               {busy ? 'Working…' : action.label}
               {!busy && <IconCheckCircle size={17} />}

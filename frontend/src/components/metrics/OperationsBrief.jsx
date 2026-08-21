@@ -118,7 +118,7 @@ const TONE_STYLES = {
 };
 
 const ICON_STYLES = {
-  neutral: 'bg-civic-50 text-civic-700',
+  neutral: 'bg-leaf-50 text-leaf-700',
   caution: 'bg-caution-100 text-caution-700',
   critical: 'bg-danger-100 text-danger-700',
 };
@@ -177,7 +177,7 @@ export default function OperationsBrief({ metrics, periodLabel }) {
                     {insight.action && (
                       <Link
                         to={insight.action.to}
-                        className="inline-flex items-center gap-1 text-[12px] font-semibold text-civic-700 hover:underline mt-2"
+                        className="inline-flex items-center gap-1 text-[12px] font-semibold text-leaf-700 hover:underline mt-2"
                       >
                         {insight.action.label} <IconArrowRight size={13} />
                       </Link>
