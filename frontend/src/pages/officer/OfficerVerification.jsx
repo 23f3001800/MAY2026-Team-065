@@ -59,8 +59,8 @@ function ageDays(iso) {
  */
 function EvidenceColumn({ label, tone, photos, emptyMessage }) {
   const [open, setOpen] = useState(null);
-  const ring = tone === 'after' ? 'ring-teal-600/20 bg-teal-50' : 'ring-civic-600/20 bg-civic-50';
-  const text = tone === 'after' ? 'text-teal-700' : 'text-civic-700';
+  const ring = tone === 'after' ? 'ring-teal-600/20 bg-teal-50' : 'ring-leaf-600/20 bg-leaf-50';
+  const text = tone === 'after' ? 'text-teal-700' : 'text-leaf-700';
 
   return (
     <div className="min-w-0">
@@ -211,7 +211,7 @@ export default function OfficerVerification() {
         </div>
         <button
           onClick={refetch}
-          className="focus-ring lift inline-flex items-center gap-2 bg-surface border border-line hover:border-civic-400 text-ink-body font-semibold text-[13px] px-3.5 py-2 rounded-lg shadow-sm transition-all"
+          className="focus-ring lift inline-flex items-center gap-2 bg-surface border border-line hover:border-leaf-400 text-ink-body font-semibold text-[13px] px-3.5 py-2 rounded-lg shadow-sm transition-all"
         >
           <IconRefresh size={15} /> Refresh
         </button>
@@ -251,7 +251,7 @@ export default function OfficerVerification() {
                         aria-current={c.id === selectedId}
                         className={`focus-ring w-full text-left px-3.5 py-3 transition-colors ${
                           c.id === selectedId
-                            ? 'bg-civic-50 border-l-2 border-civic-600'
+                            ? 'bg-leaf-50 border-l-2 border-leaf-600'
                             : 'hover:bg-surface-inset border-l-2 border-transparent'
                         }`}
                       >
@@ -326,7 +326,7 @@ export default function OfficerVerification() {
                 </p>
                 <Link
                   to={complaintPath('municipal_officer', selected.id)}
-                  className="focus-ring inline-flex items-center gap-1.5 text-[13px] font-semibold text-civic-700 hover:underline mt-3"
+                  className="focus-ring inline-flex items-center gap-1.5 text-[13px] font-semibold text-leaf-700 hover:underline mt-3"
                 >
                   Full record and history <IconArrowRight size={14} />
                 </Link>

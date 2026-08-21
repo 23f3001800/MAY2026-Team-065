@@ -11,11 +11,11 @@ export default function Topbar({
   const initial = (user?.name?.[0] || 'U').toUpperCase();
 
   return (
-    <header className="sticky top-0 z-20 h-[68px] bg-surface/90 backdrop-blur border-b border-line flex items-center gap-3 px-4 sm:px-6">
+    <header className="sticky top-0 z-20 h-[76px] bg-surface border-b border-line flex items-center gap-3 px-4 sm:px-7">
       {/* Mobile menu toggle */}
       <button
         onClick={onMenu}
-        className="lg:hidden text-slate-600 hover:text-slate-900 p-1"
+        className="lg:hidden text-ink-muted hover:text-ink p-1"
         aria-label="Open menu"
       >
         <IconMenu size={22} />
@@ -31,12 +31,12 @@ export default function Topbar({
 
       {/* User */}
       <div className="flex items-center gap-2.5 pl-2">
-        <div className="w-9 h-9 rounded-full logo-gradient flex items-center justify-center text-white font-bold text-sm">
+        <div className="w-10 h-10 rounded-full bg-leaf-600 flex items-center justify-center text-white font-bold text-[15px]">
           {initial}
         </div>
         <div className="hidden sm:block leading-tight">
-          <div className="text-[13px] font-semibold text-slate-800">{user?.name || name}</div>
-          <div className="text-[11px] text-slate-400 capitalize">{user?.role?.replace('_', ' ') || 'citizen'}</div>
+          <div className="text-[13.5px] font-semibold text-ink">{user?.name || name}</div>
+          <div className="text-[11.5px] text-ink-muted capitalize">{user?.role?.replace('_', ' ') || 'citizen'}</div>
         </div>
       </div>
     </header>

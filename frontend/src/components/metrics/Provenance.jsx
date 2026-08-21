@@ -19,25 +19,25 @@ const LEVELS = {
   verified: {
     mark: '✓',
     label: 'Verified data',
-    cls: 'bg-teal-50 text-teal-700 ring-teal-600/20',
+    cls: 'bg-leaf-50 text-leaf-700 ring-leaf-600/25',
     title: 'Counted directly from records returned by the backend.',
   },
   derived: {
     mark: '∑',
     label: 'Derived',
-    cls: 'bg-civic-50 text-civic-700 ring-civic-600/20',
+    cls: 'bg-sky-50 text-sky-800 ring-sky-600/20',
     title: 'Aggregated in the browser from the complete complaint record set.',
   },
   ai: {
     mark: '✦',
     label: 'AI interpretation',
-    cls: 'bg-civic-50 text-civic-600 ring-civic-500/20',
+    cls: 'bg-indigo-50 text-indigo-700 ring-indigo-500/20',
     title: 'A model reading verified figures. The figures themselves are not the model\'s.',
   },
   insufficient: {
     mark: '⚠',
     label: 'Insufficient data',
-    cls: 'bg-caution-50 text-caution-700 ring-caution-600/20',
+    cls: 'bg-amber-50 text-amber-800 ring-amber-600/30',
     title: 'The backend does not expose what this needs. Nothing has been estimated.',
   },
 };

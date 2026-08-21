@@ -196,7 +196,7 @@ export default function EditUserModal({ user, onDismiss, onSaved, openWorkCount 
           <button
             type="submit"
             disabled={saving || !dirty}
-            className="flex-1 inline-flex items-center justify-center gap-2 bg-primary hover:bg-emerald-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold text-[13px] py-2.5 rounded-lg shadow-btn transition-colors"
+            className="flex-1 inline-flex items-center justify-center gap-2 bg-primary hover:bg-leaf-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold text-[13px] py-2.5 rounded-lg shadow-btn transition-colors"
           >
             {saving ? 'Saving…' : dirty ? 'Save changes' : 'No changes'}
           </button>
@@ -230,7 +230,7 @@ export default function EditUserModal({ user, onDismiss, onSaved, openWorkCount 
             className={`shrink-0 px-3.5 py-2 rounded-lg text-[13px] font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
               active
                 ? 'bg-white border border-red-200 text-red-700 hover:bg-red-50'
-                : 'bg-emerald-500 hover:bg-emerald-600 text-white'
+                : 'bg-emerald-500 hover:bg-leaf-700 text-white'
             }`}
           >
             {active ? 'Suspend' : 'Reactivate'}

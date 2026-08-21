@@ -16,8 +16,8 @@ import Provenance from './Provenance';
 import useCountUp from '../../hooks/useCountUp';
 
 const TONES = {
-  neutral: { accent: '#1d4a78', bar: 'bg-civic-600', text: 'text-civic-700' },
-  positive: { accent: '#0e7c66', bar: 'bg-teal-600', text: 'text-teal-700' },
+  neutral: { accent: '#0f8f56', bar: 'bg-leaf-600', text: 'text-leaf-700' },
+  positive: { accent: '#199a62', bar: 'bg-leaf-500', text: 'text-leaf-600' },
   caution: { accent: '#b45309', bar: 'bg-caution-600', text: 'text-caution-700' },
   critical: { accent: '#b42318', bar: 'bg-danger-600', text: 'text-danger-700' },
 };
@@ -116,7 +116,7 @@ export default function MetricCard({
     <Tag
       onClick={onClick}
       className={`relative w-full text-left bg-surface rounded-xl border border-line shadow-sm overflow-hidden p-4 flex flex-col
-        ${interactive ? 'focus-ring lift hover:shadow-md hover:border-civic-300 cursor-pointer transition-all' : ''}`}
+        ${interactive ? 'focus-ring lift hover:shadow-md hover:border-leaf-300 cursor-pointer transition-all' : ''}`}
     >
       <div className="flex items-start justify-between gap-2">
         <span className="text-[12px] font-semibold uppercase tracking-wide text-ink-muted">{label}</span>

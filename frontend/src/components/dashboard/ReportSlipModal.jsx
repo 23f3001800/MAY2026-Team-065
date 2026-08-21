@@ -14,6 +14,7 @@
 // nulls on a complaint that predates triage, and assignmentDetails reads
 // "Unassigned" rather than being absent.
 import React, { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { IconX, IconCheckCircle, IconAlertTriangle } from './icons';
 import { getReportSlip } from '../../api/complaints';
 import { fromApiStatus, fromApiSeverity } from '../../api/mappers';
@@ -54,6 +55,14 @@ export default function ReportSlipModal({ complaintId, onDismiss }) {
     return () => window.removeEventListener('keydown', onKey);
   }, [onDismiss]);
 
+  // Printing has to reach paper as the slip and nothing else. This class is
+  // what lets the print stylesheet drop the whole app root, which is a sibling
+  // of the portal this modal renders into.
+  useEffect(() => {
+    document.body.classList.add('printing-sheet');
+    return () => document.body.classList.remove('printing-sheet');
+  }, []);
+
   useEffect(() => {
     let alive = true;
     getReportSlip(complaintId)
@@ -67,14 +76,14 @@ export default function ReportSlipModal({ complaintId, onDismiss }) {
   const ai = slip?.aiAssessment;
   const hasAi = ai && (ai.severity || ai.summary);
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-slate-900/40 animate-overlay-in" onClick={onDismiss} aria-hidden="true" />
+  return createPortal(
+    <div className="print-sheet-shell fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="print:hidden absolute inset-0 bg-slate-900/40 animate-overlay-in" onClick={onDismiss} aria-hidden="true" />
       <div
         role="dialog"
         aria-modal="true"
         aria-label="Complaint acknowledgement slip"
-        className="relative w-full max-w-[520px] bg-white rounded-2xl shadow-xl max-h-[90vh] overflow-y-auto animate-scale-in"
+        className="print-sheet relative w-full max-w-[520px] bg-white rounded-2xl shadow-xl max-h-[90vh] overflow-y-auto animate-scale-in"
       >
         <div className="sticky top-0 bg-white border-b border-line px-5 py-4 flex items-center justify-between z-10">
           <div className="flex items-center gap-2.5 min-w-0">
@@ -88,7 +97,7 @@ export default function ReportSlipModal({ complaintId, onDismiss }) {
           <button
             onClick={onDismiss}
             aria-label="Close"
-            className="focus-ring shrink-0 w-8 h-8 rounded-lg text-ink-faint hover:bg-slate-100 hover:text-ink-body flex items-center justify-center transition-colors"
+            className="print:hidden focus-ring shrink-0 w-8 h-8 rounded-lg text-ink-faint hover:bg-slate-100 hover:text-ink-body flex items-center justify-center transition-colors"
           >
             <IconX size={17} />
           </button>
@@ -158,7 +167,7 @@ export default function ReportSlipModal({ complaintId, onDismiss }) {
           )}
         </div>
 
-        <div className="sticky bottom-0 bg-white border-t border-line px-5 py-3 flex justify-end gap-2">
+        <div className="print:hidden sticky bottom-0 bg-white border-t border-line px-5 py-3 flex justify-end gap-2">
           {/* Browser print is the whole feature: the backend returns JSON, not a
               PDF, so generating one client-side would be a lot of bundle for
               something the print dialog already does. */}
@@ -171,12 +180,13 @@ export default function ReportSlipModal({ complaintId, onDismiss }) {
           </button>
           <button
             onClick={onDismiss}
-            className="focus-ring text-[13px] font-semibold text-white bg-primary hover:bg-emerald-600 px-3.5 py-2 rounded-lg transition"
+            className="focus-ring text-[13px] font-semibold text-white bg-primary hover:bg-leaf-700 px-3.5 py-2 rounded-lg transition"
           >
             Done
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

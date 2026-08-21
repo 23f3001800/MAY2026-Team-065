@@ -269,7 +269,7 @@ export default function ComplaintDetails() {
                   href={`https://www.google.com/maps/dir/?api=1&destination=${complaint.coords.latitude},${complaint.coords.longitude}`}
                   target="_blank"
                   rel="noreferrer"
-                  className="focus-ring inline-flex items-center gap-1.5 text-[12px] font-semibold text-ink-muted hover:text-civic-700 transition-colors"
+                  className="focus-ring inline-flex items-center gap-1.5 text-[12px] font-semibold text-ink-muted hover:text-leaf-700 transition-colors"
                 >
                   <IconExternal size={13} /> Directions
                 </a>
@@ -335,7 +335,7 @@ export default function ComplaintDetails() {
                 <button
                   type="submit"
                   disabled={saving}
-                  className="inline-flex items-center gap-2 bg-primary hover:bg-emerald-600 disabled:opacity-60 text-white font-semibold text-[14px] px-4 py-2.5 rounded-xl shadow-btn transition-colors"
+                  className="inline-flex items-center gap-2 bg-primary hover:bg-leaf-700 disabled:opacity-60 text-white font-semibold text-[14px] px-4 py-2.5 rounded-xl shadow-btn transition-colors"
                 >
                   <IconSend size={16} /> {saving ? 'Submitting…' : 'Submit Feedback'}
                 </button>
