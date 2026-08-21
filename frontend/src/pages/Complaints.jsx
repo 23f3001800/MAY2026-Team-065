@@ -91,8 +91,8 @@ function Stages({ status }) {
           <span
             className={`h-1.5 flex-1 rounded-full transition-colors ${
               dead ? 'bg-danger-100'
-                : i < current ? 'bg-teal-500'
-                : i === current ? 'bg-civic-600'
+                : i < current ? 'bg-leaf-500'
+                : i === current ? 'bg-leaf-700'
                 : 'bg-line'
             }`}
           />
@@ -115,7 +115,7 @@ function ComplaintCard({ c, showDistance, onOpen, index }) {
     <li style={{ '--i': index }} className="animate-rise-in stagger">
       <button
         onClick={() => onOpen(c.id)}
-        className="focus-ring lift w-full text-left bg-surface rounded-xl border border-line shadow-sm p-4 hover:shadow-md hover:border-civic-300 transition-all"
+        className="focus-ring lift w-full text-left bg-surface rounded-xl border border-line shadow-sm p-4 hover:shadow-md hover:border-leaf-300 transition-all"
       >
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
@@ -126,7 +126,7 @@ function ComplaintCard({ c, showDistance, onOpen, index }) {
               {showDistance && c.distanceKm !== null && c.distanceKm !== undefined && (
                 <>
                   <span className="text-line">·</span>
-                  <span className="font-semibold text-civic-700 whitespace-nowrap">
+                  <span className="font-semibold text-leaf-700 whitespace-nowrap">
                     {c.distanceKm < 1 ? `${Math.round(c.distanceKm * 1000)} m` : `${c.distanceKm.toFixed(1)} km`}
                   </span>
                 </>
@@ -263,7 +263,7 @@ export default function Complaints() {
         </div>
         <Link
           to="/report"
-          className="focus-ring lift inline-flex items-center gap-2 bg-civic-700 hover:bg-civic-800 text-white font-semibold text-[14px] px-4 py-2.5 rounded-xl shadow-sm transition-all"
+          className="focus-ring lift inline-flex items-center gap-2 bg-leaf-600 hover:bg-leaf-700 text-white font-semibold text-[14px] px-4 py-2.5 rounded-xl shadow-sm transition-all"
         >
           <IconReport size={16} /> Report an issue
         </Link>
@@ -279,7 +279,7 @@ export default function Complaints() {
               aria-selected={scope === key}
               onClick={() => setScope(key)}
               className={`focus-ring px-4 py-2 rounded-lg text-[13px] font-semibold transition-colors ${
-                scope === key ? 'bg-civic-700 text-white' : 'text-ink-body hover:bg-surface-inset'
+                scope === key ? 'bg-leaf-600 text-white' : 'text-ink-body hover:bg-surface-inset'
               }`}
             >
               {label}
@@ -295,7 +295,7 @@ export default function Complaints() {
               aria-pressed={view === key}
               aria-label={`${key} view`}
               className={`focus-ring px-3 py-2 transition-colors ${
-                view === key ? 'bg-civic-700 text-white' : 'text-ink-muted hover:bg-surface-inset'
+                view === key ? 'bg-leaf-600 text-white' : 'text-ink-muted hover:bg-surface-inset'
               }`}
             >
               <Icon size={16} />
@@ -308,7 +308,7 @@ export default function Complaints() {
       <div className="flex gap-2.5 flex-wrap">
         {scope === 'mine' ? (
           <>
-            <div className="flex-1 min-w-[200px] flex items-center gap-2 bg-surface rounded-xl border border-line px-3 focus-within:border-civic-500 transition">
+            <div className="flex-1 min-w-[200px] flex items-center gap-2 bg-surface rounded-xl border border-line px-3 focus-within:border-leaf-500 transition">
               <IconSearch size={17} className="text-ink-faint shrink-0" />
               <input
                 value={query}
@@ -324,7 +324,7 @@ export default function Complaints() {
                   key={s}
                   onClick={() => setStatus(s)}
                   className={`focus-ring shrink-0 inline-flex items-center gap-1.5 px-3 py-2.5 rounded-xl text-[13px] font-medium transition-colors ${
-                    status === s ? 'bg-civic-700 text-white' : 'bg-surface border border-line text-ink-body hover:bg-surface-inset'
+                    status === s ? 'bg-leaf-600 text-white' : 'bg-surface border border-line text-ink-body hover:bg-surface-inset'
                   }`}
                 >
                   {s}
@@ -342,7 +342,7 @@ export default function Complaints() {
                   key={r}
                   onClick={() => setRadius(r)}
                   className={`focus-ring px-3 py-2 rounded-lg text-[13px] font-medium transition-colors ${
-                    radius === r ? 'bg-civic-700 text-white' : 'bg-surface border border-line text-ink-body hover:bg-surface-inset'
+                    radius === r ? 'bg-leaf-600 text-white' : 'bg-surface border border-line text-ink-body hover:bg-surface-inset'
                   }`}
                 >
                   {r} km
@@ -351,7 +351,7 @@ export default function Complaints() {
             </div>
             <button
               onClick={locate}
-              className="focus-ring inline-flex items-center gap-1.5 text-[12px] font-semibold text-civic-700 hover:underline px-2"
+              className="focus-ring inline-flex items-center gap-1.5 text-[12px] font-semibold text-leaf-700 hover:underline px-2"
             >
               <IconCrosshair size={14} /> Update location
             </button>
@@ -388,7 +388,7 @@ export default function Complaints() {
         >
           <Link
             to="/report"
-            className="focus-ring inline-flex items-center gap-2 bg-civic-700 hover:bg-civic-800 text-white font-semibold text-[14px] px-4 py-2.5 rounded-xl transition-colors"
+            className="focus-ring inline-flex items-center gap-2 bg-leaf-600 hover:bg-leaf-700 text-white font-semibold text-[14px] px-4 py-2.5 rounded-xl transition-colors"
           >
             <IconReport size={16} /> Report an issue
           </Link>

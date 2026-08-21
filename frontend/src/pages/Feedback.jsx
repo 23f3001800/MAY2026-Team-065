@@ -95,7 +95,7 @@ function FeedbackCard({ complaint, onSubmitted }) {
       <button
         onClick={submit}
         disabled={saving}
-        className="inline-flex items-center gap-2 bg-primary hover:bg-emerald-600 disabled:opacity-60 text-white font-semibold text-[13px] px-3.5 py-2 rounded-lg shadow-btn transition-colors"
+        className="inline-flex items-center gap-2 bg-primary hover:bg-leaf-700 disabled:opacity-60 text-white font-semibold text-[13px] px-3.5 py-2 rounded-lg shadow-btn transition-colors"
       >
         <IconSend size={14} /> {saving ? 'Submitting…' : 'Submit Feedback'}
       </button>
@@ -216,7 +216,7 @@ export default function Feedback() {
                         <div className="min-w-0">
                           <Link
                             to={`/complaints/${c.id}`}
-                            className="focus-ring rounded text-[14px] font-semibold text-ink hover:text-civic-700 hover:underline"
+                            className="focus-ring rounded text-[14px] font-semibold text-ink hover:text-leaf-700 hover:underline"
                           >
                             {c.issue}
                           </Link>

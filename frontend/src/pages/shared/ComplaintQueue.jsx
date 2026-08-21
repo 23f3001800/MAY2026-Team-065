@@ -401,7 +401,7 @@ export default function ComplaintQueue({ title, subtitle }) {
           mentally and lose half of it. Only counts what is currently visible —
           acting on rows a filter is hiding is a trap. */}
       {pickedVisible.length > 0 && (
-        <div className="sticky top-2 z-20 flex items-center gap-3 flex-wrap bg-civic-700 text-white rounded-xl px-4 py-3 shadow-md">
+        <div className="sticky top-2 z-20 flex items-center gap-3 flex-wrap bg-leaf-700 text-white rounded-xl px-4 py-3 shadow-md">
           <span className="text-[13px] font-semibold">
             {pickedVisible.length} selected
           </span>
@@ -421,7 +421,7 @@ export default function ComplaintQueue({ title, subtitle }) {
           <button
             onClick={runBulkAssign}
             disabled={busy || !bulkWorkerId}
-            className="focus-ring bg-white text-civic-800 font-semibold text-[13px] px-3.5 py-1.5 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
+            className="focus-ring bg-white text-leaf-800 font-semibold text-[13px] px-3.5 py-1.5 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
           >
             {busy ? 'Assigning…' : `Assign ${pickedVisible.length}`}
           </button>
@@ -530,7 +530,7 @@ export default function ComplaintQueue({ title, subtitle }) {
                           the full record for the reading and deciding half. */}
                       <Link
                         to={complaintPath(getCurrentUser()?.role, c.id)}
-                        className="focus-ring rounded text-slate-500 hover:text-civic-700 hover:underline"
+                        className="focus-ring rounded text-slate-500 hover:text-leaf-700 hover:underline"
                       >
                         {c.id}
                       </Link>
