@@ -20,10 +20,11 @@ import {
   IconAlertTriangle, IconArrowRight, IconCamera,
 } from '../../components/dashboard/icons';
 import {
-  getComplaint, getComplaintHistory, getComplaintMedia,
+  getComplaint, getComplaintHistory, getComplaintMedia, getComplaintFeedback,
   updateComplaintStatus,
 } from '../../api/complaints';
 import { TERMINAL_STATUSES } from '../../api/mappers';
+import FeedbackPanel from '../../components/dashboard/FeedbackPanel';
 import useAsync from '../../hooks/useAsync';
 import { uploadOrQueue } from '../../lib/uploadQueue';
 
@@ -68,6 +69,9 @@ export default function WorkerTaskDetail() {
 
   const [history, setHistory] = useState([]);
   const [media, setMedia] = useState([]);
+  // The resident's rating of this job. The only judgement of the work that
+  // does not come from inside the organisation.
+  const [feedback, setFeedback] = useState([]);
   const [nonce, setNonce] = useState(0);
 
   const [photos, setPhotos] = useState([]);
@@ -79,10 +83,13 @@ export default function WorkerTaskDetail() {
 
   useEffect(() => {
     let alive = true;
-    Promise.allSettled([getComplaintHistory(id), getComplaintMedia(id)]).then(([h, m]) => {
+    Promise.allSettled([
+      getComplaintHistory(id), getComplaintMedia(id), getComplaintFeedback(id),
+    ]).then(([h, m, f]) => {
       if (!alive) return;
       if (h.status === 'fulfilled') setHistory(h.value);
       if (m.status === 'fulfilled') setMedia(m.value);
+      if (f.status === 'fulfilled') setFeedback(f.value || []);
     });
     return () => { alive = false; };
   }, [id, nonce]);
@@ -303,6 +310,14 @@ export default function WorkerTaskDetail() {
               Without a photo this will likely come straight back to you.
             </p>
           )}
+        </section>
+      )}
+
+      {/* How the resident rated this job. Shown to the crew that did the work,
+          not merely collected from them. */}
+      {feedback.length > 0 && (
+        <section className="mt-5 bg-surface rounded-2xl border border-line shadow-sm p-5">
+          <FeedbackPanel items={feedback} audience="worker" compact />
         </section>
       )}
 

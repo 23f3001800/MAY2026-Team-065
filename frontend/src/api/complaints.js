@@ -240,6 +240,19 @@ export function getReportSlip(complaintId) {
   return apiRequest(`/complaints/${encodeURIComponent(complaintId)}/report-slip`);
 }
 
+/**
+ * Feedback left on a complaint.
+ *
+ * The rating is the only judgement of the work that comes from outside the
+ * organisation, so it is worth showing to the people who did it -- not just
+ * collecting it. The backend authorises the same people who can read the
+ * complaint, so an officer and the assigned worker both see it.
+ */
+export async function getComplaintFeedback(complaintId) {
+  const data = await apiRequest(`/complaints/${encodeURIComponent(complaintId)}/feedback`);
+  return (data || []).map(fromApiFeedback).filter(Boolean);
+}
+
 export async function submitFeedback(complaintId, { rating, comments }) {
   const data = await apiRequest(`/complaints/${encodeURIComponent(complaintId)}/feedback`, {
     method: 'POST',

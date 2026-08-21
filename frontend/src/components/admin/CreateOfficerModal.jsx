@@ -1,19 +1,32 @@
 // Create a Municipal Officer account. POST /admin/users/official.
 //
-// The backend's SystemOfficialCreate schema also accepts role:
-// "field_worker", but only the municipal_officer branch is implemented in
-// main.py -- sending field_worker here 500s. Field workers are created
-// through CreateWorkerModal (POST /workers/) instead, which is the endpoint
-// actually built for it.
-import React, { useState } from 'react';
+// Field workers go through CreateWorkerModal (POST /workers/) instead: that is
+// the endpoint built for them, and it takes the skill set this form has no
+// place for. Sending role=field_worker here is refused with a 400.
+//
+// Department and designation used to be free text, which is how the same job
+// ended up recorded as "Roads", "roads & transport" and "Roads and Transport".
+// Department decides which complaints an officer sees, so a typo there is not
+// cosmetic — it quietly detaches them from their own queue. Both are now
+// chosen from the real sets.
+import React, { useMemo, useState } from 'react';
 import Modal from './Modal';
+import {
+  TextField, SelectField, FormError, SubmitRow, DESIGNATIONS,
+} from './formFields';
 import { createOfficer } from '../../api/admin';
-
-const inputClass =
-  'w-full bg-white rounded-lg border border-slate-200 px-3 py-2 text-[13px] text-slate-800 outline-none focus:border-primary transition';
+import { skillOptions } from '../../lib/skills';
+import useCategories from '../../hooks/useCategories';
 
 export default function CreateOfficerModal({ onDismiss, onCreated }) {
-  const [form, setForm] = useState({ name: '', email: '', phone: '', password: '', department: '', designation: '' });
+  const { categories } = useCategories();
+  // The same list the complaints are routed by, so the two cannot drift.
+  const departments = useMemo(() => skillOptions(categories), [categories]);
+
+  const [form, setForm] = useState({
+    name: '', email: '', phone: '', password: '',
+    department: '', designation: 'Grievance Officer',
+  });
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -21,8 +34,12 @@ export default function CreateOfficerModal({ onDismiss, onCreated }) {
 
   const submit = async (e) => {
     e.preventDefault();
-    if (!form.name || !form.email || !form.password) {
-      setError('Name, email and password are required.');
+    if (!form.name.trim() || !form.email.trim() || !form.password) {
+      setError('Name, email and a temporary password are all required.');
+      return;
+    }
+    if (!form.department) {
+      setError('Choose a department — it decides which complaints this officer sees.');
       return;
     }
     setError('');
@@ -39,21 +56,67 @@ export default function CreateOfficerModal({ onDismiss, onCreated }) {
 
   return (
     <Modal title="Add Municipal Officer" onDismiss={onDismiss}>
-      <form onSubmit={submit} className="space-y-3">
-        <input className={inputClass} placeholder="Full name" value={form.name} onChange={set('name')} required />
-        <input className={inputClass} type="email" placeholder="Email" value={form.email} onChange={set('email')} required />
-        <input className={inputClass} placeholder="Phone" value={form.phone} onChange={set('phone')} />
-        <input className={inputClass} type="password" placeholder="Temporary password" value={form.password} onChange={set('password')} required />
-        <input className={inputClass} placeholder="Department (e.g. Roads & Transport)" value={form.department} onChange={set('department')} />
-        <input className={inputClass} placeholder="Designation (e.g. Senior Officer)" value={form.designation} onChange={set('designation')} />
-        {error && <p className="text-[13px] font-medium text-red-600">{error}</p>}
-        <button
-          type="submit"
-          disabled={saving}
-          className="w-full inline-flex items-center justify-center gap-2 bg-primary hover:bg-emerald-600 disabled:opacity-60 text-white font-semibold text-[13px] py-2.5 rounded-lg shadow-btn transition-colors"
-        >
-          {saving ? 'Creating…' : 'Create Officer'}
-        </button>
+      <form onSubmit={submit} className="space-y-3.5">
+        <TextField
+          id="of-name"
+          label="Full name"
+          required
+          value={form.name}
+          onChange={set('name')}
+        />
+        <TextField
+          id="of-email"
+          label="Email"
+          type="email"
+          required
+          value={form.email}
+          onChange={set('email')}
+          hint="This is how they sign in. It must be unique."
+        />
+        <TextField
+          id="of-phone"
+          label="Phone"
+          value={form.phone}
+          onChange={set('phone')}
+        />
+        <TextField
+          id="of-password"
+          label="Temporary password"
+          type="password"
+          required
+          value={form.password}
+          onChange={set('password')}
+          hint="They can change it later from Reset password."
+        />
+
+        <SelectField
+          id="of-department"
+          label="Department"
+          required
+          value={form.department}
+          onChange={set('department')}
+          options={departments}
+          placeholder="Choose a department…"
+          hint="Decides which complaints this officer is responsible for."
+        />
+
+        <SelectField
+          id="of-designation"
+          label="Designation"
+          value={form.designation}
+          onChange={set('designation')}
+          options={DESIGNATIONS}
+          placeholder="Choose a designation…"
+        />
+
+        <FormError>{error}</FormError>
+
+        <SubmitRow
+          busy={saving}
+          label="Create officer"
+          busyLabel="Creating…"
+          onCancel={onDismiss}
+        />
       </form>
     </Modal>
   );
