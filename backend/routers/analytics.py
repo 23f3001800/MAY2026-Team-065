@@ -20,6 +20,7 @@ Two rules run through every endpoint here, and they are the whole point:
 
 from __future__ import annotations
 
+import functools
 import logging
 from datetime import date, datetime, timedelta, timezone
 from typing import Dict, List, Optional, Tuple
@@ -31,6 +32,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import models
 from database import StatusEnum, TERMINAL_STATUSES
 from dependencies import get_current_user, get_db, require_roles
+from services import cache as cache_service
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +47,54 @@ _ALLOWED = ("officer", "municipal_officer", "administrator")
 _RESOLVED_STATES = (StatusEnum.RESOLVED.name, StatusEnum.VERIFIED.name)
 
 _TERMINAL_NAMES = {s.name for s in TERMINAL_STATUSES}
+
+
+def cached(name: str):
+    """Reuse an analytics answer for a few seconds across callers.
+
+    Every endpoint here runs several aggregates over the whole complaints table.
+    An officer dashboard calls five of them on load, every officer opens it at
+    the start of a shift, and for a given date range they all get the same
+    numbers -- so the aggregation runs once and the rest read the result.
+
+    Applied *below* the route decorator, so FastAPI still sees the original
+    signature (``functools.wraps`` sets ``__wrapped__``, which ``inspect``
+    follows) and dependency injection is unaffected.
+
+    The key includes the caller's id and role. Analytics is officer-and-admin
+    wide today and does not vary by person, but a cache whose key omits the
+    caller is one scoping change away from showing one officer another's
+    figures, and that failure would be silent.
+
+    ``db`` is excluded from the key -- it is a per-request session object with
+    no stable identity, and including it would make every key unique, which is
+    a cache that never hits and always allocates.
+
+    Nothing here is cached for longer than ANALYTICS_CACHE_SECONDS (30s by
+    default, 0 to disable). Figures that lag reality by half a minute are fine
+    on a dashboard; that is also why no complaint, status or inbox goes through
+    this, where the same lag would look like a lost update.
+    """
+
+    def decorate(func):
+        @functools.wraps(func)
+        async def wrapper(**kwargs):
+            user = kwargs.get("current_user")
+            key = cache_service.key_for(
+                "analytics:" + name,
+                userId=getattr(user, "userId", None),
+                role=getattr(user, "role", None),
+                **{k: v for k, v in kwargs.items() if k not in ("db", "current_user")},
+            )
+            return await cache_service.analytics_cache.get_or_set(
+                key,
+                cache_service.analytics_ttl_seconds(),
+                lambda: func(**kwargs),
+            )
+
+        return wrapper
+
+    return decorate
 
 
 def _status_name(value) -> str:
@@ -109,6 +159,7 @@ async def _totals(db: AsyncSession, start: datetime, end: datetime) -> Tuple[int
 
 
 @router.get("/overview", summary="Headline operations figures")
+@cached("overview")
 async def overview(
     from_: Optional[date] = Query(None, alias="from"),
     to: Optional[date] = Query(None),
@@ -170,6 +221,7 @@ async def overview(
 
 
 @router.get("/trends", summary="Complaint volume over time")
+@cached("trends")
 async def trends(
     from_: Optional[date] = Query(None, alias="from"),
     to: Optional[date] = Query(None),
@@ -221,6 +273,7 @@ async def trends(
 
 
 @router.get("/categories", summary="Complaint volume by category")
+@cached("categories")
 async def categories(
     from_: Optional[date] = Query(None, alias="from"),
     to: Optional[date] = Query(None),
@@ -265,6 +318,7 @@ async def categories(
 
 
 @router.get("/aging", summary="How long open complaints have been waiting")
+@cached("aging")
 async def aging(
     db: AsyncSession = Depends(get_db),
     current_user: models.UserModel = Depends(get_current_user),
@@ -306,6 +360,7 @@ async def aging(
 
 
 @router.get("/resolution", summary="Resolution performance by department and worker")
+@cached("resolution")
 async def resolution(
     from_: Optional[date] = Query(None, alias="from"),
     to: Optional[date] = Query(None),
