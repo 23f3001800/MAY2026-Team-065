@@ -280,7 +280,7 @@ export default function ComplaintDrawer({
                 {/* The verification decision, where the evidence is — not
                     buried in the status dropdown further down. */}
                 {AWAITING_SIGN_OFF.includes(complaint.status) && (
-                  <div className="mt-3 rounded-lg border border-civic-100 bg-civic-50/60 p-3">
+                  <div className="mt-3 rounded-lg border border-leaf-100 bg-leaf-50/60 p-3">
                     <p className="text-[12px] text-ink-body leading-snug mb-2.5">
                       A field worker has submitted this as complete. Verify the work matches the
                       report, or send it back.
@@ -463,7 +463,7 @@ export default function ComplaintDrawer({
                 <button
                   onClick={() => onStatusChange(complaint.id, status, remarks)}
                   disabled={!statusChanged || busy}
-                  className="focus-ring mt-2 w-full inline-flex items-center justify-center gap-2 bg-primary hover:bg-emerald-600 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold text-[13px] py-2.5 rounded-lg shadow-btn transition-colors"
+                  className="focus-ring mt-2 w-full inline-flex items-center justify-center gap-2 bg-primary hover:bg-leaf-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold text-[13px] py-2.5 rounded-lg shadow-btn transition-colors"
                 >
                   <IconCheckCircle size={16} /> {statusChanged ? `Mark as ${status}` : 'No change to apply'}
                 </button>
@@ -535,7 +535,7 @@ export default function ComplaintDrawer({
                           <button
                             onClick={() => onAssign(complaint.id, w)}
                             disabled={offDuty || !eligible || busy}
-                            className="focus-ring shrink-0 text-[12px] font-semibold px-3 py-1.5 rounded-lg bg-primary hover:bg-emerald-600 disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed text-white transition-colors"
+                            className="focus-ring shrink-0 text-[12px] font-semibold px-3 py-1.5 rounded-lg bg-primary hover:bg-leaf-700 disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed text-white transition-colors"
                           >
                             Assign
                           </button>

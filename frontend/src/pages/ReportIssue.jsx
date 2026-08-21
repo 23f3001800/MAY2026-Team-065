@@ -504,7 +504,7 @@ export default function ReportIssue() {
           <div role="status" aria-live="polite" className="rounded-lg border border-line bg-surface-inset px-3.5 py-2.5">
             <div className="flex items-center justify-between gap-2 text-[12px]">
               <span className="inline-flex items-center gap-1.5 text-ink-body font-medium">
-                <IconSparkles size={13} className="text-civic-600" />
+                <IconSparkles size={13} className="text-leaf-600" />
                 {aiStage.label}
               </span>
               <span className="text-ink-faint tnum">
@@ -513,7 +513,7 @@ export default function ReportIssue() {
             </div>
             <div className="mt-1.5 h-1 rounded-full bg-line overflow-hidden">
               <div
-                className="h-full rounded-full bg-civic-600 transition-[width] duration-500"
+                className="h-full rounded-full bg-leaf-600 transition-[width] duration-500"
                 style={{ width: `${(aiStage.done / aiStage.total) * 100}%` }}
               />
             </div>
@@ -604,7 +604,7 @@ export default function ReportIssue() {
         <button
           type="submit"
           disabled={loading}
-          className="focus-ring w-full inline-flex items-center justify-center gap-2 bg-primary hover:bg-emerald-600 disabled:opacity-60 disabled:cursor-not-allowed text-white font-semibold text-[15px] py-3.5 rounded-xl shadow-btn transition-colors"
+          className="focus-ring w-full inline-flex items-center justify-center gap-2 bg-primary hover:bg-leaf-700 disabled:opacity-60 disabled:cursor-not-allowed text-white font-semibold text-[15px] py-3.5 rounded-xl shadow-btn transition-colors"
         >
           {loading ? (
             <span className="w-[18px] h-[18px] border-2 border-white/40 rounded-full border-t-white animate-spin-slow" />
