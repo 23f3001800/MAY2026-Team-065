@@ -135,7 +135,7 @@ export default function AiVerificationPanel({ complaint, beforePhotos, afterPhot
     <div className="mt-3 rounded-lg border border-line bg-surface p-3">
       <div className="flex items-start justify-between gap-2 mb-2">
         <div className="flex items-center gap-1.5 min-w-0">
-          <IconSparkles size={13} className="text-civic-600 shrink-0" />
+          <IconSparkles size={13} className="text-leaf-600 shrink-0" />
           <h4 className="text-[12px] font-bold text-ink">AI verification</h4>
           <Provenance level="ai">Recommendation</Provenance>
         </div>
@@ -143,7 +143,7 @@ export default function AiVerificationPanel({ complaint, beforePhotos, afterPhot
           onClick={run}
           disabled={!canRun || running || busy}
           title={canRun ? undefined : 'Needs a completion photo'}
-          className="focus-ring shrink-0 inline-flex items-center gap-1.5 text-[11px] font-semibold text-civic-700 hover:bg-civic-50 disabled:opacity-40 disabled:cursor-not-allowed px-2 py-1 rounded transition-colors"
+          className="focus-ring shrink-0 inline-flex items-center gap-1.5 text-[11px] font-semibold text-leaf-700 hover:bg-leaf-50 disabled:opacity-40 disabled:cursor-not-allowed px-2 py-1 rounded transition-colors"
         >
           <IconRefresh size={12} className={running ? 'animate-spin-slow' : ''} />
           {running ? 'Checking…' : vision ? 'Re-check' : 'Check evidence'}
@@ -223,7 +223,7 @@ export default function AiVerificationPanel({ complaint, beforePhotos, afterPhot
               </div>
               <div className="h-1.5 rounded-full bg-surface-inset overflow-hidden">
                 <div
-                  className="h-full rounded-full bg-civic-500 transition-[width] duration-500"
+                  className="h-full rounded-full bg-leaf-500 transition-[width] duration-500"
                   style={{ width: `${100 - diff.similarity}%` }}
                 />
               </div>

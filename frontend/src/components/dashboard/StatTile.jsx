@@ -4,7 +4,7 @@ import React from 'react';
 import { IconClipboard, IconHourglass, IconCheckCircle, IconAlertTriangle, IconClock, IconUsers } from './icons';
 
 const TONES = {
-  emerald: { icon: IconClipboard, ring: 'bg-emerald-50 text-emerald-600' },
+  emerald: { icon: IconClipboard, ring: 'bg-leaf-50 text-leaf-600' },
   blue: { icon: IconHourglass, ring: 'bg-blue-50 text-blue-600' },
   purple: { icon: IconCheckCircle, ring: 'bg-violet-50 text-violet-600' },
   amber: { icon: IconAlertTriangle, ring: 'bg-amber-50 text-amber-600' },

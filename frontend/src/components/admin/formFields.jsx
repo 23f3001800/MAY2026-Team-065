@@ -15,7 +15,7 @@ import { IconChevronDown, IconAlertTriangle } from '../dashboard/icons';
 const CONTROL =
   'w-full bg-surface rounded-lg border border-line px-3 py-2.5 text-[13.5px] text-ink '
   + 'outline-none transition-all placeholder:text-ink-faint '
-  + 'focus:border-civic-500 focus:ring-2 focus:ring-civic-500/15 '
+  + 'focus:border-leaf-500 focus:ring-2 focus:ring-leaf-500/15 '
   + 'disabled:bg-surface-inset disabled:text-ink-muted disabled:cursor-not-allowed';
 
 const LABEL = 'block text-[11px] font-semibold uppercase tracking-wide text-ink-muted mb-1.5';
@@ -108,7 +108,7 @@ export function SubmitRow({ busy, label, busyLabel, onCancel }) {
       <button
         type="submit"
         disabled={busy}
-        className="focus-ring flex-1 inline-flex items-center justify-center gap-2 bg-civic-800 hover:enabled:bg-civic-900 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold text-[13.5px] py-2.5 rounded-lg shadow-sm transition-all"
+        className="focus-ring flex-1 inline-flex items-center justify-center gap-2 bg-leaf-600 hover:enabled:bg-leaf-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold text-[13.5px] py-2.5 rounded-lg shadow-sm transition-all"
       >
         {busy ? busyLabel || 'Saving…' : label}
       </button>

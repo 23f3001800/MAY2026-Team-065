@@ -30,7 +30,7 @@ const DAY_MS = 86400000;
 
 function Stat({ label, value, sub, tone = 'neutral', icon: Icon }) {
   const tones = {
-    neutral: 'bg-civic-50 text-civic-700',
+    neutral: 'bg-leaf-50 text-leaf-700',
     positive: 'bg-teal-50 text-teal-700',
     caution: 'bg-caution-50 text-caution-700',
   };
@@ -141,7 +141,7 @@ export default function WorkerPerformance() {
               Reading task histories… {timingProgress.done}/{timingProgress.total}
             </p>
             <div className="h-1.5 rounded-full bg-surface-inset overflow-hidden">
-              <div className="h-full rounded-full bg-civic-600 transition-[width] duration-200"
+              <div className="h-full rounded-full bg-leaf-600 transition-[width] duration-200"
                 style={{ width: `${(timingProgress.done / Math.max(timingProgress.total, 1)) * 100}%` }} />
             </div>
           </div>
@@ -197,7 +197,7 @@ export default function WorkerPerformance() {
       <section className="bg-surface rounded-xl border border-line shadow-sm p-5">
         <div className="flex items-baseline justify-between gap-2 mb-3">
           <h2 className="font-display text-[15px] font-bold text-ink">Recently completed</h2>
-          <Link to="/worker/tasks" className="text-[13px] font-semibold text-civic-700 hover:underline">
+          <Link to="/worker/tasks" className="text-[13px] font-semibold text-leaf-700 hover:underline">
             All tasks
           </Link>
         </div>

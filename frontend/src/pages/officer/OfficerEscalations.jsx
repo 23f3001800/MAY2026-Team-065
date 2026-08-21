@@ -168,15 +168,15 @@ export default function OfficerEscalations() {
             aria-pressed={includeAtRisk}
             className={`focus-ring px-3.5 py-2 rounded-lg border text-[13px] font-semibold transition-colors ${
               includeAtRisk
-                ? 'bg-caution-50 border-caution-500/40 text-caution-800'
-                : 'bg-surface border-line text-ink-body hover:border-civic-400'
+                ? 'bg-leaf-600 border-leaf-600 text-white'
+                : 'bg-surface border-line text-ink-body hover:border-leaf-400'
             }`}
           >
             Include at risk
           </button>
           <button
             onClick={refetch}
-            className="focus-ring lift inline-flex items-center gap-2 bg-surface border border-line hover:border-civic-400 text-ink-body font-semibold text-[13px] px-3.5 py-2 rounded-lg shadow-sm transition-all"
+            className="focus-ring lift inline-flex items-center gap-2 bg-surface border border-line hover:border-leaf-400 text-ink-body font-semibold text-[13px] px-3.5 py-2 rounded-lg shadow-sm transition-all"
           >
             <IconRefresh size={15} /> Refresh
           </button>

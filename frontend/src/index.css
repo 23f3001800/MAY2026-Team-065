@@ -300,4 +300,40 @@
 
   .break-before-page { break-before: page; }
   .break-inside-avoid { break-inside: avoid; }
+
+  /* ── Printable sheets ───────────────────────────────────────
+     The acknowledgement slip lives in a fixed, scrolling modal on screen. Left
+     alone, window.print() sends the whole document to paper: the page behind
+     the modal prints in full, and the slip itself is clipped to one viewport
+     because of its own max-height and overflow.
+
+     The slip renders through a portal onto <body>, so it is a SIBLING of the
+     app root rather than a descendant. That is what makes this simple: drop
+     the root outright and the sheet is the only thing left. Hiding the page
+     with visibility instead would keep its layout and emit blank pages. */
+  body.printing-sheet > #root { display: none !important; }
+
+  .print-sheet-shell {
+    position: static !important;
+    display: block !important;
+    padding: 0 !important;
+  }
+
+  /* On paper the sheet is an ordinary block: no viewport cap, no scroll
+     container to clip it, no card chrome. */
+  .print-sheet {
+    position: static !important;
+    width: 100% !important;
+    max-width: none !important;
+    max-height: none !important;
+    overflow: visible !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    transform: none !important;
+    animation: none !important;
+  }
+
+  /* A sticky header inside the sheet would either repeat on every page or sit
+     over the content. On paper it is just the first thing on the first page. */
+  .print-sheet .sticky { position: static !important; }
 }

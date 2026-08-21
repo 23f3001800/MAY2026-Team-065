@@ -10,8 +10,8 @@ module.exports = {
         'bg-dark': '#090d16',
         'bg-card': 'rgba(15, 23, 42, 0.3)',
         'border-light': 'rgba(255, 255, 255, 0.07)',
-        primary: '#10b981',
-        'primary-glow': 'rgba(16, 185, 129, 0.35)',
+        primary: '#0f8f56',
+        'primary-glow': 'rgba(15, 143, 86, 0.35)',
         secondary: '#3b82f6',
         'secondary-glow': 'rgba(59, 130, 246, 0.35)',
         'text-primary': '#f8fafc',
@@ -19,6 +19,15 @@ module.exports = {
         'text-muted': '#64748b',
         error: '#ef4444',
         success: '#10b981',
+
+        // Civic green — the public landing page's anchor. Kept separate from
+        // civic-* so restyling the front door never repaints the signed-in app.
+        leaf: {
+          50: '#eef8f2', 100: '#d7efe1', 200: '#abdfc3', 300: '#75c9a0',
+          400: '#3fae7b', 500: '#199a62', 600: '#0f8f56', 700: '#0b7345',
+          800: '#0a5c39', 900: '#08492f', 950: '#04291b',
+          DEFAULT: '#0f8f56',
+        },
 
         // Semantic tokens for the signed-in (light) app. The auth screens keep
         // the dark palette above; everything behind login should reach for
