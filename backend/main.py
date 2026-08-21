@@ -47,9 +47,13 @@ from ai.service import AIService
 from routers import ai as ai_router
 from routers import analytics as analytics_router
 from routers import notifications as notifications_router
+from services import cache as cache_service
+from services import email as email_service
 from services import lifecycle
+from services import password_reset as password_reset_service
 from services import pdf
 from services import notifications as notification_service
+from services import routing as routing_service
 from services import sla as sla_service
 from services import triage as triage_service
 
@@ -126,6 +130,87 @@ async def shutdown():
         except (asyncio.TimeoutError, asyncio.CancelledError):
             task.cancel()
             logger.warning("SLA sweeper did not stop in time; cancelled")
+
+
+# --- Health checks ----------------------------------------------------------
+# Two endpoints, because they answer different questions and a deployment that
+# conflates them restarts healthy processes.
+#
+#   /health        Is this process alive? Touches nothing. A liveness probe that
+#                  queried the database would kill and restart every API worker
+#                  the moment Postgres hiccuped -- turning a recoverable blip
+#                  into an outage, since the restarted workers cannot reach the
+#                  database either.
+#
+#   /health/ready  Can this process actually serve traffic? Checks the database
+#                  and reports the optional subsystems. Answers 503 when the
+#                  database is unreachable, so a load balancer takes it out of
+#                  rotation without anybody being restarted.
+#
+# Both are unauthenticated: a probe has no credentials, and this is also the one
+# thing you want to be able to curl when nothing else works. Neither returns
+# anything that is not already public -- no connection strings, no keys, and
+# provider names only.
+
+@app.get("/health", tags=["health"], summary="Liveness")
+async def health():
+    """Is the process up? Deliberately does no work at all."""
+    return {"status": "ok", "service": app.title}
+
+
+@app.get("/health/ready", tags=["health"], summary="Readiness")
+async def health_ready(response: Response, db: AsyncSession = Depends(get_db)):
+    """Is the process able to serve requests, and what is degraded if not?"""
+    checks = {}
+    ready = True
+
+    # The database is the only hard dependency. Everything else below degrades.
+    try:
+        await db.execute(select(1))
+        checks["database"] = {"ok": True}
+    except Exception as exc:  # noqa: BLE001 -- the reason is the useful part
+        ready = False
+        checks["database"] = {"ok": False, "error": type(exc).__name__}
+        logger.exception("readiness check could not reach the database")
+
+    # AI is optional by design: with nothing configured the deterministic engine
+    # still triages, so an unavailable model is reported, not fatal.
+    try:
+        ai_status = AIService().status()
+        checks["ai"] = {
+            "ok": True,
+            "provider": ai_status["provider"],
+            "llmAvailable": ai_status["llm"]["available"],
+        }
+    except Exception as exc:  # noqa: BLE001
+        checks["ai"] = {"ok": False, "error": type(exc).__name__}
+
+    mail = email_service.EmailSettings()
+    checks["mail"] = {
+        # Not "ok": an unconfigured mail server is a supported state, and
+        # calling it a failure would make every local run look broken. What
+        # matters is whether credential and reset emails can actually leave.
+        "configured": mail.is_configured,
+        "host": mail.host or None,
+    }
+
+    sweeper = getattr(app.state, "sla_task", None)
+    checks["slaSweeper"] = {
+        "enabled": sla_service.is_enabled(),
+        "running": bool(sweeper and not sweeper.done()),
+    }
+
+    checks["cache"] = cache_service.analytics_cache.stats()
+
+    if not ready:
+        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+
+    # Never cached: a stale readiness answer is worse than none, and proxies
+    # will happily hold one otherwise.
+    response.headers["Cache-Control"] = "no-store"
+
+    return {"status": "ready" if ready else "degraded", "checks": checks}
+
 
 # for reset password
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -244,6 +329,89 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends(), db: AsyncSessi
     return {"access_token": access_token, "token_type": "bearer"}
 
 
+# --- Forgotten password -----------------------------------------------------
+# Until now the only way back into a locked-out account was to ask an
+# administrator to overwrite the password (PATCH /users/{id}/reset-password),
+# which means the administrator chooses and then knows every user's password.
+# These three endpoints let somebody who can read the account's inbox do it
+# themselves. The rules -- uniform responses, attempt limits, expiry -- live in
+# services/password_reset.py; this layer only translates them into HTTP.
+
+@app.post(
+    "/auth/forgot-password",
+    response_model=schemas.ForgotPasswordResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    tags=["auth"],
+    summary="Send a password reset code",
+)
+async def forgot_password(
+    payload: schemas.ForgotPasswordRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Email a verification code to the address, if it belongs to an account.
+
+    Always 202, always the same wording. Whether the address is registered, is
+    suspended, or has asked five times in the last hour is recorded in the log
+    and never in the response -- otherwise this endpoint tells anyone who asks
+    which addresses are on the register.
+    """
+    outcome = await password_reset_service.request_code(db, payload.email)
+    logger.info("forgot-password outcome: %s", outcome.get("reason") or "sent")
+
+    return schemas.ForgotPasswordResponse(
+        message=(
+            "If that address has an account, a verification code is on its way. "
+            "Check your inbox, including spam."
+        ),
+        expiresInMinutes=password_reset_service.code_ttl_minutes(),
+    )
+
+
+@app.post(
+    "/auth/verify-reset-code",
+    response_model=schemas.VerifyResetCodeResponse,
+    tags=["auth"],
+    summary="Check a reset code without using it",
+)
+async def verify_reset_code(
+    payload: schemas.VerifyResetCodeRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Confirm a code is good, so the UI can move on to collecting a password.
+
+    Does not consume the code -- the reset call still needs it. Wrong answers
+    do count against the code's attempt limit, which is what stops this being
+    a free oracle for guessing.
+    """
+    try:
+        return await password_reset_service.verify_code(db, payload.email, payload.code)
+    except password_reset_service.ResetError as err:
+        raise HTTPException(status_code=400, detail=err.reason)
+
+
+@app.post(
+    "/auth/reset-password",
+    tags=["auth"],
+    summary="Set a new password using a verification code",
+)
+async def reset_password_with_code(
+    payload: schemas.ResetPasswordWithCode,
+    db: AsyncSession = Depends(get_db),
+):
+    """Change the password and retire the code."""
+    try:
+        user = await password_reset_service.reset_password(
+            db, payload.email, payload.code, payload.newPassword
+        )
+    except password_reset_service.ResetError as err:
+        raise HTTPException(status_code=400, detail=err.reason)
+
+    return {
+        "message": "Your password has been changed. You can sign in with it now.",
+        "email": user.email,
+    }
+
+
 # get_current_user now lives in dependencies.py (imported above) so routers can
 # share it without importing this module.
 
@@ -323,6 +491,16 @@ async def create_complaint(
 
     # Load relationships the notification messages read (category, location).
     await db.refresh(new_complaint, ["category", "location"])
+
+    # Give it an owner now, from the category's department, rather than waiting
+    # for somebody to assign a field worker. Ownership was previously a side
+    # effect of dispatch, which left every not-yet-dispatched complaint with no
+    # responsible officer -- and the officer notifications for escalation and
+    # resolution are addressed to officerId, so for those complaints they went
+    # nowhere at all. The category the citizen chose is authoritative here --
+    # triage only ever writes an advisory suggestion alongside it -- so the
+    # department is known and routing can happen immediately.
+    await routing_service.assign_owner(db, new_complaint)
 
     await notification_service.notify_new_complaint(db, new_complaint)
 
@@ -587,9 +765,23 @@ def _apply_assignment(
             + (field_worker.skillSet or "nothing") + "'."
         )
 
+    # Dispatching moves the complaint to ASSIGNED, so it has to obey the same
+    # transition rules as setting that status directly. Without this, assignment
+    # is a back door: a RESOLVED complaint could be dispatched to a worker and
+    # silently reopened without the citizen ever being told it had been.
+    try:
+        lifecycle.assert_transition_allowed(complaint, StatusEnum.ASSIGNED.name)
+    except HTTPException as exc:
+        raise AssignmentRefused(str(exc.detail), status_code=exc.status_code)
+
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     complaint.fieldWorkerId = field_worker.userId
-    if current_user.role.lower() == "officer":
+    # Claim ownership only if nobody holds it. Complaints are now routed to
+    # their department's officer when they are filed, and unconditionally
+    # overwriting that here would hand the complaint to whichever officer
+    # happened to dispatch a worker -- undoing the routing and, when an
+    # administrator did the dispatching, leaving no officer at all.
+    if complaint.officerId is None and current_user.role.lower() == "officer":
         complaint.officerId = current_user.userId
     complaint.status = "ASSIGNED"
     complaint.updatedAt = now
@@ -823,6 +1015,44 @@ async def bulk_assign(
 
 ### Field worker create route
    ## Allows an Administrator to register a new Field Worker into the system. 
+def _credential_delivery(
+    result: email_service.EmailResult, *, generated: bool
+) -> schemas.CredentialDelivery:
+    """Turn a send result into something an administrator can act on.
+
+    The account exists either way -- this only reports whether the person was
+    told how to use it. The three outcomes need three different actions, so they
+    get three different sentences rather than a bare boolean the UI would have
+    to interpret.
+    """
+    if result.delivered:
+        return schemas.CredentialDelivery(
+            emailed=True,
+            detail="Sign-in details have been emailed to them.",
+        )
+
+    if not result.configured:
+        return schemas.CredentialDelivery(
+            emailed=False,
+            detail=(
+                "No mail server is configured, so nothing was sent. "
+                + (
+                    "Set a password for them with the reset action, or configure SMTP."
+                    if generated
+                    else "Pass on the password you chose yourself."
+                )
+            ),
+        )
+
+    return schemas.CredentialDelivery(
+        emailed=False,
+        detail=(
+            "The account was created but the email could not be delivered. "
+            "Check the address and use the reset action to send new details."
+        ),
+    )
+
+
 @app.post("/workers/", response_model=schemas.FieldWorkerResponse, status_code=status.HTTP_201_CREATED)
 async def create_field_worker(
     worker: schemas.FieldWorkerCreate,
@@ -832,25 +1062,53 @@ async def create_field_worker(
     if current_user.role.lower() != "administrator":
         raise HTTPException(status_code=403, detail="Only administrators can register field workers.")
 
+    # Duplicate email used to surface as a raw IntegrityError (a 500) because
+    # users.email is unique. It is an ordinary mistake, so it gets an ordinary
+    # answer.
+    existing = await db.execute(
+        select(models.UserModel).where(models.UserModel.email == worker.email)
+    )
+    if existing.scalar_one_or_none():
+        raise HTTPException(status_code=400, detail="Email already registered.")
+
     worker_id = str(uuid.uuid4())
-    
+    password = worker.password or security.generate_temporary_password()
+
     new_worker = models.FieldWorkerModel(
         userId=worker_id,
         name=worker.name,
         email=worker.email,
         phone=worker.phone,
-        # passwordHash=worker.password, 
-        passwordHash=get_password_hash(worker.password),
-        role="field_worker",          
+        passwordHash=get_password_hash(password),
+        role="field_worker",
         skillSet=worker.skillSet,
         availabilityStatus="AVAILABLE"
     )
-    
+
     db.add(new_worker)
     await db.commit()
     await db.refresh(new_worker)
-    
-    return new_worker
+
+    # Sent after the commit, deliberately. An email promising credentials for an
+    # account that failed to save is worse than no email; the reverse -- a real
+    # account whose email bounced -- is recoverable, and the administrator is
+    # told about it below.
+    delivery = await email_service.send_account_credentials(
+        to=worker.email,
+        name=worker.name,
+        role_label="field worker",
+        temporary_password=password,
+        created_by=current_user.name,
+        extra_lines=[
+            "Your skills are recorded as: " + (worker.skillSet or "none yet") + ".",
+            "Jobs are dispatched to you based on this, so tell your"
+            " administrator if it is wrong.",
+        ],
+    )
+
+    response = schemas.FieldWorkerResponse.model_validate(new_worker)
+    response.credentialDelivery = _credential_delivery(delivery, generated=worker.password is None)
+    return response
 
 # Get Api for worker
 #  Fetch a list of field workers, optionally filtered by their specific skills. 
@@ -1767,9 +2025,10 @@ async def create_system_official(
     if result.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="Email already registered.")
 
-    hashed_password = get_password_hash(user_in.password)
+    password = user_in.password or security.generate_temporary_password()
+    hashed_password = get_password_hash(password)
     new_user_id = str(uuid.uuid4())
-    
+
     # Only the officer branch is implemented here. Anything else used to fall
     # through with new_user still None and blow up on db.add(None) as a 500;
     # field workers have their own endpoint (POST /workers/) because they carry
@@ -1802,8 +2061,30 @@ async def create_system_official(
     db.add(new_user)
     await db.commit()
     await db.refresh(new_user)
-    
-    return {"message": f"{user_in.role} created successfully", "userId": new_user.userId}
+
+    # After the commit: see the note on POST /workers/. The account is real
+    # whether or not the message got out, and the administrator is told which.
+    delivery = await email_service.send_account_credentials(
+        to=new_user.email,
+        name=new_user.name,
+        role_label="municipal officer",
+        temporary_password=password,
+        created_by=current_user.name,
+        extra_lines=[
+            "You are recorded as " + new_user.designation + " in "
+            + new_user.department + ".",
+            "Complaints filed against categories owned by that department are"
+            " routed to you.",
+        ],
+    )
+
+    return {
+        "message": f"{user_in.role} created successfully",
+        "userId": new_user.userId,
+        "credentialDelivery": _credential_delivery(
+            delivery, generated=user_in.password is None
+        ).model_dump(),
+    }
 
 # --- SLA sweep (manual trigger) ---------------------------------------------
 # The background sweeper normally handles this. This endpoint exists so the
@@ -1824,6 +2105,40 @@ async def trigger_sla_sweep(
         "breached": result["breached"],
         "notified": result["notified"],
         "targetsHours": sla_service.sla_hours(),
+    }
+
+
+@app.post("/admin/complaints/route-unassigned")
+async def route_unassigned_complaints(
+    db: AsyncSession = Depends(get_db),
+    current_user: models.UserModel = Depends(get_current_user)
+):
+    """Give every ownerless open complaint to its department's officer.
+
+    Complaints are routed on filing, but that only helps the ones filed since.
+    Everything already in the system was created when ownership was a side
+    effect of dispatch, so anything never dispatched has no officer -- and the
+    officer notifications for escalation, resolution and SLA breach are
+    addressed to ``officerId``, which means for those complaints they are
+    created for nobody.
+
+    Safe to run repeatedly: it only touches complaints where officerId is null,
+    and complaints in a department with no officer are reported back rather
+    than being pushed onto somebody who cannot act on them.
+    """
+    require_roles(current_user, ["administrator"], "route unassigned complaints")
+
+    result = await routing_service.route_unassigned(db)
+    await db.commit()
+
+    logger.info(
+        "manual routing sweep: %d of %d complaints given an owner",
+        result["routed"], result["considered"],
+    )
+
+    return {
+        "message": "Routing sweep complete.",
+        **result,
     }
 
 
@@ -2055,12 +2370,45 @@ async def get_nearby_complaints(
 # not exist. Exposing the table removes that whole class of breakage.
 @app.get("/categories", response_model=List[schemas.CategoryResponse])
 async def list_categories(
+    response: Response,
+    if_none_match: Optional[str] = Header(None, alias="If-None-Match"),
     db: AsyncSession = Depends(get_db),
     current_user: models.UserModel = Depends(get_current_user)
 ):
-    """List every complaint category and its owning department."""
+    """List every complaint category and its owning department.
+
+    Reference data: it changes when somebody adds a department, which is roughly
+    never, and the frontend re-fetches it on every dashboard mount and every
+    report form. So it carries validators.
+
+    The ETag is computed from the rows themselves rather than a timestamp, which
+    means adding a category invalidates every client's copy immediately -- no
+    waiting for max-age to lapse, and no stale category list on the one screen
+    where a stale list means a complaint filed against the wrong department.
+
+    ``private`` on the Cache-Control because this needs a token: a shared proxy
+    must not hold one user's copy and hand it to an unauthenticated caller.
+    """
     result = await db.execute(select(models.CategoryModel).order_by(models.CategoryModel.name))
-    return result.scalars().all()
+    categories = list(result.scalars().all())
+
+    payload = [
+        {"categoryId": c.categoryId, "name": c.name, "department": c.department}
+        for c in categories
+    ]
+    etag = cache_service.etag_for(payload)
+
+    response.headers["ETag"] = etag
+    response.headers["Cache-Control"] = (
+        "private, max-age=" + str(cache_service.reference_max_age())
+    )
+
+    if cache_service.matches(if_none_match, etag):
+        # 304 must carry no body. Returning the list here would still send it,
+        # which is the whole thing this is trying to avoid.
+        return Response(status_code=status.HTTP_304_NOT_MODIFIED, headers=dict(response.headers))
+
+    return categories
 
 
 # --- Complaint sub-resources ------------------------------------------------
@@ -2146,6 +2494,34 @@ async def get_complaint_feedback(
         .order_by(models.FeedbackModel.submittedAt.desc())
     )
     return result.scalars().all()
+
+
+@app.get("/complaints/{complaintId}/allowed-statuses")
+async def get_allowed_statuses(
+    complaintId: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: models.UserModel = Depends(get_current_user)
+):
+    """Which statuses THIS user may move THIS complaint to, right now.
+
+    Two rules decide it -- what the lifecycle permits from the current status,
+    and what this role is allowed to do -- and both live in services/lifecycle.
+    Duplicating either of them in the client is how the two drift apart, and the
+    symptom is a button that looks available and answers 403 or 409 when pressed.
+
+    ``allowed`` is what to offer. ``transitions`` is every move that is legal
+    from here regardless of role, which is what lets an interface explain why
+    something is missing ("only the citizen can verify this") rather than
+    silently hiding it.
+    """
+    complaint = await _load_complaint_for_read(complaintId, db, current_user)
+
+    return {
+        "complaintId": complaint.complaintId,
+        "current": lifecycle.status_name(complaint.status),
+        "allowed": lifecycle.allowed_statuses_for(current_user, complaint),
+        "transitions": sorted(lifecycle.allowed_transitions(complaint.status)),
+    }
 
 
 ### if a citizen or admin clicks on one specific issue to view its dedicated page
@@ -2553,16 +2929,37 @@ async def recategorize_complaint(
         raise HTTPException(status_code=400, detail="Complaint is already assigned to this category.")
 
     old_category_name = complaint.category.name
+    old_department = complaint.category.department
 
     complaint.categoryId = recategorize_data.categoryId
     complaint.updatedAt = datetime.now(timezone.utc).replace(tzinfo=None)
+
+    # Recategorising across departments is how a complaint gets to the right
+    # team, so ownership has to follow it. Without this the complaint moves to
+    # Sanitation while the Roads officer stays responsible for it -- and the
+    # Sanitation officer, who now has to act, is not told anything.
+    #
+    # Only when the department actually changes, and only when nobody has
+    # started work: a complaint already dispatched to a field worker keeps the
+    # officer who dispatched them, because that officer is mid-job.
+    rerouted_to = None
+    if (
+        routing_service.same_department(old_department, new_category.department) is False
+        and complaint.fieldWorkerId is None
+    ):
+        officer = await routing_service.reroute_owner(db, complaint, new_category.department)
+        if officer is not None:
+            rerouted_to = officer.name
 
     history_id = f"HIST-{str(uuid.uuid4())[:8].upper()}"
     new_history = models.StatusHistoryModel(
         historyId=history_id,
         complaintId=complaintId,
         status=complaint.status,  # Keep the current status
-        remarks=f"Recategorized from '{old_category_name}' to '{new_category.name}'",
+        remarks=(
+            f"Recategorized from '{old_category_name}' to '{new_category.name}'"
+            + (f"; reassigned to {rerouted_to}" if rerouted_to else "")
+        ),
         timestamp=datetime.now(timezone.utc).replace(tzinfo=None)
     )
     db.add(new_history)
