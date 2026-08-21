@@ -4,11 +4,20 @@
 // The authentication logic is unchanged from the version this replaces; only
 // the frame around it moved from the dark glass card to the civic shell.
 import React, { useState } from 'react';
-import { useNavigate, Link, useSearchParams } from 'react-router-dom';
-import AuthShell, { AsidePoint } from '../components/public/AuthShell';
-import { FormField, TextInput, PasswordInput, Alert, SubmitButton } from '../components/formControls';
-import { IconMail, IconLock } from '../components/icons';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import AuthShell, { AuthCard, NavLink } from '../components/auth/AuthShell';
+import { CityLineArt } from '../components/auth/AuthScene';
+import {
+  TextInput, PasswordInput, Checkbox, InlineAction, Badge, Alert, SubmitButton, SecurityNote,
+} from '../components/auth/controls';
+import { IconMail, IconLock, IconMegaphone, IconCheckCircle, IconUsers } from '../components/icons';
 import { login, saveSession, homePathForRole } from '../api/auth';
+
+const FEATURES = [
+  { icon: <IconMegaphone size={17} />, title: 'Report Issues', body: 'Easily report civic issues in your area' },
+  { icon: <IconCheckCircle size={17} />, title: 'Track Progress', body: 'Follow updates in real-time' },
+  { icon: <IconUsers size={17} />, title: 'Community Driven', body: 'Stronger communities start with you' },
+];
 
 export default function Login() {
   const navigate = useNavigate();
@@ -16,6 +25,7 @@ export default function Login() {
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [remember, setRemember] = useState(false);
   const [loading, setLoading] = useState(false);
   // A session that timed out redirects here with ?expired=1. Saying so beats
   // leaving someone to wonder why they were thrown out mid-task.
@@ -46,72 +56,98 @@ export default function Login() {
   };
 
   return (
-    <AuthShell
-      title="Sign in"
-      subtitle="One account covers every role. We work out which one from your credentials."
-      aside={(
-        <>
-          <h2 className="font-display text-[24px] font-bold leading-snug tracking-[-0.02em]">
-            Your reports, and what happened to them
-          </h2>
-          <ul className="space-y-4 mt-6">
-            <AsidePoint label="Everything you have filed">
-              Each with its reference, the department handling it and the date it is due.
-            </AsidePoint>
-            <AsidePoint label="Evidence you can check">
-              Before and after photographs, so "resolved" is something you can verify rather
-              than take on trust.
-            </AsidePoint>
-            <AsidePoint label="Told when it moves">
-              A notification at each stage, not a form you have to keep reopening.
-            </AsidePoint>
-          </ul>
-        </>
-      )}
-    >
-      <Alert message={message} />
+    <AuthShell nav={<NavLink prompt="New here?" to="/register" label="Register here" />}>
+      <AuthCard className="max-w-[980px]">
+        <div className="grid gap-4 lg:grid-cols-[1fr_0.88fr]">
+          {/* ── Form ───────────────────────────────────────────── */}
+          <div className="flex flex-col px-3 py-6 sm:px-7 sm:py-8">
+            <Badge icon={<span aria-hidden="true">👋</span>}>Welcome back!</Badge>
 
-      <form className="flex flex-col gap-4" onSubmit={handleSubmit}>
-        <FormField label="Email">
-          <TextInput
-            icon={<IconMail />}
-            type="email"
-            placeholder="you@example.com"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            autoComplete="email"
-            required
-          />
-        </FormField>
+            <h1 className="mt-5 font-display text-[30px] font-bold leading-tight tracking-[-0.5px] text-ink">
+              Login to your account
+            </h1>
+            <p className="mt-2.5 max-w-[300px] text-[14.5px] leading-[1.6] text-ink-muted">
+              Access your dashboard and stay connected with your community.
+            </p>
 
-        <FormField label="Password">
-          <PasswordInput
-            icon={<IconLock />}
-            placeholder="Your password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            autoComplete="current-password"
-            required
-          />
-        </FormField>
+            <form className="mt-7 flex flex-col gap-3.5" onSubmit={handleSubmit}>
+              <Alert message={message} />
 
-        <SubmitButton loading={loading}>Sign in</SubmitButton>
-      </form>
+              <TextInput
+                icon={<IconMail size={17} />}
+                type="email"
+                placeholder="Email address"
+                aria-label="Email address"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                autoComplete="email"
+                required
+              />
 
-      <p className="text-[14px] text-ink-muted mt-6">
-        Not registered yet?{' '}
-        <Link
-          to="/register"
-          className="focus-ring rounded font-semibold text-civic-700 hover:underline"
-        >
-          Create an account
-        </Link>
-      </p>
+              <PasswordInput
+                icon={<IconLock size={17} />}
+                placeholder="Password"
+                aria-label="Password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                autoComplete="current-password"
+                required
+              />
 
-      <p className="text-[12.5px] text-ink-faint mt-3 leading-relaxed">
-        Officer, field worker and administrator accounts are created by an administrator, not
-        through registration.
-      </p>
+              <div className="flex items-center justify-between gap-3 py-0.5 text-[13px]">
+                <Checkbox id="remember" checked={remember} onChange={(e) => setRemember(e.target.checked)}>
+                  Remember me
+                </Checkbox>
+                <InlineAction
+                  onClick={() =>
+                    setMessage({
+                      text: 'Password reset isn’t available yet — please contact your ward administrator.',
+                      type: 'info',
+                    })
+                  }
+                >
+                  Forgot password?
+                </InlineAction>
+              </div>
+
+              <SubmitButton loading={loading} icon={<IconLock size={17} />}>
+                Login
+              </SubmitButton>
+            </form>
+
+            <div className="mt-auto pt-8">
+              <SecurityNote />
+            </div>
+          </div>
+
+          {/* ── Brand pane ─────────────────────────────────────── */}
+          <aside className="hidden flex-col justify-center rounded-[20px] bg-[linear-gradient(160deg,#1c6041_0%,#124a31_100%)] px-8 py-10 text-white lg:flex">
+            <CityLineArt className="mx-auto w-[220px] text-white/[0.85]" />
+
+            <h2 className="mt-9 font-display text-[23px] font-bold leading-[1.3] tracking-[-0.3px]">
+              Building better<br />communities together
+            </h2>
+            <p className="mt-3.5 text-[13.5px] leading-[1.7] text-white/[0.72]">
+              SmartCivicConnect helps you report issues, track progress, and stay informed about what
+              matters in your neighborhood.
+            </p>
+
+            <ul className="mt-8 flex flex-col gap-5">
+              {FEATURES.map((f) => (
+                <li key={f.title} className="flex items-start gap-3.5">
+                  <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-[11px] bg-white/[0.12] text-white">
+                    {f.icon}
+                  </span>
+                  <span>
+                    <span className="block text-[14px] font-semibold">{f.title}</span>
+                    <span className="mt-0.5 block text-[12.5px] leading-[1.5] text-white/[0.65]">{f.body}</span>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </aside>
+        </div>
+      </AuthCard>
     </AuthShell>
   );
 }

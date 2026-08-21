@@ -33,8 +33,8 @@ import useAsync from '../hooks/useAsync';
  */
 function Stat({ label, value, of, tone = 'neutral', icon: Icon, sub }) {
   const tones = {
-    neutral: { chip: 'bg-civic-50 text-civic-700', bar: 'bg-civic-600' },
-    positive: { chip: 'bg-teal-50 text-teal-700', bar: 'bg-teal-500' },
+    neutral: { chip: 'bg-leaf-50 text-leaf-700', bar: 'bg-leaf-600' },
+    positive: { chip: 'bg-leaf-50 text-leaf-600', bar: 'bg-leaf-500' },
     caution: { chip: 'bg-caution-50 text-caution-700', bar: 'bg-caution-500' },
   };
   const t = tones[tone] || tones.neutral;
@@ -96,7 +96,7 @@ export default function CitizenDashboard() {
     <div className="max-w-[1100px] mx-auto space-y-5 animate-rise-in">
       <header className="flex items-end justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="font-display text-[26px] font-bold text-ink leading-tight">
+          <h1 className="font-display text-[28px] font-bold text-ink leading-tight">
             Overview
           </h1>
           <p className="text-[14px] text-ink-muted mt-1">
@@ -108,13 +108,13 @@ export default function CitizenDashboard() {
         <div className="flex items-center gap-2">
           <Link
             to="/complaints"
-            className="focus-ring inline-flex items-center gap-2 bg-surface border border-line hover:border-civic-400 text-ink-body font-semibold text-[13px] px-3.5 py-2.5 rounded-xl shadow-sm transition-all"
+            className="focus-ring inline-flex items-center gap-2 bg-surface border border-line hover:border-leaf-400 text-ink-body font-semibold text-[13px] px-3.5 py-2.5 rounded-xl shadow-sm transition-all"
           >
             <IconList size={15} /> My complaints
           </Link>
           <Link
             to="/report"
-            className="focus-ring lift inline-flex items-center gap-2 bg-civic-700 hover:bg-civic-800 text-white font-semibold text-[14px] px-4 py-2.5 rounded-xl shadow-sm transition-all"
+            className="focus-ring lift inline-flex items-center gap-2 bg-leaf-600 hover:bg-leaf-700 text-white font-semibold text-[14px] px-4 py-2.5 rounded-xl shadow-sm transition-all"
           >
             <IconReport size={16} /> Report an issue
           </Link>
@@ -125,8 +125,8 @@ export default function CitizenDashboard() {
           figures because a figure can wait and this cannot — no officer or
           worker can close these on the citizen's behalf. */}
       {awaitingConfirmation.length > 0 && (
-        <div className="bg-teal-50 border border-teal-100 rounded-xl p-4 flex items-start gap-3 flex-wrap">
-          <span className="w-9 h-9 rounded-xl bg-surface text-teal-700 flex items-center justify-center shrink-0">
+        <div className="bg-leaf-50 border border-leaf-100 rounded-xl p-4 flex items-start gap-3 flex-wrap">
+          <span className="w-9 h-9 rounded-xl bg-surface text-leaf-700 flex items-center justify-center shrink-0">
             <IconStar size={17} />
           </span>
           <div className="min-w-0 flex-1">
@@ -141,7 +141,7 @@ export default function CitizenDashboard() {
           </div>
           <Link
             to="/complaints"
-            className="focus-ring shrink-0 inline-flex items-center gap-1.5 bg-teal-600 hover:bg-teal-700 text-white font-semibold text-[13px] px-3.5 py-2 rounded-lg transition-colors"
+            className="focus-ring shrink-0 inline-flex items-center gap-1.5 bg-leaf-600 hover:bg-leaf-700 text-white font-semibold text-[13px] px-3.5 py-2 rounded-lg transition-colors"
           >
             Review <IconArrowRight size={14} />
           </Link>
@@ -243,7 +243,7 @@ export default function CitizenDashboard() {
           is a link to them, not a copy of them. */}
       <Link
         to="/complaints"
-        className="focus-ring group flex items-center justify-between gap-2 bg-surface rounded-xl border border-line shadow-sm px-4 py-3.5 hover:border-civic-300 transition-colors"
+        className="focus-ring group flex items-center justify-between gap-2 bg-surface rounded-xl border border-line shadow-sm px-4 py-3.5 hover:border-leaf-300 transition-colors"
       >
         <span className="text-[13.5px] font-semibold text-ink-body">
           {total === 0
