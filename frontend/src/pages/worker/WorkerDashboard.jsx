@@ -68,7 +68,7 @@ export default function WorkerDashboard() {
     <div className="max-w-[1100px] mx-auto space-y-5 animate-rise-in">
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="font-display text-2xl font-bold text-slate-900">Today's work</h1>
+          <h1 className="font-display text-[28px] font-bold text-ink leading-tight">Today's work</h1>
           <p className="text-[14px] text-slate-500">Here are the tasks assigned to you.</p>
         </div>
         <div className="flex items-center gap-2">
@@ -110,18 +110,18 @@ export default function WorkerDashboard() {
               "what am I doing" before it answers "how many of each". */}
           {shift.active.length > 0 && (
             <section>
-              <h2 className="font-display text-[15px] font-bold text-ink mb-2.5">Currently working</h2>
+              <h2 className="font-display text-[15px] font-bold text-leaf-700 mb-2.5">Currently working</h2>
               <ul className="space-y-2.5">
                 {shift.active.map((t) => (
                   <li key={t.id}>
                     <button
                       onClick={() => navigate(`/worker/tasks/${t.id}`)}
-                      className="focus-ring lift w-full text-left bg-surface rounded-xl border border-civic-300 ring-1 ring-civic-100 shadow-sm p-4 hover:shadow-md transition-all"
+                      className="focus-ring lift w-full text-left bg-surface rounded-xl border border-leaf-300 ring-1 ring-leaf-100 shadow-sm p-4 hover:shadow-md transition-all"
                     >
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
-                          <div className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide text-civic-700 mb-1">
-                            <span className="w-1.5 h-1.5 rounded-full bg-civic-600 animate-pulse-dot" /> on this now
+                          <div className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide text-leaf-700 mb-1">
+                            <span className="w-1.5 h-1.5 rounded-full bg-leaf-600 animate-pulse-dot" /> on this now
                           </div>
                           <div className="text-[15px] font-semibold text-ink leading-snug">{t.issue}</div>
                           <div className="flex items-center gap-1.5 text-[12px] text-ink-muted mt-1">
@@ -150,12 +150,12 @@ export default function WorkerDashboard() {
               <button
                 key={label}
                 onClick={() => navigate('/worker/tasks')}
-                className="focus-ring lift bg-surface rounded-xl border border-line shadow-sm p-4 text-left hover:border-civic-300 transition-all"
+                className="focus-ring lift bg-surface rounded-xl border border-line shadow-sm p-4 text-left hover:border-leaf-300 transition-all"
               >
                 <span className={`inline-flex w-9 h-9 rounded-xl items-center justify-center mb-2 ${
                   tone === 'positive' ? 'bg-teal-50 text-teal-700'
                   : tone === 'caution' ? 'bg-caution-50 text-caution-700'
-                  : 'bg-civic-50 text-civic-700'}`}>
+                  : 'bg-leaf-50 text-leaf-700'}`}>
                   <Icon size={17} />
                 </span>
                 <div className="font-display text-[24px] font-bold text-ink leading-none tnum">{value}</div>
@@ -167,10 +167,10 @@ export default function WorkerDashboard() {
           {/* Next up, ordered the same way the task list orders it. */}
           <section>
             <div className="flex items-baseline justify-between gap-2 mb-2.5">
-              <h2 className="font-display text-[15px] font-bold text-ink">Up next</h2>
+              <h2 className="font-display text-[15px] font-bold text-leaf-700">Up next</h2>
               <button
                 onClick={() => navigate('/worker/tasks')}
-                className="focus-ring text-[13px] font-semibold text-civic-700 hover:underline"
+                className="focus-ring text-[13px] font-semibold text-leaf-700 hover:underline"
               >
                 All tasks
               </button>

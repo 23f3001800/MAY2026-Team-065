@@ -68,7 +68,7 @@ export default function SlaSweepPanel() {
         <button
           onClick={sweep}
           disabled={running}
-          className="focus-ring lift shrink-0 inline-flex items-center gap-2 bg-primary hover:bg-emerald-600 disabled:opacity-60 disabled:cursor-not-allowed text-white font-semibold text-[13px] px-3.5 py-2 rounded-lg shadow-btn transition-all"
+          className="focus-ring lift shrink-0 inline-flex items-center gap-2 bg-primary hover:bg-leaf-700 disabled:opacity-60 disabled:cursor-not-allowed text-white font-semibold text-[13px] px-3.5 py-2 rounded-lg shadow-btn transition-all"
         >
           <IconRefresh size={15} className={running ? 'animate-spin-slow' : ''} />
           {running ? 'Checking…' : 'Run check'}

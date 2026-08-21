@@ -82,13 +82,13 @@ export default function JourneyStrip({ className = '' }) {
       {/* Record header — the stamp on a municipal file. */}
       <div className="flex items-center justify-between gap-3 px-5 py-3.5 border-b border-line bg-surface-inset">
         <div className="min-w-0">
-          <div className="font-mono text-[11px] text-ink-faint tracking-wide">CMP-4B7E20</div>
+          <div className="font-mono text-[11px] text-ink-faint tracking-wide">CMP-487E29</div>
           <div className="text-[13.5px] font-semibold text-ink truncate mt-0.5">
             Streetlight out on Kasturba Road
           </div>
         </div>
-        <span className="shrink-0 inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-teal-50 text-teal-700 text-[11px] font-semibold ring-1 ring-inset ring-teal-600/20">
-          <span className="w-1.5 h-1.5 rounded-full bg-teal-500 animate-pulse-dot" />
+        <span className="shrink-0 inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-leaf-50 text-leaf-700 text-[11px] font-semibold ring-1 ring-inset ring-leaf-600/20">
+          <span className="w-1.5 h-1.5 rounded-full bg-leaf-500 animate-pulse-dot" />
           Live
         </span>
       </div>
@@ -110,7 +110,7 @@ export default function JourneyStrip({ className = '' }) {
                   className="absolute left-[15px] top-9 bottom-0 w-px bg-line overflow-hidden"
                 >
                   <span
-                    className={`block w-full bg-teal-500 origin-top transition-transform duration-700 ease-out ${
+                    className={`block w-full bg-leaf-600 origin-top transition-transform duration-700 ease-out ${
                       done ? 'scale-y-100' : 'scale-y-0'
                     }`}
                     style={{ height: '100%' }}
@@ -121,15 +121,15 @@ export default function JourneyStrip({ className = '' }) {
               <span
                 className={`relative z-10 w-8 h-8 rounded-full flex items-center justify-center shrink-0 border-2 transition-colors duration-500 ${
                   done
-                    ? 'bg-teal-500 border-teal-500 text-white'
+                    ? 'bg-leaf-600 border-leaf-600 text-white'
                     : current
-                      ? 'bg-surface border-civic-600 text-civic-700'
+                      ? 'bg-surface border-leaf-600 text-leaf-700'
                       : 'bg-surface border-line text-ink-faint'
                 }`}
               >
                 <Icon size={15} />
                 {current && (
-                  <span className="absolute inset-0 rounded-full ring-4 ring-civic-500/15 animate-pulse-dot" />
+                  <span className="absolute inset-0 rounded-full ring-4 ring-leaf-500/20 animate-pulse-dot" />
                 )}
               </span>
 
