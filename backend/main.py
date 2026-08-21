@@ -1,5 +1,6 @@
 from fastapi import (
     FastAPI, Depends, HTTPException, status, UploadFile, File, Form, Header, Query,
+    Response,
 )
 from fastapi.staticfiles import StaticFiles
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
@@ -47,6 +48,7 @@ from routers import ai as ai_router
 from routers import analytics as analytics_router
 from routers import notifications as notifications_router
 from services import lifecycle
+from services import pdf
 from services import notifications as notification_service
 from services import sla as sla_service
 from services import triage as triage_service
@@ -134,6 +136,16 @@ def get_password_hash(password: str) -> str:
 # Sort keys accepted by GET /complaints/. "expectedResolution" is served by a
 # Python sort (see the handler) because the deadline is derived from severity,
 # which has no meaningful SQL ordering of its own.
+# Statuses a complaint can be bulk-assigned FROM: nobody is working it yet.
+# ASSIGNED is excluded on purpose -- it already has a worker, and replacing them
+# is a per-complaint decision, not a batch one.
+ASSIGNABLE_STATUSES = {
+    StatusEnum.PENDING.name,
+    StatusEnum.UNDER_REVIEW.name,
+    StatusEnum.REOPENED.name,
+    StatusEnum.ESCALATED.name,
+}
+
 _COMPLAINT_SORTS = ("created", "aiConfidence", "expectedResolution")
 
 # Ceiling on the rows pulled back for a Python-side sort. Beyond this the
@@ -531,6 +543,8 @@ def _apply_assignment(
     complaint: models.ComplaintModel,
     field_worker: models.FieldWorkerModel,
     current_user: models.UserModel,
+    *,
+    force: bool = False,
 ) -> None:
     """Assign one complaint to one worker, with history and notifications.
 
@@ -546,6 +560,25 @@ def _apply_assignment(
     current_status = str(getattr(complaint.status, "name", complaint.status) or "")
     if current_status in {st.name for st in TERMINAL_STATUSES}:
         raise AssignmentRefused("Complaint is already " + current_status.lower() + ".")
+
+    # Already dispatched work is not bulk-assignable.
+    #
+    # Bulk assignment is for clearing a queue of untouched complaints. Sweeping
+    # up one that a worker has already started and handing it to someone else
+    # discards their progress silently -- and in a batch of fifty nobody would
+    # notice which ones moved. Reassigning live work is a deliberate,
+    # one-at-a-time decision, so it stays on the single-complaint endpoint via
+    # `force`.
+    if not force:
+        if complaint.fieldWorkerId:
+            raise AssignmentRefused(
+                "Already assigned to a field worker. Reassign it individually if that is intended."
+            )
+        if current_status not in ASSIGNABLE_STATUSES:
+            raise AssignmentRefused(
+                "Status is " + current_status.lower()
+                + "; only complaints not yet being worked can be assigned in bulk."
+            )
 
     department = complaint.category.department if complaint.category else None
     if department and department not in (field_worker.skillSet or ""):
@@ -605,7 +638,7 @@ async def assign_field_worker(
         raise HTTPException(status_code=404, detail="Field Worker not found.")
         
     try:
-        _apply_assignment(db, complaint, field_worker, current_user)
+        _apply_assignment(db, complaint, field_worker, current_user, force=True)
     except AssignmentRefused as refused:
         raise HTTPException(status_code=refused.status_code, detail=refused.reason)
 
@@ -613,6 +646,103 @@ async def assign_field_worker(
     await db.refresh(complaint)
 
     return complaint
+
+
+@app.patch("/complaints/bulk-status", response_model=schemas.BulkStatusResult)
+async def bulk_status(
+    payload: schemas.BulkStatusUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: models.UserModel = Depends(get_current_user)
+):
+    """Advance several complaints of the same kind to the next status.
+
+    This is what bulk assignment was being used for, and it is a different
+    operation: assignment picks who does the work, this moves work already in
+    flight along. Conflating them meant an officer trying to advance ten
+    in-progress jobs ended up reassigning them all to one worker.
+
+    `fromStatus` must match each complaint's current status. Anything that has
+    moved since the officer's list was drawn is refused with its actual state
+    rather than being dragged from a status they never saw -- a stale screen is
+    the normal case here, not an edge case.
+
+    Every transition goes through the same lifecycle rules as the
+    single-complaint endpoint, so bulk cannot reach a state the individual
+    action would refuse.
+    """
+    require_roles(current_user, ("officer", "administrator"), "change complaint status")
+
+    from_name = payload.fromStatus.name
+    to_name = payload.toStatus.name
+    if from_name == to_name:
+        raise HTTPException(status_code=422, detail="fromStatus and toStatus are the same.")
+
+    wanted = list(dict.fromkeys(payload.complaintIds))
+    result = await db.execute(
+        select(models.ComplaintModel)
+        .where(models.ComplaintModel.complaintId.in_(wanted))
+        .options(
+            selectinload(models.ComplaintModel.location),
+            selectinload(models.ComplaintModel.category),
+        )
+    )
+    found = {c.complaintId: c for c in result.scalars().all()}
+
+    updated: List[str] = []
+    failed: List[schemas.BulkAssignFailure] = []
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+
+    for complaint_id in wanted:
+        complaint = found.get(complaint_id)
+        if complaint is None:
+            failed.append(schemas.BulkAssignFailure(
+                complaintId=complaint_id, reason="Complaint not found."))
+            continue
+
+        current = str(getattr(complaint.status, "name", complaint.status) or "")
+        if current != from_name:
+            failed.append(schemas.BulkAssignFailure(
+                complaintId=complaint_id,
+                reason="Expected " + from_name.lower() + " but it is " + current.lower() + ".",
+            ))
+            continue
+
+        try:
+            lifecycle.assert_can_set_status(current_user, complaint, to_name)
+        except HTTPException as exc:
+            failed.append(schemas.BulkAssignFailure(
+                complaintId=complaint_id, reason=str(exc.detail)))
+            continue
+
+        complaint.status = to_name
+        complaint.updatedAt = now
+        # resolvedAt is stamped on the FIRST resolution only, matching the
+        # single-complaint path -- a reopen-and-fix cycle keeps the original
+        # turnaround rather than resetting it.
+        if to_name == StatusEnum.RESOLVED.name and complaint.resolvedAt is None:
+            complaint.resolvedAt = now
+
+        db.add(models.StatusHistoryModel(
+            historyId="HIST-" + str(uuid.uuid4())[:8].upper(),
+            complaintId=complaint_id,
+            status=to_name,
+            remarks=payload.remarks or ("Bulk update by " + (current_user.name or "an officer")),
+            timestamp=now,
+        ))
+        notification_service.notify_status_change(
+            db, complaint, new_status=to_name,
+            remarks=payload.remarks, actor=current_user,
+        )
+        updated.append(complaint_id)
+
+    await db.commit()
+
+    return schemas.BulkStatusResult(
+        updated=updated,
+        failed=failed,
+        updatedCount=len(updated),
+        failedCount=len(failed),
+    )
 
 
 @app.patch("/complaints/bulk-assign", response_model=schemas.BulkAssignResult)
@@ -940,7 +1070,30 @@ async def _load_complaint_for_upload(
     return complaint
 
 
-def _store_upload(complaintId: str, file: UploadFile, uploadedBy: str) -> models.MediaAttachmentModel:
+def _upload_phase(complaint: models.ComplaintModel, uploader: models.UserModel) -> str:
+    """Is this photo the reported problem, or evidence the work is done?
+
+    Decided by WHO is uploading, not when. The citizen who filed the complaint
+    is documenting the problem; anyone else -- the assigned worker, an office
+    -- is documenting the work. Time is not used: a citizen adding a photo afte
+    a repair would be misfiled as completion evidence, and a worker uploading
+    minutes after the report would be misfiled as the report.
+
+    A citizen uploading to a complaint that is already resolved is still filing
+    "report" evidence: they are showing the problem persists, which is the
+    reopen case, and calling it proof of completion would be exactly backwards.
+    """
+    if complaint.citizenId and uploader.userId == complaint.citizenId:
+        return "report"
+    return "resolution"
+
+
+def _store_upload(
+    complaintId: str,
+    file: UploadFile,
+    uploadedBy: str,
+    phase: str = "report",
+) -> models.MediaAttachmentModel:
     """Write one uploaded file to disk and build its MediaAttachment row.
 
     The stored name is always generated (complaintId + random suffix) and never
@@ -964,6 +1117,7 @@ def _store_upload(complaintId: str, file: UploadFile, uploadedBy: str) -> models
         fileUrl=f"/uploads/{safe_filename}",
         type=file.content_type,
         uploadedBy=uploadedBy,
+        phase=phase,
     )
 
 
@@ -1068,6 +1222,10 @@ async def upload_complaint_images(
     if not files:
         raise HTTPException(status_code=400, detail="No files were uploaded.")
 
+    # Decided once for the request: every file in one upload documents the same
+    # side of the work.
+    phase = _upload_phase(complaint, current_user)
+
     uploaded_media = []
     first_image: Optional[tuple] = None  # (bytes, mime) kept for AI analysis
 
@@ -1077,7 +1235,7 @@ async def upload_complaint_images(
         contents = await file.read()
         await file.seek(0)
 
-        new_media = _store_upload(complaintId, file, current_user.userId)
+        new_media = _store_upload(complaintId, file, current_user.userId, phase)
         db.add(new_media)
         uploaded_media.append({"mediaId": new_media.mediaId, "fileUrl": new_media.fileUrl})
 
@@ -1215,9 +1373,11 @@ async def upload_complaint_image(
     db: AsyncSession = Depends(get_db),
     current_user: models.UserModel = Depends(get_current_user)
 ):
-    await _load_complaint_for_upload(complaintId, db, current_user)
+    complaint = await _load_complaint_for_upload(complaintId, db, current_user)
 
-    new_media = _store_upload(complaintId, file, current_user.userId)
+    new_media = _store_upload(
+        complaintId, file, current_user.userId, _upload_phase(complaint, current_user)
+    )
     db.add(new_media)
     await db.commit()
 
@@ -1232,13 +1392,112 @@ async def upload_complaint_image(
 # A printable, self-contained summary of a complaint. Visible to the citizen who
 # filed it and to any official; deliberately NOT to other citizens, since it
 # includes the reporter's contact details.
+def _render_slip_pdf(slip: dict) -> bytes:
+    """Lay the report slip out as a one-page PDF.
+
+    Generated server-side because window.print() prints the whole application --
+    sidebar, header and all -- and depends on the browser's print CSS behaving.
+    A citizen handed an acknowledgement slip should get the same document every
+    time, from any client, including one that never renders it.
+    """
+    page = pdf.Page()
+    y = pdf.PAGE_HEIGHT - pdf.MARGIN
+    right = pdf.PAGE_WIDTH - pdf.MARGIN
+
+    # Masthead.
+    page.rect(0, y - 18, pdf.PAGE_WIDTH, 46, gray=0.96)
+    page.text(pdf.MARGIN, y, "Smart Civic Connect", size=16, bold=True)
+    page.text(pdf.MARGIN, y - 15, "Municipal Grievance Redressal Department", size=9, gray=0.4)
+
+    reference = str(slip.get("complaintId") or "")
+    page.text(right - pdf.text_width(reference, 13), y, reference, size=13, bold=True)
+
+    cur = pdf.Cursor(page, y - 44)
+    cur.page.text(pdf.MARGIN, cur.y, str(slip.get("reportTitle") or "Complaint Report Slip"),
+                  size=12, bold=True)
+    cur.down(6)
+
+    generated = _slip_date(slip.get("generatedAt"))
+    cur.page.text(pdf.MARGIN, cur.y, "Generated " + generated, size=9, gray=0.45)
+    cur.down(10)
+
+    cur.heading("Complaint")
+    cur.field("Reference", reference)
+    cur.field("Status", str(slip.get("status") or "-"))
+    cur.field("Severity", str(slip.get("severity") or "-"))
+    cur.field("Submitted", _slip_date(slip.get("submittedAt")))
+    cur.field("Last updated", _slip_date(slip.get("lastUpdatedAt")))
+    if slip.get("expectedResolutionAt"):
+        cur.field("Expected resolution", _slip_date(slip.get("expectedResolutionAt")))
+
+    category = slip.get("category") or {}
+    cur.heading("Category")
+    cur.field("Type", str(category.get("name") or "-"))
+    cur.field("Department", str(category.get("department") or "-"))
+
+    cur.heading("Description")
+    for line in pdf.wrap(str(slip.get("description") or "-"), 10, right - pdf.MARGIN):
+        cur.page.text(pdf.MARGIN, cur.y, line, size=10)
+        cur.down()
+
+    location = slip.get("location") or {}
+    cur.heading("Location")
+    cur.field("Address", str(location.get("address") or "-"))
+    lat, lng = location.get("latitude"), location.get("longitude")
+    if lat is not None and lng is not None:
+        cur.field("Coordinates", "%.6f, %.6f" % (lat, lng))
+
+    citizen = slip.get("citizenDetails") or {}
+    cur.heading("Reported by")
+    cur.field("Name", str(citizen.get("name") or "-"))
+    cur.field("Email", str(citizen.get("email") or "-"))
+    cur.field("Phone", str(citizen.get("phone") or "-"))
+
+    assignment = slip.get("assignmentDetails") or {}
+    cur.heading("Handling")
+    cur.field("Field worker", str(assignment.get("assignedWorker") or "Unassigned"))
+    cur.field("Officer", str(assignment.get("overseeingOfficer") or "Unassigned"))
+
+    # Footer, pinned to the page rather than following the content, so it does
+    # not drift up a short slip.
+    page.line(pdf.MARGIN, pdf.MARGIN + 26, right, pdf.MARGIN + 26)
+    page.text(pdf.MARGIN, pdf.MARGIN + 14,
+              "This slip acknowledges receipt of the complaint above. "
+              "Quote the reference in any correspondence.",
+              size=8, gray=0.45)
+    page.text(pdf.MARGIN, pdf.MARGIN + 3,
+              "Computer generated - no signature required.", size=8, gray=0.45)
+
+    return pdf.build([page], title="Report Slip " + reference)
+
+
+def _slip_date(value) -> str:
+    """Format a timestamp for print, tolerating both datetimes and strings."""
+    if not value:
+        return "-"
+    if isinstance(value, str):
+        return value.replace("T", " ")[:19]
+    try:
+        return value.strftime("%d %b %Y, %H:%M UTC")
+    except AttributeError:
+        return str(value)
+
+
 @app.get("/complaints/{complaintId}/report-slip")
 async def get_complaint_report_slip(
     complaintId: str,
+    format: str = Query("json", description="json | pdf"),
     db: AsyncSession = Depends(get_db),
     current_user: models.UserModel = Depends(get_current_user)
 ):
-    """Return a structured report slip for printing or download."""
+    """The acknowledgement slip, as JSON or as a PDF.
+
+    ``format=pdf`` returns a one-page document generated here. The frontend used
+    to render the slip and call window.print(), which prints the surrounding
+    application and depends on print CSS behaving in every browser.
+
+    JSON remains the default so existing callers keep working.
+    """
     stmt = (
         select(models.ComplaintModel)
         .where(models.ComplaintModel.complaintId == complaintId)
@@ -1267,7 +1526,7 @@ async def get_complaint_report_slip(
     if not (is_owner or is_official or is_assigned_worker):
         raise HTTPException(status_code=403, detail="Unauthorized to view this report slip.")
 
-    return {
+    slip = {
         "reportTitle": "Municipal Complaint Report Slip",
         "generatedAt": datetime.now(timezone.utc),
         "complaintId": complaint.complaintId,
@@ -1301,7 +1560,21 @@ async def get_complaint_report_slip(
             "source": complaint.aiSource,
             "analysedAt": complaint.aiAnalyzedAt,
         },
+        # The SLA deadline belongs on a slip a citizen keeps: it is the one
+        # thing on the page that tells them when to expect an answer.
+        "expectedResolutionAt": complaint.expectedResolutionAt,
     }
+
+    if (format or "json").lower() == "pdf":
+        document = _render_slip_pdf(slip)
+        filename = "report-slip-" + complaint.complaintId + ".pdf"
+        return Response(
+            content=document,
+            media_type="application/pdf",
+            headers={"Content-Disposition": 'attachment; filename="' + filename + '"'},
+        )
+
+    return slip
 
 
 # --- Citizen self-service ---------------------------------------------------

@@ -218,6 +218,10 @@ export function fromApiMedia(m, baseUrl = '') {
     id: m.mediaId,
     url: /^https?:\/\//i.test(url) ? url : `${baseUrl}${url}`,
     contentType: m.type || '',
+    // Which side of the work this documents, decided by the backend at upload
+    // time: 'report' or 'resolution'. Null on records served by a backend that
+    // predates the column, which is what the fallback in lib/evidence.js is for.
+    phase: m.phase || null,
     uploadedBy: m.uploadedBy || null,
     uploadedAt: m.uploadedAt || null,
   };

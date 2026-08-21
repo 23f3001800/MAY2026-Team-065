@@ -49,30 +49,17 @@ paths:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
   /complaints/:
-    get:
-      summary: Get Complaints
-      operationId: get_complaints_complaints__get
-      responses:
-        '200':
-          description: Successful Response
-          content:
-            application/json:
-              schema:
-                items:
-                  $ref: '#/components/schemas/ComplaintResponse'
-                type: array
-                title: Response Get Complaints Complaints  Get
-      security:
-      - OAuth2PasswordBearer: []
     post:
       summary: Create Complaint
       operationId: create_complaint_complaints__post
+      security:
+      - OAuth2PasswordBearer: []
       requestBody:
+        required: true
         content:
           application/json:
             schema:
               $ref: '#/components/schemas/ComplaintCreate'
-        required: true
       responses:
         '201':
           description: Successful Response
@@ -86,8 +73,149 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+    get:
+      summary: Get Complaints
+      description: 'List complaints, scoped by role and optionally filtered.
+
+
+        Every filter is optional and omitting all of them preserves the previous
+
+        behaviour exactly -- the frontend paginates client-side today, and breaking
+
+        that on deploy would empty every dashboard.
+
+
+        ``limit`` is capped at 500. Without a ceiling this endpoint is an accidental
+
+        full-table export as the complaint count grows.'
+      operationId: get_complaints_complaints__get
       security:
       - OAuth2PasswordBearer: []
+      parameters:
+      - name: status
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: StatusEnum name
+          title: Status
+        description: StatusEnum name
+      - name: categoryId
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Categoryid
+      - name: severity
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: SeverityEnum name
+          title: Severity
+        description: SeverityEnum name
+      - name: from
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          description: createdAt on or after
+          title: From
+        description: createdAt on or after
+      - name: to
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          description: createdAt on or before (inclusive)
+          title: To
+        description: createdAt on or before (inclusive)
+      - name: aiConfidenceMax
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: number
+            maximum: 1.0
+            minimum: 0.0
+          - type: 'null'
+          description: Only complaints the classifier was at most this sure about
+          title: Aiconfidencemax
+        description: Only complaints the classifier was at most this sure about
+      - name: aiConfidenceMin
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: number
+            maximum: 1.0
+            minimum: 0.0
+          - type: 'null'
+          title: Aiconfidencemin
+      - name: sort
+        in: query
+        required: false
+        schema:
+          type: string
+          description: created (newest first) | aiConfidence | expectedResolution
+          default: created
+          title: Sort
+        description: created (newest first) | aiConfidence | expectedResolution
+      - name: order
+        in: query
+        required: false
+        schema:
+          type: string
+          description: asc | desc
+          default: desc
+          title: Order
+        description: asc | desc
+      - name: limit
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: integer
+            maximum: 500
+            minimum: 1
+          - type: 'null'
+          title: Limit
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+          default: 0
+          title: Offset
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ComplaintResponse'
+                title: Response Get Complaints Complaints  Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /admin/analytics:
     get:
       summary: Get City Analytics
@@ -132,6 +260,106 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /complaints/bulk-status:
+    patch:
+      summary: Bulk Status
+      description: 'Advance several complaints of the same kind to the next status.
+
+
+        This is what bulk assignment was being used for, and it is a different
+
+        operation: assignment picks who does the work, this moves work already in
+
+        flight along. Conflating them meant an officer trying to advance ten
+
+        in-progress jobs ended up reassigning them all to one worker.
+
+
+        `fromStatus` must match each complaint''s current status. Anything that has
+
+        moved since the officer''s list was drawn is refused with its actual state
+
+        rather than being dragged from a status they never saw -- a stale screen is
+
+        the normal case here, not an edge case.
+
+
+        Every transition goes through the same lifecycle rules as the
+
+        single-complaint endpoint, so bulk cannot reach a state the individual
+
+        action would refuse.'
+      operationId: bulk_status_complaints_bulk_status_patch
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BulkStatusUpdate'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BulkStatusResult'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - OAuth2PasswordBearer: []
+  /complaints/bulk-assign:
+    patch:
+      summary: Bulk Assign
+      description: 'Assign many complaints to one field worker in one call.
+
+
+        Complaints in the same ward usually go to the same worker, and doing that
+
+        one request at a time is slow enough that officers batch it up mentally and
+
+        then lose track of half of it.
+
+
+        Partial success is the normal outcome and is reported explicitly: one
+
+        already-resolved complaint does not fail the other nineteen. The whole call
+
+        is refused only when the worker id is bad, because then nothing in the batch
+
+        could succeed.
+
+
+        Each assignment runs through the same `_apply_assignment` path as the
+
+        single-complaint endpoint, so the skill check, status history and
+
+        notifications are identical.'
+      operationId: bulk_assign_complaints_bulk_assign_patch
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BulkAssign'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BulkAssignResult'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - OAuth2PasswordBearer: []
   /workers/:
     post:
       summary: Create Field Worker
@@ -187,22 +415,128 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
-  /complaints/worker/tasks:
+  /complaints/escalations:
     get:
-      summary: Get Worker Tasks
-      operationId: get_worker_tasks_complaints_worker_tasks_get
+      summary: Get Escalations
+      description: 'Open complaints that have missed their SLA deadline, worst first.
+
+
+        The SLA sweep already detects breaches and raises notifications, but nothing
+
+        could ASK for the list -- so an officer still found overdue work by
+
+        scrolling the pending queue, which is exactly what they said was the
+
+        problem. This is the query behind that screen.
+
+
+        Deliberately NOT date-filtered: a complaint from eight months ago that is
+
+        still open is the whole point of the endpoint, and a window would hide it.
+
+
+        Only OPEN complaints appear. One that was resolved late is history, not a
+
+        queue item; leaving it flagged forever would keep finished work in an
+
+        officer''s face and train them to ignore the list.'
+      operationId: get_escalations_complaints_escalations_get
+      security:
+      - OAuth2PasswordBearer: []
+      parameters:
+      - name: includeAtRisk
+        in: query
+        required: false
+        schema:
+          type: boolean
+          description: Also return open complaints close to their deadline
+          default: false
+          title: Includeatrisk
+        description: Also return open complaints close to their deadline
       responses:
         '200':
           description: Successful Response
           content:
             application/json:
               schema:
-                items:
-                  $ref: '#/components/schemas/ComplaintResponse'
-                type: array
-                title: Response Get Worker Tasks Complaints Worker Tasks Get
+                $ref: '#/components/schemas/EscalationResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /complaints/worker/tasks:
+    get:
+      summary: Get Worker Tasks
+      description: 'A field worker''s assigned complaints.
+
+
+        ``sort=distance`` orders by how far each job is from the coordinates the
+
+        worker''s device reports, nearest first, so a shift can be walked in a
+
+        sensible order instead of by submission time.
+
+
+        ``lat`` and ``lng`` are REQUIRED for that mode and produce a 422 when
+
+        missing rather than quietly falling back to date order -- a list that looks
+
+        sorted by distance and is not would send someone across the city and back.'
+      operationId: get_worker_tasks_complaints_worker_tasks_get
       security:
       - OAuth2PasswordBearer: []
+      parameters:
+      - name: sort
+        in: query
+        required: false
+        schema:
+          type: string
+          description: created | distance
+          default: created
+          title: Sort
+        description: created | distance
+      - name: lat
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: number
+            maximum: 90
+            minimum: -90
+          - type: 'null'
+          description: Worker's current latitude
+          title: Lat
+        description: Worker's current latitude
+      - name: lng
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: number
+            maximum: 180
+            minimum: -180
+          - type: 'null'
+          description: Worker's current longitude
+          title: Lng
+        description: Worker's current longitude
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/WorkerTaskResponse'
+                title: Response Get Worker Tasks Complaints Worker Tasks Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /users/{userId}/reset-password:
     patch:
       summary: Reset User Password
@@ -237,7 +571,25 @@ paths:
   /complaints/{complaintId}/images:
     post:
       summary: Upload Complaint Images
-      description: Attach one or more photos to a complaint.
+      description: 'Attach one or more photos to a complaint.
+
+
+        Safe to retry. A field worker in a weak-signal area will retry a failed
+
+        upload, and without a key a partial success followed by a retry put a second
+
+        copy of the same photo on the complaint -- evidence that looks like two
+
+        separate visits. Send the same ``Idempotency-Key`` on every retry and the
+
+        original response is replayed instead of storing anything again.
+
+
+        ``remarks`` travels with the files so a retry carries the worker''s typed text
+
+        rather than losing it. It is appended to the status history, where it is
+
+        attributable and timestamped, rather than stored as a loose field.'
       operationId: upload_complaint_images_complaints__complaintId__images_post
       security:
       - OAuth2PasswordBearer: []
@@ -248,6 +600,16 @@ paths:
         schema:
           type: string
           title: Complaintid
+      - name: Idempotency-Key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: Client-generated id, kept stable across retries of the same upload
+          title: Idempotency-Key
+        description: Client-generated id, kept stable across retries of the same upload
       requestBody:
         required: true
         content:
@@ -301,7 +663,17 @@ paths:
   /complaints/{complaintId}/report-slip:
     get:
       summary: Get Complaint Report Slip
-      description: Return a structured report slip for printing or download.
+      description: 'The acknowledgement slip, as JSON or as a PDF.
+
+
+        ``format=pdf`` returns a one-page document generated here. The frontend used
+
+        to render the slip and call window.print(), which prints the surrounding
+
+        application and depends on print CSS behaving in every browser.
+
+
+        JSON remains the default so existing callers keep working.'
       operationId: get_complaint_report_slip_complaints__complaintId__report_slip_get
       security:
       - OAuth2PasswordBearer: []
@@ -312,6 +684,15 @@ paths:
         schema:
           type: string
           title: Complaintid
+      - name: format
+        in: query
+        required: false
+        schema:
+          type: string
+          description: json | pdf
+          default: json
+          title: Format
+        description: json | pdf
       responses:
         '200':
           description: Successful Response
@@ -366,6 +747,59 @@ paths:
           content:
             application/json:
               schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - OAuth2PasswordBearer: []
+  /workers/me/profile:
+    get:
+      summary: Get Worker Profile
+      description: The signed-in field worker's own profile.
+      operationId: get_worker_profile_workers_me_profile_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkerProfileResponse'
+      security:
+      - OAuth2PasswordBearer: []
+    patch:
+      summary: Update Worker Profile
+      description: 'Update the signed-in field worker''s own profile.
+
+
+        Covers their name, phone, base address, and last known position. Skills are
+
+        deliberately not editable here -- what a worker is qualified for decides
+
+        what they can be assigned, so it stays an administrator''s call.
+
+
+        The two coordinates must arrive together. Storing one without the other
+
+        would leave a row that looks like it has a position and cannot be plotted,
+
+        and the distance sort would silently skip that worker forever.'
+      operationId: update_worker_profile_workers_me_profile_patch
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkerProfileUpdate'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkerProfileResponse'
         '422':
           description: Validation Error
           content:
@@ -479,7 +913,11 @@ paths:
           description: Successful Response
           content:
             application/json:
-              schema: {}
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/UserAdminResponse'
+                title: Response List Users Admin Users Get
         '422':
           description: Validation Error
           content:
@@ -489,6 +927,27 @@ paths:
   /admin/users/{user_id}:
     patch:
       summary: Update User
+      description: 'Update an account.
+
+
+        Rewritten because the previous version silently discarded most of what it
+
+        was given: it assigned ``field_worker.skills`` and ``field_worker.department``,
+
+        neither of which exists on FieldWorkerModel (the column is ``skillSet``, and
+
+        there is no department on a worker at all). SQLAlchemy accepted those as
+
+        ordinary Python attributes, the commit saved nothing, and the endpoint still
+
+        answered "User updated successfully" -- so a caller had no way to tell a
+
+        saved change from a discarded one.
+
+
+        Now it writes the real columns and returns the updated record, which makes
+
+        the write self-verifying.'
       operationId: update_user_admin_users__user_id__patch
       security:
       - OAuth2PasswordBearer: []
@@ -510,7 +969,48 @@ paths:
           description: Successful Response
           content:
             application/json:
-              schema: {}
+              schema:
+                $ref: '#/components/schemas/UserAdminResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    delete:
+      summary: Deactivate User
+      description: 'Deactivate an account. This is a SOFT delete, deliberately.
+
+
+        Complaints carry citizenId, officerId and fieldWorkerId, and status history
+
+        records who made every transition. Removing the row would orphan all of it
+
+        and destroy the audit trail the rest of the system is built to preserve --
+
+        so DELETE marks the account inactive, which blocks sign-in and every
+
+        authenticated request, and leaves the history intact and attributable.
+
+
+        Reactivate with PATCH /admin/users/{id} {"isActive": true}.'
+      operationId: deactivate_user_admin_users__user_id__delete
+      security:
+      - OAuth2PasswordBearer: []
+      parameters:
+      - name: user_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: User Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserAdminResponse'
         '422':
           description: Validation Error
           content:
@@ -870,6 +1370,176 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ComplaintResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /analytics/overview:
+    get:
+      tags:
+      - Analytics
+      summary: Headline operations figures
+      operationId: overview_analytics_overview_get
+      security:
+      - OAuth2PasswordBearer: []
+      parameters:
+      - name: from
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          title: From
+      - name: to
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          title: To
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /analytics/trends:
+    get:
+      tags:
+      - Analytics
+      summary: Complaint volume over time
+      operationId: trends_analytics_trends_get
+      security:
+      - OAuth2PasswordBearer: []
+      parameters:
+      - name: from
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          title: From
+      - name: to
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          title: To
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /analytics/categories:
+    get:
+      tags:
+      - Analytics
+      summary: Complaint volume by category
+      operationId: categories_analytics_categories_get
+      security:
+      - OAuth2PasswordBearer: []
+      parameters:
+      - name: from
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          title: From
+      - name: to
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          title: To
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /analytics/aging:
+    get:
+      tags:
+      - Analytics
+      summary: How long open complaints have been waiting
+      operationId: aging_analytics_aging_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - OAuth2PasswordBearer: []
+  /analytics/resolution:
+    get:
+      tags:
+      - Analytics
+      summary: Resolution performance by department and worker
+      operationId: resolution_analytics_resolution_get
+      security:
+      - OAuth2PasswordBearer: []
+      parameters:
+      - name: from
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          title: From
+      - name: to
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          title: To
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
         '422':
           description: Validation Error
           content:
@@ -1400,10 +2070,139 @@ components:
           type: array
           title: Files
           description: One or more photos of the issue
+        remarks:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Remarks
+          description: What the worker wants recorded alongside the evidence
       type: object
       required:
       - files
       title: Body_upload_complaint_images_complaints__complaintId__images_post
+    BulkAssign:
+      properties:
+        complaintIds:
+          items:
+            type: string
+          type: array
+          maxItems: 50
+          minItems: 1
+          title: Complaintids
+        fieldWorkerId:
+          type: string
+          title: Fieldworkerid
+      type: object
+      required:
+      - complaintIds
+      - fieldWorkerId
+      title: BulkAssign
+      description: Assign many complaints to one field worker in a single call.
+    BulkAssignFailure:
+      properties:
+        complaintId:
+          type: string
+          title: Complaintid
+        reason:
+          type: string
+          title: Reason
+      type: object
+      required:
+      - complaintId
+      - reason
+      title: BulkAssignFailure
+    BulkAssignResult:
+      properties:
+        assigned:
+          items:
+            type: string
+          type: array
+          title: Assigned
+        failed:
+          items:
+            $ref: '#/components/schemas/BulkAssignFailure'
+          type: array
+          title: Failed
+        assignedCount:
+          type: integer
+          title: Assignedcount
+        failedCount:
+          type: integer
+          title: Failedcount
+      type: object
+      required:
+      - assigned
+      - failed
+      - assignedCount
+      - failedCount
+      title: BulkAssignResult
+      description: 'Partial success is the normal outcome, so it is modelled explicitly.
+
+
+        One already-resolved complaint in a batch of twenty should not fail the
+
+        other nineteen, and the caller needs to know exactly which ones did not
+
+        take rather than being told the whole thing worked.'
+    BulkStatusResult:
+      properties:
+        updated:
+          items:
+            type: string
+          type: array
+          title: Updated
+        failed:
+          items:
+            $ref: '#/components/schemas/BulkAssignFailure'
+          type: array
+          title: Failed
+        updatedCount:
+          type: integer
+          title: Updatedcount
+        failedCount:
+          type: integer
+          title: Failedcount
+      type: object
+      required:
+      - updated
+      - failed
+      - updatedCount
+      - failedCount
+      title: BulkStatusResult
+    BulkStatusUpdate:
+      properties:
+        complaintIds:
+          items:
+            type: string
+          type: array
+          maxItems: 50
+          minItems: 1
+          title: Complaintids
+        fromStatus:
+          $ref: '#/components/schemas/StatusEnum'
+        toStatus:
+          $ref: '#/components/schemas/StatusEnum'
+        remarks:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Remarks
+      type: object
+      required:
+      - complaintIds
+      - fromStatus
+      - toStatus
+      title: BulkStatusUpdate
+      description: 'Move several complaints that are all in the same state to the next one.
+
+
+        `fromStatus` is required and is the safety catch: the caller states what it
+
+        believes the complaints are, and anything that has moved since the list was
+
+        drawn is refused instead of being dragged along. Without it, a batch built
+
+        from a stale screen would push complaints from states the officer never saw.'
     CategorizeRequest:
       properties:
         description:
@@ -1584,10 +2383,46 @@ components:
           type: string
           format: date-time
           title: Updatedat
+        resolvedAt:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Resolvedat
+        expectedResolutionAt:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Expectedresolutionat
+        slaBreached:
+          type: boolean
+          title: Slabreached
+          default: false
+        hoursRemaining:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Hoursremaining
         location:
           $ref: '#/components/schemas/LocationResponse'
         category:
           $ref: '#/components/schemas/CategoryResponse'
+        citizenId:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Citizenid
+        officerId:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Officerid
+        fieldWorkerId:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Fieldworkerid
         aiSuggestedCategoryId:
           anyOf:
           - type: string
@@ -1752,6 +2587,91 @@ components:
       - candidates
       - source
       title: DuplicateCheckResponse
+    EscalationItem:
+      properties:
+        complaintId:
+          type: string
+          title: Complaintid
+        description:
+          type: string
+          title: Description
+        status:
+          $ref: '#/components/schemas/StatusEnum'
+        severity:
+          $ref: '#/components/schemas/SeverityEnum'
+        createdAt:
+          type: string
+          format: date-time
+          title: Createdat
+        expectedResolutionAt:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Expectedresolutionat
+        hoursRemaining:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Hoursremaining
+        department:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Department
+        categoryName:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Categoryname
+        fieldWorkerId:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Fieldworkerid
+        officerId:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Officerid
+        address:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Address
+      type: object
+      required:
+      - complaintId
+      - description
+      - status
+      - severity
+      - createdAt
+      title: EscalationItem
+    EscalationResponse:
+      properties:
+        breached:
+          items:
+            $ref: '#/components/schemas/EscalationItem'
+          type: array
+          title: Breached
+        atRisk:
+          items:
+            $ref: '#/components/schemas/EscalationItem'
+          type: array
+          title: Atrisk
+        breachedCount:
+          type: integer
+          title: Breachedcount
+        atRiskCount:
+          type: integer
+          title: Atriskcount
+      type: object
+      required:
+      - breached
+      - atRisk
+      - breachedCount
+      - atRiskCount
+      title: EscalationResponse
     FeedbackCreate:
       properties:
         rating:
@@ -1928,6 +2848,10 @@ components:
         complaintId:
           type: string
           title: Complaintid
+        phase:
+          type: string
+          title: Phase
+          default: report
       type: object
       required:
       - mediaId
@@ -2243,6 +3167,66 @@ components:
       required:
       - unread
       title: UnreadCountResponse
+    UserAdminResponse:
+      properties:
+        userId:
+          type: string
+          title: Userid
+        name:
+          type: string
+          title: Name
+        email:
+          type: string
+          title: Email
+        phone:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Phone
+        role:
+          type: string
+          title: Role
+        isActive:
+          type: boolean
+          title: Isactive
+          default: true
+        department:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Department
+        designation:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Designation
+        skillSet:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Skillset
+        availabilityStatus:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Availabilitystatus
+      type: object
+      required:
+      - userId
+      - name
+      - email
+      - role
+      title: UserAdminResponse
+      description: 'What the admin user list and the update endpoint return.
+
+
+        The previous version returned the raw ORM object from GET /admin/users and
+
+        a bare ``{"message": ...}`` from PATCH, so a client could not tell what had
+
+        actually been saved without re-reading the list. Returning the updated
+
+        record makes the write self-verifying.'
     UserRegister:
       properties:
         userId:
@@ -2279,6 +3263,22 @@ components:
       title: UserRegister
     UserUpdate:
       properties:
+        name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Name
+        email:
+          anyOf:
+          - type: string
+            format: email
+          - type: 'null'
+          title: Email
+        phone:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Phone
         isActive:
           anyOf:
           - type: boolean
@@ -2303,6 +3303,18 @@ components:
           title: Skills
       type: object
       title: UserUpdate
+      description: 'Fields an administrator may change on an existing account.
+
+
+        Every field is optional and only applied when present, so a caller can
+
+        change one thing without having to send the whole record back. `role` is
+
+        accepted but rejected with a 400 if it differs from the current role --
+
+        changing a role would mean moving the row between polymorphic subclass
+
+        tables, which is not a safe in-place update.'
     ValidationError:
       properties:
         loc:
@@ -2381,6 +3393,220 @@ components:
         key, unsupported/oversized image, or a provider safety block. Callers should
 
         treat that as a soft failure and continue without image input.'
+    WorkerProfileResponse:
+      properties:
+        userId:
+          type: string
+          title: Userid
+        name:
+          type: string
+          title: Name
+        email:
+          type: string
+          title: Email
+        phone:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Phone
+        skillSet:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Skillset
+        availabilityStatus:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Availabilitystatus
+        baseAddress:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Baseaddress
+        currentLatitude:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Currentlatitude
+        currentLongitude:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Currentlongitude
+        locationUpdatedAt:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Locationupdatedat
+      type: object
+      required:
+      - userId
+      - name
+      - email
+      title: WorkerProfileResponse
+    WorkerProfileUpdate:
+      properties:
+        name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Name
+        phone:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Phone
+        baseAddress:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Baseaddress
+        currentLatitude:
+          anyOf:
+          - type: number
+            maximum: 90.0
+            minimum: -90.0
+          - type: 'null'
+          title: Currentlatitude
+        currentLongitude:
+          anyOf:
+          - type: number
+            maximum: 180.0
+            minimum: -180.0
+          - type: 'null'
+          title: Currentlongitude
+      type: object
+      title: WorkerProfileUpdate
+      description: 'What a field worker may change about themselves.
+
+
+        Every field is optional and only applied when sent, so updating a phone
+
+        number does not blank an address. Skills are NOT here on purpose: what a
+
+        worker is qualified for is an administrator''s call, not their own.'
+    WorkerTaskResponse:
+      properties:
+        complaintId:
+          type: string
+          title: Complaintid
+        description:
+          type: string
+          title: Description
+        status:
+          $ref: '#/components/schemas/StatusEnum'
+        severity:
+          $ref: '#/components/schemas/SeverityEnum'
+        createdAt:
+          type: string
+          format: date-time
+          title: Createdat
+        updatedAt:
+          type: string
+          format: date-time
+          title: Updatedat
+        resolvedAt:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Resolvedat
+        expectedResolutionAt:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Expectedresolutionat
+        slaBreached:
+          type: boolean
+          title: Slabreached
+          default: false
+        hoursRemaining:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Hoursremaining
+        location:
+          $ref: '#/components/schemas/LocationResponse'
+        category:
+          $ref: '#/components/schemas/CategoryResponse'
+        citizenId:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Citizenid
+        officerId:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Officerid
+        fieldWorkerId:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Fieldworkerid
+        aiSuggestedCategoryId:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Aisuggestedcategoryid
+        aiSeverity:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Aiseverity
+        aiConfidence:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Aiconfidence
+        aiSummary:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Aisummary
+        aiSource:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Aisource
+        aiAnalyzedAt:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Aianalyzedat
+        duplicateOfComplaintId:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Duplicateofcomplaintid
+        distanceKm:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Distancekm
+      type: object
+      required:
+      - complaintId
+      - description
+      - status
+      - severity
+      - createdAt
+      - updatedAt
+      - location
+      - category
+      title: WorkerTaskResponse
+      description: 'A complaint as a field worker sees it, plus how far away it is.
+
+
+        distanceKm is only populated for sort=distance -- it is null otherwise,
+
+        because a distance is meaningless without the point it was measured from,
+
+        and sending a stale one would be worse than sending none.'
   securitySchemes:
     OAuth2PasswordBearer:
       type: oauth2

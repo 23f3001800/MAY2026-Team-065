@@ -23,6 +23,7 @@ from typing import Any, Dict, List, Optional, Sequence
 
 from . import rules
 from .config import AISettings, load_settings
+from .azure_openai import AzureOpenAIClient
 from .gemini import GeminiClient
 from .provider import (
     AIProviderError,
@@ -121,12 +122,16 @@ class AIService:
         self.settings = settings or load_settings()
         # Injectable so tests can supply a stub without any network access.
         self._client = client
+        # Built lazily on first use: constructing it eagerly would mean every
+        # AIService, including ones that only ever run the rules engine, holds a
+        # client for a provider that may not be configured.
+        self._azure_client = None
 
     # -- capability reporting -------------------------------------------
 
     @property
     def llm_available(self) -> bool:
-        return self.settings.llm_enabled and self.settings.gemini_configured
+        return self.settings.llm_enabled and bool(self.settings.active_llm)
 
     def status(self) -> Dict[str, Any]:
         """Describe what this deployment can actually do, for /ai/health and the UI."""
@@ -134,9 +139,15 @@ class AIService:
             "provider": self.settings.provider,
             "rulesEngine": "available",
             "llm": {
-                "provider": "gemini",
-                "model": self.settings.gemini_model if self.llm_available else None,
-                "configured": self.settings.gemini_configured,
+                # Which backend would actually serve a request right now, not
+                # which ones happen to have keys set.
+                "provider": self.settings.active_llm or None,
+                "model": self._active_model if self.llm_available else None,
+                "configured": (
+                    self.settings.azure_configured or self.settings.gemini_configured
+                ),
+                "azureConfigured": self.settings.azure_configured,
+                "geminiConfigured": self.settings.gemini_configured,
                 "available": self.llm_available,
             },
             "features": {
@@ -148,6 +159,45 @@ class AIService:
                 "assistant": "grounded" if self.llm_available else "degraded",
             },
         }
+
+    @property
+    def _llm_source(self) -> str:
+        """The label recorded against an LLM-produced result.
+
+        Must name the backend that actually ran. These strings are persisted on
+        the complaint and shown to officers, so "gemini" against a result Azure
+        produced is not a cosmetic slip -- it is the audit trail claiming
+        something untrue about where a severity came from.
+        """
+        return self.settings.active_llm or "rules"
+
+    @property
+    def _vision_source(self) -> str:
+        return (self.settings.active_llm or "rules") + "-vision"
+
+    @property
+    def _active_model(self) -> Optional[str]:
+        """The model name to report in health, for whichever backend is live."""
+        if self.settings.active_llm == "azure":
+            # In inference mode there is no deployment; the model is the name.
+            return (self.settings.azure_deployment
+                    or self.settings.azure_model)
+        if self.settings.active_llm == "gemini":
+            return self.settings.gemini_model
+        return None
+
+    def _llm(self):
+        """The live LLM client.
+
+        Both clients expose the same generate_json / generate_text, so callers
+        never branch on the provider. Azure wins in 'auto' when both are
+        configured -- see AISettings.active_llm for why that direction.
+        """
+        if self.settings.active_llm == "azure":
+            if self._azure_client is None:
+                self._azure_client = AzureOpenAIClient(self.settings)
+            return self._azure_client
+        return self._gemini()
 
     def _gemini(self) -> GeminiClient:
         if self._client is None:
@@ -190,7 +240,7 @@ class AIService:
                 )
             ]
             + others[:4],
-            source="gemini",
+            source=self._llm_source,
         )
 
     async def _llm_classify(
@@ -208,7 +258,7 @@ class AIService:
         )
 
         try:
-            payload = await self._gemini().generate_json(
+            payload = await self._llm().generate_json(
                 prompt=prompt,
                 system_instruction=_TRIAGE_SYSTEM_PROMPT,
                 response_schema=_category_schema(list(by_id.keys())),
@@ -256,7 +306,7 @@ class AIService:
                     confidence=max(result.confidence, vision.confidence),
                     reason=f"{result.reason}; raised by photo analysis: {truncate(vision.description, 120)}",
                     signals=result.signals + vision.observations[:3],
-                    source="gemini-vision",
+                    source=self._vision_source,
                 )
 
         if not self.llm_available:
@@ -270,7 +320,7 @@ class AIService:
                 confidence=max(result.confidence, confidence),
                 reason=f"{result.reason}; raised by Gemini: {reason}",
                 signals=result.signals,
-                source="gemini",
+                source=self._llm_source,
             )
 
         return result
@@ -295,7 +345,7 @@ class AIService:
         }
 
         try:
-            payload = await self._gemini().generate_json(
+            payload = await self._llm().generate_json(
                 prompt=prompt,
                 system_instruction=_TRIAGE_SYSTEM_PROMPT,
                 response_schema=schema,
@@ -396,7 +446,7 @@ class AIService:
         )
 
         try:
-            payload = await self._gemini().generate_json(
+            payload = await self._llm().generate_json(
                 prompt=prompt,
                 system_instruction=_VISION_SYSTEM_PROMPT,
                 response_schema=_vision_schema(list(by_id.keys())),
@@ -425,7 +475,7 @@ class AIService:
             if isinstance(observations, list)
             else [],
             available=True,
-            source="gemini-vision",
+            source=self._vision_source,
         )
 
     # -- description write-up ---------------------------------------------
@@ -449,7 +499,7 @@ class AIService:
         )
 
         try:
-            text = await self._gemini().generate_text(
+            text = await self._llm().generate_text(
                 prompt=prompt,
                 system_instruction=_WRITEUP_SYSTEM_PROMPT,
                 max_output_tokens=300,
@@ -521,8 +571,8 @@ class AIService:
         if not summary:
             summary = rules.summarize(effective_text, chosen, severity_result.severity)
 
-        source = "gemini-vision" if (vision and vision.available) else (
-            "gemini" if self.llm_available else "rules"
+        source = self._vision_source if (vision and vision.available) else (
+            self._llm_source if self.llm_available else "rules"
         )
 
         return TriageResult(
