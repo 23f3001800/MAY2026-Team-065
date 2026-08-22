@@ -4,7 +4,7 @@ import requests
 BASE_URL = "http://127.0.0.1:8000"
 
 USERNAME = "qa1@test.com"
-PASSWORD = "Password123"
+PASSWORD = "12345678"
 
 
 @pytest.fixture(scope="session")
