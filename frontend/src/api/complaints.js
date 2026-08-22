@@ -4,7 +4,7 @@ import { apiRequest } from './client';
 import { API_BASE_URL } from '../config';
 import {
   fromApiComplaint, fromApiFeedback, fromApiHistory, fromApiMedia,
-  toApiStatus, toApiSeverity, UI_ONLY_STATUSES,
+  fromApiStatus, toApiStatus, toApiSeverity, UI_ONLY_STATUSES,
 } from './mappers';
 
 /**
@@ -157,6 +157,34 @@ export async function updateComplaintStatus(complaintId, status, remarks) {
     body: { status: apiStatus, remarks: remarks || null },
   });
   return fromApiComplaint(data);
+}
+
+/**
+ * Which statuses this user may move THIS complaint to, right now.
+ *
+ * Two rules decide it -- what the lifecycle permits from the current status,
+ * and what the role is allowed to do -- and both live on the server. Asking is
+ * the only way to get both: a client-side role map cannot know that RESOLVED is
+ * illegal on a complaint nobody has been dispatched to, so it offers the button
+ * and the officer collects a 409 for pressing it.
+ *
+ * `allowed` is what to offer. `transitions` is every move legal from here
+ * regardless of who is asking, so a control that is present-but-disabled can
+ * say why ("only the citizen can verify this") instead of vanishing.
+ *
+ * The set changes with the status, so refetch after any status change.
+ *
+ * @returns {{complaintId: string, current: string, allowed: string[], transitions: string[]}}
+ *          statuses as UI labels, not wire enums.
+ */
+export async function getAllowedStatuses(complaintId) {
+  const data = await apiRequest(`/complaints/${encodeURIComponent(complaintId)}/allowed-statuses`);
+  return {
+    complaintId: data?.complaintId || complaintId,
+    current: fromApiStatus(data?.current),
+    allowed: (data?.allowed || []).map(fromApiStatus),
+    transitions: (data?.transitions || []).map(fromApiStatus),
+  };
 }
 
 export async function recategoriseComplaint(complaintId, categoryId) {

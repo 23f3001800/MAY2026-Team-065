@@ -4,11 +4,11 @@
 // The authentication logic is unchanged from the version this replaces; only
 // the frame around it moved from the dark glass card to the civic shell.
 import React, { useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import AuthShell, { AuthCard, NavLink } from '../components/auth/AuthShell';
 import { CityLineArt } from '../components/auth/AuthScene';
 import {
-  TextInput, PasswordInput, Checkbox, InlineAction, Badge, Alert, SubmitButton, SecurityNote,
+  TextInput, PasswordInput, Checkbox, Badge, Alert, SubmitButton, SecurityNote,
 } from '../components/auth/controls';
 import { IconMail, IconLock, IconMegaphone, IconCheckCircle, IconUsers } from '../components/icons';
 import { login, saveSession, homePathForRole } from '../api/auth';
@@ -27,13 +27,19 @@ export default function Login() {
   const [password, setPassword] = useState('');
   const [remember, setRemember] = useState(false);
   const [loading, setLoading] = useState(false);
-  // A session that timed out redirects here with ?expired=1. Saying so beats
-  // leaving someone to wonder why they were thrown out mid-task.
-  const [message, setMessage] = useState(() => (
-    params.get('expired')
-      ? { text: 'Your session ended. Please sign in again.', type: 'error' }
-      : { text: '', type: '' }
-  ));
+  // Two ways of arriving here with something to say. A session that timed out
+  // redirects with ?expired=1; a finished password reset lands with ?reset=1,
+  // and confirming it is what tells somebody the new password is the one to
+  // use rather than leaving them guessing at a blank form.
+  const [message, setMessage] = useState(() => {
+    if (params.get('expired')) {
+      return { text: 'Your session ended. Please sign in again.', type: 'error' };
+    }
+    if (params.get('reset')) {
+      return { text: 'Your password has been changed. Sign in with the new one.', type: 'success' };
+    }
+    return { text: '', type: '' };
+  });
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -98,16 +104,12 @@ export default function Login() {
                 <Checkbox id="remember" checked={remember} onChange={(e) => setRemember(e.target.checked)}>
                   Remember me
                 </Checkbox>
-                <InlineAction
-                  onClick={() =>
-                    setMessage({
-                      text: 'Password reset isn’t available yet — please contact your ward administrator.',
-                      type: 'info',
-                    })
-                  }
+                <Link
+                  to="/forgot-password"
+                  className="font-semibold text-[#0f7f43] transition-fast hover:text-[#0b5f32] hover:underline"
                 >
                   Forgot password?
-                </InlineAction>
+                </Link>
               </div>
 
               <SubmitButton loading={loading} icon={<IconLock size={17} />}>

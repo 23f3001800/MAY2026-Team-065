@@ -32,9 +32,11 @@ import {
   assignFieldWorker, updateComplaintStatus, overrideSeverity,
 } from '../../api/complaints';
 import { listFieldWorkers } from '../../api/workers';
-import { statusesSettableBy } from '../../api/mappers';
 import { splitEvidence } from '../../lib/evidence';
 import useAsync from '../../hooks/useAsync';
+import useAllowedStatuses from '../../hooks/useAllowedStatuses';
+import useActionError from '../../hooks/useActionError';
+import OwningOfficer from '../../components/dashboard/OwningOfficer';
 
 // Mirrors the queue's ordering, lowest first.
 const SEVERITIES = ['Low', 'Medium', 'High', 'Critical'];
@@ -75,7 +77,17 @@ export default function OfficerComplaintView() {
   const [workers, setWorkers] = useState([]);
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState('');
-  const [actionError, setActionError] = useState('');
+  const { failure, report: reportFailure, clear: clearFailure } = useActionError();
+
+  // Which moves are legal on this complaint for this officer, right now. Asked
+  // of the server because half the rule -- what the lifecycle permits from the
+  // current status -- is not something the client can know.
+  const {
+    allowed: settableNow, transitions, loading: statusesLoading,
+    stale: statusesStale, reasonFor, refetch: refetchAllowed,
+  } = useAllowedStatuses(complaint?.id, {
+    role: 'municipal_officer', status: complaint?.status,
+  });
 
   useEffect(() => {
     let alive = true;
@@ -110,18 +122,27 @@ export default function OfficerComplaintView() {
 
   const run = useCallback(async (fn, message) => {
     setBusy(true);
-    setActionError('');
+    clearFailure();
     try {
       await fn();
       setToast(message);
       await refetch();
+      refetchAllowed();
       setNonce((n) => n + 1);
     } catch (err) {
-      if (err.name !== 'SessionExpiredError') setActionError(err.message);
+      const described = reportFailure(err);
+      // 409 means the complaint is not where this screen thinks it is. Pull the
+      // record and the legal moves again so the buttons match reality before
+      // the officer presses another one.
+      if (described?.recoverable) {
+        await refetch();
+        refetchAllowed();
+        setNonce((n) => n + 1);
+      }
     } finally {
       setBusy(false);
     }
-  }, [refetch]);
+  }, [refetch, refetchAllowed, clearFailure, reportFailure]);
 
   if (loading) {
     return <div className="max-w-[1240px] mx-auto"><LoadingPanel label="Loading the complaint…" variant="detail" /></div>;
@@ -138,17 +159,23 @@ export default function OfficerComplaintView() {
   }
   if (!complaint) return null;
 
-  // Only the transitions an officer may actually make, so the control cannot
-  // offer something the backend will refuse.
-  const settable = statusesSettableBy('municipal_officer')
-    .filter((s) => s !== complaint.status);
+  // Every move legal from here, and the subset this officer may make. The
+  // difference is the interesting part: it is why a button is greyed out.
+  const nextSteps = transitions.filter((s) => s !== complaint.status);
+  const blocked = nextSteps.filter((s) => !settableNow.includes(s));
 
   const assigned = workers.find((w) => w.id === complaint.fieldWorkerId);
 
   return (
     <div className="max-w-[1240px] mx-auto space-y-5 animate-rise-in">
       <Toast message={toast} tone="success" onDismiss={() => setToast('')} />
-      <Toast message={actionError} tone="error" onDismiss={() => setActionError('')} autoHideMs={0} />
+      <Toast
+        message={failure?.message}
+        heading={failure?.heading}
+        tone={failure?.tone || 'error'}
+        onDismiss={clearFailure}
+        autoHideMs={0}
+      />
 
       {/* ── Header ─────────────────────────────────────────────── */}
       <div>
@@ -271,6 +298,18 @@ export default function OfficerComplaintView() {
         {/* ── Decisions ────────────────────────────────────────── */}
         <div className="space-y-4 lg:sticky lg:top-4">
           <Card title="Assignment">
+            {/* Two different people, and the difference matters. The officer
+                owns the complaint -- escalation, resolution and breach notices
+                are addressed to them -- while the field worker is who actually
+                goes out. Until officerId was set at filing this was almost
+                always empty, which is why it was not shown at all. */}
+            <div className="mb-3 pb-3 border-b border-line">
+              <span className="block text-[11px] font-semibold uppercase tracking-wide text-ink-muted mb-1.5">
+                Owning officer
+              </span>
+              <OwningOfficer officerId={complaint.officerId} department={complaint.department} />
+            </div>
+
             {assigned ? (
               <p className="flex items-center gap-2 text-[13.5px] text-ink mb-3">
                 <IconUsers size={14} className="text-teal-600 shrink-0" />
@@ -310,21 +349,60 @@ export default function OfficerComplaintView() {
           </Card>
 
           <Card title="Status">
-            <div className="grid grid-cols-2 gap-2">
-              {settable.map((s) => (
-                <button
-                  key={s}
-                  disabled={busy}
-                  onClick={() => run(
-                    () => updateComplaintStatus(complaint.id, s, null),
-                    `Marked ${s}.`,
-                  )}
-                  className="focus-ring text-[12.5px] font-semibold px-3 py-2 rounded-lg border border-line bg-surface hover:border-leaf-400 hover:bg-surface-inset disabled:opacity-50 transition-colors"
-                >
-                  {s}
-                </button>
-              ))}
-            </div>
+            {/* An empty set means two different things: still asking, or
+                genuinely nowhere left to go. Saying the second while the first
+                is true tells an officer the complaint is closed when it is not. */}
+            {statusesLoading ? (
+              <p className="text-[12.5px] text-ink-faint leading-snug">
+                Checking which moves are valid…
+              </p>
+            ) : nextSteps.length === 0 ? (
+              <p className="text-[12.5px] text-ink-muted leading-snug">
+                Nothing moves from {complaint.status.toLowerCase()} — this complaint has
+                reached the end of its lifecycle.
+              </p>
+            ) : (
+              <div className="grid grid-cols-2 gap-2">
+                {nextSteps.map((s) => {
+                  const mine = settableNow.includes(s);
+                  return (
+                    <button
+                      key={s}
+                      disabled={busy || !mine}
+                      title={mine ? undefined : reasonFor(s) || undefined}
+                      onClick={() => run(
+                        () => updateComplaintStatus(complaint.id, s, null),
+                        `Marked ${s}.`,
+                      )}
+                      className="focus-ring text-[12.5px] font-semibold px-3 py-2 rounded-lg border border-line bg-surface hover:border-leaf-400 hover:bg-surface-inset disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    >
+                      {s}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Shown rather than hidden: a greyed-out "Verified" says the work
+                is done and the citizen has not signed off yet, which is a
+                different thing from the button not existing. */}
+            {blocked.length > 0 && (
+              <ul className="mt-3 space-y-1">
+                {blocked.map((s) => (
+                  <li key={s} className="text-[11.5px] text-ink-faint leading-snug">
+                    <span className="font-semibold text-ink-muted">{s}</span>
+                    {' — '}{reasonFor(s) || 'not available to you'}.
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            {statusesStale && (
+              <p className="text-[11.5px] text-caution-700 mt-3 leading-snug">
+                Could not check which moves are valid, so these are the ones your role
+                can ever make. Some may be refused as out of order.
+              </p>
+            )}
           </Card>
 
           <Card title="Severity">

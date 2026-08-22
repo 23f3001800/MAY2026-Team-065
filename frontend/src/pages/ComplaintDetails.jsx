@@ -20,9 +20,10 @@ import { LoadingPanel, ErrorPanel } from '../components/dashboard/AsyncStates';
 import EvidencePanel from '../components/dashboard/EvidencePanel';
 import ReportSlipModal from '../components/dashboard/ReportSlipModal';
 import ComplaintMap from '../components/map/ComplaintMap';
+import OwningOfficer from '../components/dashboard/OwningOfficer';
 import {
   IconArrowLeft, IconMapPin, IconInbox, IconStar, IconBuilding, IconSend,
-  IconExternal, IconReport as IconFileText,
+  IconExternal, IconUsers, IconReport as IconFileText,
 } from '../components/dashboard/icons';
 import {
   getComplaint, getComplaintFeedback, getComplaintHistory, getComplaintMedia,
@@ -117,7 +118,8 @@ export default function ComplaintDetails() {
   // the control is offered by role and the backend remains the authority.
   // A citizen adds "before" context, a worker adds "after" evidence.
   const currentUser = getCurrentUser();
-  const canUpload = currentUser?.role === 'citizen' || currentUser?.role === 'field_worker';
+  const isCitizen = currentUser?.role === 'citizen';
+  const canUpload = isCitizen || currentUser?.role === 'field_worker';
   const uploadKind = currentUser?.role === 'field_worker' ? 'after' : 'before';
 
   useEffect(() => {
@@ -360,6 +362,19 @@ export default function ComplaintDetails() {
               <SummaryRow icon={IconBuilding} label="Department">
                 {complaint.department || <span className="text-slate-400">Unassigned</span>}
               </SummaryRow>
+              {/* Staff-facing only. A citizen has no use for the name of the
+                  officer holding their complaint, and "no officer is registered
+                  for Sanitation" is an internal staffing gap, not something to
+                  tell the person waiting on a pothole. */}
+              {!isCitizen && (
+                <SummaryRow icon={IconUsers} label="Owning officer">
+                  <OwningOfficer
+                    officerId={complaint.officerId}
+                    department={complaint.department}
+                    variant="inline"
+                  />
+                </SummaryRow>
+              )}
             </div>
           </section>
 
