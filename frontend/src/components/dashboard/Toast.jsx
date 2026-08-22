@@ -33,10 +33,16 @@ const TONES = {
 /**
  * @param {string} message   text to show; falsy renders nothing
  * @param {'success'|'error'|'warning'} tone
+ * @param {string} [heading] one short line naming the KIND of problem, above
+ *   the server's own wording. "That step is out of order" and "Not yours to do"
+ *   are different situations with different fixes, and the detail underneath
+ *   reads very differently depending on which one you are in.
  * @param {Function} [onDismiss]  shows a close button and enables auto-dismiss
  * @param {number} [autoHideMs]   0 disables. Errors should not auto-hide.
  */
-export default function Toast({ message, tone = 'success', onDismiss, autoHideMs = 4000 }) {
+export default function Toast({
+  message, tone = 'success', heading, onDismiss, autoHideMs = 4000,
+}) {
   const { wrap, icon: Icon, iconColor } = TONES[tone] || TONES.success;
 
   useEffect(() => {
@@ -54,7 +60,10 @@ export default function Toast({ message, tone = 'success', onDismiss, autoHideMs
       className={`animate-toast-in flex items-start gap-2.5 border text-[13px] font-medium px-4 py-3 rounded-xl shadow-sm ${wrap}`}
     >
       <Icon size={16} className={`shrink-0 mt-px ${iconColor}`} />
-      <span className="flex-1 leading-snug">{message}</span>
+      <span className="flex-1 leading-snug">
+        {heading && <strong className="block font-semibold mb-0.5">{heading}</strong>}
+        {message}
+      </span>
       {onDismiss && (
         <button
           onClick={onDismiss}

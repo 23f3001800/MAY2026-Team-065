@@ -18,6 +18,7 @@ import { computeMetrics, volumeSeries, ranked } from '../../lib/complaintMetrics
 import useCategories from '../../hooks/useCategories';
 import ComplaintHeatMap from '../../components/map/ComplaintHeatMap';
 import { LoadingPanel, ErrorPanel } from '../../components/dashboard/AsyncStates';
+import SystemHealthPanel from '../../components/admin/SystemHealthPanel';
 import { IconUserPlus } from '../../components/dashboard/icons';
 import { ROLES } from '../../config';
 import { getCityAnalytics } from '../../api/admin';
@@ -218,6 +219,12 @@ export default function AdminDashboard() {
               />
             </section>
           </div>
+
+          {/* Sits above the user table on purpose: the thing most likely to
+              be silently broken here is email, and the two features that depend
+              on it -- new account credentials and password resets -- are both
+              reached from that table. */}
+          <SystemHealthPanel />
 
           {/* Users */}
           <div className="bg-white rounded-2xl border border-slate-200 shadow-sm">

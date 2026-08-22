@@ -29,6 +29,7 @@ import {
 import SlaBadge from '../../components/dashboard/SlaBadge';
 import { listMyTasks, updateComplaintStatus } from '../../api/complaints';
 import useAsync from '../../hooks/useAsync';
+import { describeApiError } from '../../api/client';
 import { TERMINAL_STATUSES } from '../../api/mappers';
 import ComplaintMap from '../../components/map/ComplaintMap';
 
@@ -283,6 +284,7 @@ export default function WorkerTasks() {
 
   const [toast, setToast] = useState('');
   const [toastTone, setToastTone] = useState('success');
+  const [toastHeading, setToastHeading] = useState('');
   const [busy, setBusy] = useState(false);
   // List or map over the SAME open tasks. This was a separate page, which meant
   // leaving your task list to find out where the tasks were.
@@ -322,7 +324,9 @@ export default function WorkerTasks() {
     setData((list) => (list || []).map((t) => (t.id === updated.id ? updated : t)));
   }, [setData]);
 
-  const say = (msg, tone = 'success') => { setToast(msg); setToastTone(tone); };
+  const say = (msg, tone = 'success', heading = '') => {
+    setToast(msg); setToastTone(tone); setToastHeading(heading);
+  };
 
 
   // One-tap transition straight from the card.
@@ -332,7 +336,12 @@ export default function WorkerTasks() {
       applyUpdate(await updateComplaintStatus(task.id, action.next, null));
       say(`${task.id} — ${action.next}.`);
     } catch (err) {
-      if (err.name !== 'SessionExpiredError') say(err.message, 'error');
+      if (err.name !== 'SessionExpiredError') {
+        const { tone, heading, message, recoverable } = describeApiError(err);
+        say(message, tone, heading);
+        // 409 means this card is showing a status the task has already left.
+        if (recoverable) refetch();
+      }
     } finally {
       setBusy(false);
     }
@@ -420,7 +429,13 @@ export default function WorkerTasks() {
         </p>
       )}
 
-      <Toast message={toast} tone={toastTone} onDismiss={() => setToast('')} autoHideMs={toastTone === 'error' ? 0 : 4000} />
+      <Toast
+        message={toast}
+        heading={toastHeading}
+        tone={toastTone}
+        onDismiss={() => setToast('')}
+        autoHideMs={toastTone === 'success' ? 4000 : 0}
+      />
 
       {loading ? (
         <LoadingPanel label="Loading your tasks…" variant="cards" />

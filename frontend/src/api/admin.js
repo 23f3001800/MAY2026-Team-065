@@ -3,7 +3,7 @@
 // anyone who isn't `administrator`, so pages calling these only ever render
 // behind the admin route guard.
 import { apiRequest } from './client';
-import { fromApiUser } from './mappers';
+import { fromApiUser, fromApiCredentialDelivery } from './mappers';
 
 /**
  * City-wide counts. The backend aggregates totals and per-status/severity
@@ -34,19 +34,26 @@ export async function listUsers({ query, role, skip = 0, limit = 100 } = {}) {
  * throws a 500 if used. Field workers must go through createFieldWorker
  * (POST /workers/) instead -- see api/workers.js.
  */
-export function createOfficer({ name, email, phone, password, department, designation }) {
-  return apiRequest('/admin/users/official', {
+export async function createOfficer({ name, email, phone, password, department, designation }) {
+  const data = await apiRequest('/admin/users/official', {
     method: 'POST',
     body: {
       name,
       email,
       phone: phone || 'Not Provided',
-      password,
+      // Optional. Omitted, the server generates one and emails it -- see the
+      // note on createFieldWorker.
+      password: password || undefined,
       role: 'municipal_officer',
       department: department || 'Unassigned',
       designation: designation || 'General Officer',
     },
   });
+  return {
+    userId: data?.userId || null,
+    message: data?.message || '',
+    credentialDelivery: fromApiCredentialDelivery(data?.credentialDelivery),
+  };
 }
 
 /**
@@ -118,4 +125,27 @@ export function resetUserPassword(userId, newPassword) {
  */
 export function runSlaSweep() {
   return apiRequest('/admin/sla/sweep', { method: 'POST' });
+}
+
+/**
+ * Give every ownerless open complaint to its department's officer.
+ *
+ * Complaints are routed on filing now, but that only helps the ones filed
+ * since. Anything created while ownership was a side effect of dispatch, and
+ * never dispatched, has no officer -- and the officer notifications for
+ * escalation, resolution and SLA breach are addressed to officerId, so for
+ * those complaints they are created for nobody.
+ *
+ * Idempotent: it only touches complaints where officerId is null, so running it
+ * twice is not a second pass over the same records.
+ *
+ * `unroutable` is keyed by department and is the interesting half of the
+ * answer: those are the departments with no officer at all. That is a staffing
+ * gap, not a run failure, and it does not fix itself.
+ *
+ * @returns {{message: string, considered: number, routed: number,
+ *            unroutable: Record<string, number>}}
+ */
+export function routeUnassignedComplaints() {
+  return apiRequest('/admin/complaints/route-unassigned', { method: 'POST' });
 }
