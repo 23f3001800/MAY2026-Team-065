@@ -38,6 +38,7 @@ import { listComplaints, getComplaintMedia, updateComplaintStatus } from '../../
 import { complaintPath } from '../../api/session';
 import { splitEvidence } from '../../lib/evidence';
 import useAsync from '../../hooks/useAsync';
+import useActionError from '../../hooks/useActionError';
 
 // Waiting on verification, versus already verified and closed.
 const AWAITING = 'Resolved';
@@ -164,24 +165,27 @@ export default function OfficerVerification() {
   );
 
   const [busy, setBusy] = useState(false);
-  const [actionError, setActionError] = useState('');
+  const { failure, report: reportFailure, clear: clearFailure } = useActionError();
   const [toast, setToast] = useState('');
 
   const decide = useCallback(async (status, remarks) => {
     if (!selected) return;
     setBusy(true);
-    setActionError('');
+    clearFailure();
     try {
       await updateComplaintStatus(selected.id, status, remarks);
       setToast(status === SIGNED_OFF ? 'Verified and closed.' : 'Sent back to the field worker.');
       setSelectedId(null);
       await refetch();
     } catch (e) {
-      setActionError(e.message);
+      const described = reportFailure(e);
+      // 409: the worker or another officer has already moved this. The queue on
+      // screen is stale, so reload it -- the item has probably left the list.
+      if (described?.recoverable) await refetch();
     } finally {
       setBusy(false);
     }
-  }, [selected, refetch]);
+  }, [selected, refetch, clearFailure, reportFailure]);
 
   useEffect(() => {
     if (!toast) return undefined;
@@ -378,10 +382,21 @@ export default function OfficerVerification() {
                 />
               )}
 
-              {actionError && (
-                <p className="text-[13px] text-danger-700 bg-danger-50 border border-danger-100 rounded-lg px-3 py-2">
-                  {actionError}
-                </p>
+              {/* A conflict is amber, not red: the officer did nothing wrong,
+                  the complaint moved. The server's detail names the valid next
+                  steps, so it is shown as sent. */}
+              {failure && (
+                <div
+                  role="alert"
+                  className={`text-[13px] rounded-lg px-3 py-2 border ${
+                    failure.tone === 'warning'
+                      ? 'text-caution-700 bg-caution-50 border-caution-100'
+                      : 'text-danger-700 bg-danger-50 border-danger-100'
+                  }`}
+                >
+                  {failure.heading && <strong className="block font-semibold mb-0.5">{failure.heading}</strong>}
+                  {failure.message}
+                </div>
               )}
 
               {awaitingSelected ? (
