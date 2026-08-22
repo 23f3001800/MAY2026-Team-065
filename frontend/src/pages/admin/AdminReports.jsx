@@ -12,6 +12,7 @@ import { CATEGORIES, ASSIGNABLE_STATUSES } from '../../api/mappers';
 import { listComplaints } from '../../api/complaints';
 import useAsync from '../../hooks/useAsync';
 import SlaSweepPanel from '../../components/admin/SlaSweepPanel';
+import RoutingSweepPanel from '../../components/admin/RoutingSweepPanel';
 
 const SEVERITIES = ['Low', 'Medium', 'High', 'Critical'];
 const CATEGORY_LABELS = CATEGORIES.map((c) => c.label);
@@ -93,6 +94,7 @@ export default function AdminReports() {
       </div>
 
       <SlaSweepPanel />
+      <RoutingSweepPanel />
 
       {loading ? (
         <LoadingPanel label="Loading complaints…" variant="table" />

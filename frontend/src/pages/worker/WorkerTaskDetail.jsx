@@ -26,6 +26,7 @@ import {
 import { TERMINAL_STATUSES } from '../../api/mappers';
 import FeedbackPanel from '../../components/dashboard/FeedbackPanel';
 import useAsync from '../../hooks/useAsync';
+import { describeApiError } from '../../api/client';
 import { uploadOrQueue } from '../../lib/uploadQueue';
 
 const MAX_IMAGE_MB = 5;
@@ -80,6 +81,7 @@ export default function WorkerTaskDetail() {
   const [uploadPct, setUploadPct] = useState(null);
   const [toast, setToast] = useState('');
   const [toastTone, setToastTone] = useState('success');
+  const [toastHeading, setToastHeading] = useState('');
 
   useEffect(() => {
     let alive = true;
@@ -103,7 +105,9 @@ export default function WorkerTaskDetail() {
     [history],
   );
 
-  const say = useCallback((msg, tone = 'success') => { setToast(msg); setToastTone(tone); }, []);
+  const say = useCallback((msg, tone = 'success', heading = '') => {
+    setToast(msg); setToastTone(tone); setToastHeading(heading);
+  }, []);
 
   const addPhotos = (list) => {
     const ok = Array.from(list || []).filter((f) => {
@@ -164,7 +168,15 @@ export default function WorkerTaskDetail() {
       say(next === 'Resolved' ? 'Submitted for review.' : `Marked ${next}.`);
       refetch();
     } catch (err) {
-      if (err.name !== 'SessionExpiredError') say(err.message, 'error');
+      if (err.name !== 'SessionExpiredError') {
+        // A worker who is told "forbidden" for a step that is simply out of
+        // order will go looking for a permissions problem they do not have.
+        const { tone, heading, message, recoverable } = describeApiError(err);
+        say(message, tone, heading);
+        // The task moved under them -- an officer reassigned it, or sent it
+        // back. Reload so the buttons match the record.
+        if (recoverable) refetch();
+      }
     } finally {
       setBusy(false);
       setUploadPct(null);
@@ -191,7 +203,13 @@ export default function WorkerTaskDetail() {
         <IconArrowLeft size={16} /> All tasks
       </Link>
 
-      <Toast message={toast} tone={toastTone} onDismiss={() => setToast('')} autoHideMs={toastTone === 'error' ? 0 : 4000} />
+      <Toast
+        message={toast}
+        heading={toastHeading}
+        tone={toastTone}
+        onDismiss={() => setToast('')}
+        autoHideMs={toastTone === 'success' ? 4000 : 0}
+      />
 
       {/* Header */}
       <header className="mt-2">

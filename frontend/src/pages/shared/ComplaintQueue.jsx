@@ -23,6 +23,7 @@ import { analyzeComplaint } from '../../api/ai';
 import { listFieldWorkers } from '../../api/workers';
 import { CATEGORIES, ASSIGNABLE_STATUSES } from '../../api/mappers';
 import useAsync from '../../hooks/useAsync';
+import useActionError from '../../hooks/useActionError';
 import { getCurrentUser } from '../../api/auth';
 import { complaintPath } from '../../api/session';
 import ComplaintMap from '../../components/map/ComplaintMap';
@@ -67,7 +68,9 @@ export default function ComplaintQueue({ title, subtitle }) {
 
   const [selectedId, setSelectedId] = useState(null);
   const [toast, setToast] = useState('');
-  const [actionError, setActionError] = useState('');
+  // Failed actions carry their status code: a 409 is a different banner, and
+  // a different instruction, from a 403.
+  const { failure, report: reportFailure, clear: clearFailure } = useActionError();
   const [busy, setBusy] = useState(false);
 
   const [query, setQuery] = useState('');
@@ -196,17 +199,23 @@ export default function ComplaintQueue({ title, subtitle }) {
 
   const runAction = useCallback(async (fn, successMessage) => {
     setBusy(true);
-    setActionError('');
+    clearFailure();
     try {
       const updated = await fn();
       applyUpdate(updated);
       setToast(successMessage);
     } catch (err) {
-      if (err.name !== 'SessionExpiredError') setActionError(err.message);
+      const described = reportFailure(err);
+      // A conflict usually means the row on screen is out of date -- somebody
+      // else moved this complaint. Refetching is the fix, so do it rather than
+      // leaving the officer to work that out.
+      if (described?.recoverable) {
+        try { setData(await listComplaints()); } catch { /* keep the banner */ }
+      }
     } finally {
       setBusy(false);
     }
-  }, [applyUpdate]);
+  }, [applyUpdate, clearFailure, reportFailure, setData]);
 
   const handleRecategorise = (id, categoryId) => {
     const label = CATEGORIES.find((c) => c.categoryId === categoryId)?.label || categoryId;
@@ -226,36 +235,36 @@ export default function ComplaintQueue({ title, subtitle }) {
   // gains a link -- so refetch rather than patching a single row.
   const handleMerge = useCallback(async (id, intoId, remarks) => {
     setBusy(true);
-    setActionError('');
+    clearFailure();
     try {
       await mergeComplaint(id, intoId, remarks);
       setData(await listComplaints());
       setToast(`${id} merged into ${intoId}.`);
       setSelectedId(null);
     } catch (err) {
-      if (err.name !== 'SessionExpiredError') setActionError(err.message);
+      reportFailure(err);
     } finally {
       setBusy(false);
     }
-  }, [setData]);
+  }, [setData, clearFailure, reportFailure]);
 
   // POST /ai/complaints/{id}/analyze returns the triage result, not the
   // complaint, so refetch the row rather than trying to patch it from a
   // different shape.
   const handleAnalyse = useCallback(async (id) => {
     setBusy(true);
-    setActionError('');
+    clearFailure();
     try {
       await analyzeComplaint(id);
       const fresh = await listComplaints();
       setData(fresh);
       setToast(`${id} re-analysed.`);
     } catch (err) {
-      if (err.name !== 'SessionExpiredError') setActionError(err.message);
+      reportFailure(err);
     } finally {
       setBusy(false);
     }
-  }, [setData]);
+  }, [setData, clearFailure, reportFailure]);
 
   const resetFilters = () => {
     setQuery(''); setStatus('All'); setCategory('All'); setSeverity('All'); setSince('');
@@ -275,7 +284,7 @@ export default function ComplaintQueue({ title, subtitle }) {
     const ids = pickedVisible.map((c) => c.id);
     if (!ids.length || !bulkWorkerId) return;
     setBusy(true);
-    setActionError('');
+    clearFailure();
     setBulkResult(null);
     try {
       const result = await bulkAssign(ids, bulkWorkerId);
@@ -294,11 +303,11 @@ export default function ComplaintQueue({ title, subtitle }) {
       }
       await refetch();
     } catch (err) {
-      if (err.name !== 'SessionExpiredError') setActionError(err.message);
+      reportFailure(err);
     } finally {
       setBusy(false);
     }
-  }, [pickedVisible, bulkWorkerId, refetch]);
+  }, [pickedVisible, bulkWorkerId, refetch, clearFailure, reportFailure]);
 
   const statChips = [
     { label: 'Awaiting assignment', value: counts.unassigned, tone: 'bg-amber-50 text-amber-700 border-amber-200', filter: 'New' },
@@ -317,7 +326,13 @@ export default function ComplaintQueue({ title, subtitle }) {
       <Toast message={toast} tone="success" onDismiss={() => setToast('')} />
       {/* Errors do not auto-hide: the action did not happen, so the user needs
           to read this at their own pace. */}
-      <Toast message={actionError} tone="error" onDismiss={() => setActionError('')} autoHideMs={0} />
+      <Toast
+        message={failure?.message}
+        heading={failure?.heading}
+        tone={failure?.tone || 'error'}
+        onDismiss={clearFailure}
+        autoHideMs={0}
+      />
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {statChips.map((s) => (
