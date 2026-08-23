@@ -2697,6 +2697,10 @@ components:
           - type: string
           - type: 'null'
           title: Duplicateofcomplaintid
+        duplicateWarning:
+          anyOf:
+          - $ref: '#/components/schemas/DuplicateWarning'
+          - type: 'null'
       type: object
       required:
       - complaintId
@@ -2848,6 +2852,48 @@ components:
       - candidates
       - source
       title: DuplicateCheckResponse
+    DuplicateWarning:
+      properties:
+        complaintId:
+          type: string
+          title: Complaintid
+        similarity:
+          type: number
+          title: Similarity
+        matchedOn:
+          type: string
+          title: Matchedon
+        reason:
+          type: string
+          title: Reason
+        status:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Status
+        description:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Description
+        filedAt:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Filedat
+      type: object
+      required:
+      - complaintId
+      - similarity
+      - matchedOn
+      - reason
+      title: DuplicateWarning
+      description: "A complaint that looks like the same real-world issue as this one.\n\nAdvisory. Nothing\
+        \ is merged or rejected on the strength of it -- a false\nlink hides one citizen's report behind\
+        \ another's, which costs more than a\nmissed duplicate. An officer confirms with POST /complaints/{id}/merge.\n\
+        \n``matchedOn`` says WHY, and the two reasons have very different strength:\n  * \"photo\" --\
+        \ byte-identical file already attached elsewhere. Certain that\n    it is the same file; not proof\
+        \ it is the same report.\n  * \"text\"  -- similar wording nearby, scored 0-1 in ``similarity``."
     EscalationItem:
       properties:
         complaintId:
@@ -3940,6 +3986,10 @@ components:
           - type: string
           - type: 'null'
           title: Duplicateofcomplaintid
+        duplicateWarning:
+          anyOf:
+          - $ref: '#/components/schemas/DuplicateWarning'
+          - type: 'null'
         distanceKm:
           anyOf:
           - type: number

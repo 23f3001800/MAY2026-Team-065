@@ -570,3 +570,47 @@ async def mark_all_read(db: AsyncSession, userId: str) -> int:
         .values(isRead=True, readAt=_utcnow())
     )
     return result.rowcount or 0
+
+
+async def notify_photo_duplicate(
+    db: AsyncSession,
+    complaint: models.ComplaintModel,
+    *,
+    duplicate_of: str,
+    reason: str,
+) -> List[models.NotificationModel]:
+    """Tell the responsible officer that this complaint's photo appears elsewhere.
+
+    Addressed to the owning officer, falling back to the department -- the same
+    rule as an SLA breach, and for the same reason: an unowned complaint is
+    exactly the one nobody is watching.
+
+    The citizen is deliberately NOT told. The match is advisory and can be
+    innocent (a resident attaching the same picture to a follow-up), and telling
+    somebody their report looks like a duplicate before anyone has confirmed it
+    reads as "we are not going to deal with this".
+    """
+    if complaint.officerId:
+        recipients = [complaint.officerId]
+    else:
+        department = complaint.category.department if complaint.category else None
+        officers = await _officers_for_department(db, department)
+        recipients = [officer.userId for officer in officers]
+
+    created: List[models.NotificationModel] = []
+    for recipient_id in recipients:
+        note = add_notification(
+            db,
+            recipientId=recipient_id,
+            complaintId=complaint.complaintId,
+            message=(
+                "Possible duplicate: " + complaint.complaintId + " has "
+                + reason + ". Merge it if they are the same issue."
+            ),
+            type=TYPE_DUPLICATE,
+            priority=PRIORITY_NORMAL,
+        )
+        if note:
+            created.append(note)
+
+    return created

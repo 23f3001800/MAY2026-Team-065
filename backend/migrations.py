@@ -52,6 +52,8 @@ _ADDED_COLUMNS: List[Tuple[str, str, str]] = [
     ("field_workers", "locationUpdatedAt", "TIMESTAMP"),
     # Which side of the work a photo documents: "report" or "resolution".
     ("media_attachments", "phase", "VARCHAR"),
+    # Digest of the file, for detecting the same photo on another complaint.
+    ("media_attachments", "sha256", "VARCHAR"),
 ]
 
 # SQLite has no DOUBLE PRECISION / TIMESTAMP spelling difference worth caring
