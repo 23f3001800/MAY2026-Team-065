@@ -23,7 +23,7 @@ from typing import Any, Dict, List, Optional, Sequence
 
 from . import rules
 from .config import AISettings, load_settings
-from .azure_openai import AzureOpenAIClient
+from .openrouter import OpenRouterClient
 from .gemini import GeminiClient
 from .provider import (
     AIProviderError,
@@ -122,10 +122,13 @@ class AIService:
         self.settings = settings or load_settings()
         # Injectable so tests can supply a stub without any network access.
         self._client = client
-        # Built lazily on first use: constructing it eagerly would mean every
+        # Built lazily on first use: constructing them eagerly would mean every
         # AIService, including ones that only ever run the rules engine, holds a
         # client for a provider that may not be configured.
-        self._azure_client = None
+        self._clients: Dict[str, Any] = {}
+        # Which backend actually produced the most recent result. Set by _call,
+        # read by _llm_source. Starts empty; the first LLM call fills it.
+        self._last_backend: str = ""
 
     # -- capability reporting -------------------------------------------
 
@@ -144,10 +147,16 @@ class AIService:
                 "provider": self.settings.active_llm or None,
                 "model": self._active_model if self.llm_available else None,
                 "configured": (
-                    self.settings.azure_configured or self.settings.gemini_configured
+                    self.settings.gemini_configured
+                    or self.settings.openrouter_configured
                 ),
-                "azureConfigured": self.settings.azure_configured,
                 "geminiConfigured": self.settings.gemini_configured,
+                "openrouterConfigured": self.settings.openrouter_configured,
+                # The whole ordered chain, not just the leader, so /ai/health
+                # answers "is there anything behind Gemini" -- which is the
+                # question worth asking before the quota runs out rather than
+                # after.
+                "chain": list(self.settings.llm_chain),
                 "available": self.llm_available,
             },
             "features": {
@@ -164,40 +173,83 @@ class AIService:
     def _llm_source(self) -> str:
         """The label recorded against an LLM-produced result.
 
-        Must name the backend that actually ran. These strings are persisted on
-        the complaint and shown to officers, so "gemini" against a result Azure
-        produced is not a cosmetic slip -- it is the audit trail claiming
-        something untrue about where a severity came from.
+        Must name the backend that ACTUALLY ran, which with a fallback chain is
+        not the same as the one configured first. These strings are persisted on
+        the complaint and shown to officers, so "gemini" against a result
+        OpenRouter produced is not a cosmetic slip -- it is the audit trail
+        claiming something untrue about where a severity came from.
         """
-        return self.settings.active_llm or "rules"
+        return self._last_backend or self.settings.active_llm or "rules"
 
     @property
     def _vision_source(self) -> str:
-        return (self.settings.active_llm or "rules") + "-vision"
+        return (self._last_backend or self.settings.active_llm or "rules") + "-vision"
 
     @property
     def _active_model(self) -> Optional[str]:
-        """The model name to report in health, for whichever backend is live."""
-        if self.settings.active_llm == "azure":
-            # In inference mode there is no deployment; the model is the name.
-            return (self.settings.azure_deployment
-                    or self.settings.azure_model)
-        if self.settings.active_llm == "gemini":
+        """The model name to report in health, for whichever backend leads."""
+        return self._model_for(self.settings.active_llm)
+
+    def _model_for(self, backend: str) -> Optional[str]:
+        if backend == "gemini":
             return self.settings.gemini_model
+        if backend == "openrouter":
+            return self.settings.openrouter_model
         return None
 
-    def _llm(self):
-        """The live LLM client.
+    def _client_for(self, backend: str):
+        """The client for one backend, built once and reused."""
+        if backend == "gemini":
+            return self._gemini()
+        if backend not in self._clients:
+            self._clients[backend] = OpenRouterClient(self.settings)
+        return self._clients[backend]
 
-        Both clients expose the same generate_json / generate_text, so callers
-        never branch on the provider. Azure wins in 'auto' when both are
-        configured -- see AISettings.active_llm for why that direction.
+    async def _call(self, method: str, **kwargs):
+        """Run one LLM operation, trying each configured backend in order.
+
+        This is where the fallback actually happens. Previously the provider was
+        chosen once from configuration and any failure dropped straight through
+        to the rules engine, so a second key bought nothing at the exact moment
+        it was meant to help.
+
+        Only ``AIProviderError`` moves to the next backend -- that is the type
+        both clients raise for an upstream problem. Anything else is a bug in
+        this process and is left to propagate rather than being retried against
+        a different vendor.
+
+        The error from the LAST backend is what reaches the caller. Every
+        earlier failure is logged with the backend that produced it, because
+        "OpenRouter is out of credit" is useless on its own when the reason it
+        was reached at all was a Gemini 429.
         """
-        if self.settings.active_llm == "azure":
-            if self._azure_client is None:
-                self._azure_client = AzureOpenAIClient(self.settings)
-            return self._azure_client
-        return self._gemini()
+        chain = self.settings.llm_chain
+        if not chain:
+            raise AIProviderError("No LLM backend is configured", retryable=False)
+
+        last: Optional[AIProviderError] = None
+        for backend in chain:
+            try:
+                result = await getattr(self._client_for(backend), method)(**kwargs)
+            except AIProviderError as exc:
+                last = exc
+                remaining = chain[chain.index(backend) + 1:]
+                logger.warning(
+                    "LLM backend %s failed (%s)%s",
+                    backend, exc,
+                    "; trying " + remaining[0] if remaining else "; no fallback left",
+                )
+                continue
+            self._last_backend = backend
+            return result
+
+        raise last or AIProviderError("Every LLM backend failed")
+
+    async def _generate_json(self, **kwargs) -> Dict[str, Any]:
+        return await self._call("generate_json", **kwargs)
+
+    async def _generate_text(self, **kwargs) -> str:
+        return await self._call("generate_text", **kwargs)
 
     def _gemini(self) -> GeminiClient:
         if self._client is None:
@@ -258,7 +310,7 @@ class AIService:
         )
 
         try:
-            payload = await self._llm().generate_json(
+            payload = await self._generate_json(
                 prompt=prompt,
                 system_instruction=_TRIAGE_SYSTEM_PROMPT,
                 response_schema=_category_schema(list(by_id.keys())),
@@ -345,7 +397,7 @@ class AIService:
         }
 
         try:
-            payload = await self._llm().generate_json(
+            payload = await self._generate_json(
                 prompt=prompt,
                 system_instruction=_TRIAGE_SYSTEM_PROMPT,
                 response_schema=schema,
@@ -446,7 +498,7 @@ class AIService:
         )
 
         try:
-            payload = await self._llm().generate_json(
+            payload = await self._generate_json(
                 prompt=prompt,
                 system_instruction=_VISION_SYSTEM_PROMPT,
                 response_schema=_vision_schema(list(by_id.keys())),
@@ -499,7 +551,7 @@ class AIService:
         )
 
         try:
-            text = await self._llm().generate_text(
+            text = await self._generate_text(
                 prompt=prompt,
                 system_instruction=_WRITEUP_SYSTEM_PROMPT,
                 max_output_tokens=300,
