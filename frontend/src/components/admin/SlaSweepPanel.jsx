@@ -2,10 +2,15 @@
 //
 // Covers "alert officers when complaints breach expected resolution timelines".
 //
-// The important honesty here: nothing schedules this. Breaches are only found
-// when somebody presses the button, so the panel says so rather than letting an
-// admin assume officers are being alerted automatically. If that changes, the
-// note should go — but it should not go before then.
+// The note at the bottom used to say flatly that nothing schedules this. That
+// stopped being true: SLA_ENABLED defaults to on and the API starts a sweeper
+// task at boot, so on a normal deployment breaches ARE found without anybody
+// pressing anything. Telling an admin otherwise sends them looking for a
+// problem they do not have.
+//
+// It is still worth saying when the sweeper is off or has died, so the note now
+// asks GET /health/ready instead of asserting. Same shared answer the health
+// panel uses, so mounting both is one request.
 //
 // Response shape verified against the running backend (openapi types it as an
 // untyped {}):
@@ -13,6 +18,7 @@
 import React, { useState } from 'react';
 import { IconClock, IconCheckCircle, IconAlertTriangle, IconRefresh } from '../dashboard/icons';
 import { runSlaSweep } from '../../api/admin';
+import useReadiness from '../../hooks/useReadiness';
 
 // Order matters: most urgent first, matching how severity reads everywhere else.
 const SEVERITY_ORDER = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'];
@@ -32,6 +38,8 @@ function formatHours(h) {
 }
 
 export default function SlaSweepPanel() {
+  const { readiness } = useReadiness();
+  const sweeper = readiness?.checks?.slaSweeper;
   const [result, setResult] = useState(null);
   const [error, setError] = useState('');
   const [running, setRunning] = useState(false);
@@ -68,7 +76,7 @@ export default function SlaSweepPanel() {
         <button
           onClick={sweep}
           disabled={running}
-          className="focus-ring lift shrink-0 inline-flex items-center gap-2 bg-primary hover:bg-emerald-600 disabled:opacity-60 disabled:cursor-not-allowed text-white font-semibold text-[13px] px-3.5 py-2 rounded-lg shadow-btn transition-all"
+          className="focus-ring lift shrink-0 inline-flex items-center gap-2 bg-primary hover:bg-leaf-700 disabled:opacity-60 disabled:cursor-not-allowed text-white font-semibold text-[13px] px-3.5 py-2 rounded-lg shadow-btn transition-all"
         >
           <IconRefresh size={15} className={running ? 'animate-spin-slow' : ''} />
           {running ? 'Checking…' : 'Run check'}
@@ -114,8 +122,17 @@ export default function SlaSweepPanel() {
       )}
 
       <p className="text-[11px] text-ink-faint mt-4 pt-3 border-t border-slate-100">
-        This runs only when you press the button — nothing checks on a schedule yet, so breaches
-        go unnoticed between runs.
+        {sweeper?.enabled && sweeper?.running
+          ? 'A background sweeper is also running, so breaches are found without this button. '
+            + 'Pressing it just checks now rather than waiting for the next pass.'
+          : sweeper && !sweeper.enabled
+            ? 'The background sweeper is switched off on this deployment, so breaches are only '
+              + 'found when you press this button.'
+            : sweeper
+              ? 'The background sweeper is enabled but is not running — until it is restarted, '
+                + 'breaches are only found when you press this button.'
+              : 'If the background sweeper is not running, breaches go unnoticed between runs. '
+                + 'System health on the dashboard says which.'}
       </p>
     </section>
   );

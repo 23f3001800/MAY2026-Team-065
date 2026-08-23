@@ -18,6 +18,7 @@ import { computeMetrics, volumeSeries, ranked } from '../../lib/complaintMetrics
 import useCategories from '../../hooks/useCategories';
 import ComplaintHeatMap from '../../components/map/ComplaintHeatMap';
 import { LoadingPanel, ErrorPanel } from '../../components/dashboard/AsyncStates';
+import SystemHealthPanel from '../../components/admin/SystemHealthPanel';
 import { IconUserPlus } from '../../components/dashboard/icons';
 import { ROLES } from '../../config';
 import { getCityAnalytics } from '../../api/admin';
@@ -86,12 +87,12 @@ export default function AdminDashboard() {
       {/* Header */}
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div>
-          <h1 className="font-display text-[26px] font-bold text-ink leading-tight">Admin Dashboard</h1>
+          <h1 className="font-display text-[28px] font-bold text-ink leading-tight">Admin Dashboard</h1>
           <p className="text-[14px] text-ink-muted mt-1">City-wide overview of civic complaints and users.</p>
         </div>
         <Link
           to="/admin/users"
-          className="inline-flex items-center gap-2 bg-primary hover:bg-emerald-600 text-white font-semibold text-[14px] px-4 py-2.5 rounded-xl shadow-btn transition-colors"
+          className="inline-flex items-center gap-2 bg-primary hover:bg-leaf-700 text-white font-semibold text-[14px] px-4 py-2.5 rounded-xl shadow-btn transition-colors"
         >
           <IconUserPlus size={16} /> Manage Users
         </Link>
@@ -155,7 +156,7 @@ export default function AdminDashboard() {
           <section>
             <div className="flex items-baseline justify-between gap-3 mb-3 flex-wrap">
               <div>
-                <h2 className="font-display text-[16px] font-bold text-ink">Complaint density</h2>
+                <h2 className="font-display text-[16px] font-bold text-leaf-700">Complaint density</h2>
                 <p className="text-[12px] text-ink-muted mt-0.5">
                   Weighted by severity — hot areas are where the serious work is, not just the most reports.
                 </p>
@@ -219,11 +220,17 @@ export default function AdminDashboard() {
             </section>
           </div>
 
+          {/* Sits above the user table on purpose: the thing most likely to
+              be silently broken here is email, and the two features that depend
+              on it -- new account credentials and password resets -- are both
+              reached from that table. */}
+          <SystemHealthPanel />
+
           {/* Users */}
           <div className="bg-white rounded-2xl border border-slate-200 shadow-sm">
             <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
               <h3 className="font-display font-bold text-slate-900">Users</h3>
-              <Link to="/admin/users" className="text-[13px] font-semibold text-primary hover:underline">
+              <Link to="/admin/users" className="text-[13px] font-semibold text-leaf-700 hover:underline">
                 View All
               </Link>
             </div>

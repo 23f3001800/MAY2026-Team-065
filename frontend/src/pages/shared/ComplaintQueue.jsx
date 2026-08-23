@@ -7,6 +7,7 @@
 // Filtering and sorting are client-side; GET /complaints/ takes no query
 // parameters.
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import StatusBadge from '../../components/dashboard/StatusBadge';
 import SeverityBadge from '../../components/dashboard/SeverityBadge';
 import ConfidenceBadge, { DOUBTFUL_BELOW } from '../../components/dashboard/ConfidenceBadge';
@@ -22,7 +23,9 @@ import { analyzeComplaint } from '../../api/ai';
 import { listFieldWorkers } from '../../api/workers';
 import { CATEGORIES, ASSIGNABLE_STATUSES } from '../../api/mappers';
 import useAsync from '../../hooks/useAsync';
+import useActionError from '../../hooks/useActionError';
 import { getCurrentUser } from '../../api/auth';
+import { complaintPath } from '../../api/session';
 import ComplaintMap from '../../components/map/ComplaintMap';
 
 function formatDate(iso) {
@@ -58,6 +61,12 @@ export default function ComplaintQueue({ title, subtitle }) {
   const { data, error, loading, refetch, setData } = useAsync(() => listComplaints(), []);
   const items = useMemo(() => data || [], [data]);
 
+  // GET /complaints/ scopes an officer to their own department, and each
+  // department owns exactly one category, so the category filter on that screen
+  // is a dropdown whose only real option is the one thing already on show. It
+  // stays for administrators, whose queue really is city-wide.
+  const isOfficer = getCurrentUser()?.role === 'municipal_officer';
+
   // Workers load independently: a failure here should not blank the queue, it
   // should just disable assignment.
   const [workers, setWorkers] = useState([]);
@@ -65,7 +74,9 @@ export default function ComplaintQueue({ title, subtitle }) {
 
   const [selectedId, setSelectedId] = useState(null);
   const [toast, setToast] = useState('');
-  const [actionError, setActionError] = useState('');
+  // Failed actions carry their status code: a 409 is a different banner, and
+  // a different instruction, from a 403.
+  const { failure, report: reportFailure, clear: clearFailure } = useActionError();
   const [busy, setBusy] = useState(false);
 
   const [query, setQuery] = useState('');
@@ -194,17 +205,23 @@ export default function ComplaintQueue({ title, subtitle }) {
 
   const runAction = useCallback(async (fn, successMessage) => {
     setBusy(true);
-    setActionError('');
+    clearFailure();
     try {
       const updated = await fn();
       applyUpdate(updated);
       setToast(successMessage);
     } catch (err) {
-      if (err.name !== 'SessionExpiredError') setActionError(err.message);
+      const described = reportFailure(err);
+      // A conflict usually means the row on screen is out of date -- somebody
+      // else moved this complaint. Refetching is the fix, so do it rather than
+      // leaving the officer to work that out.
+      if (described?.recoverable) {
+        try { setData(await listComplaints()); } catch { /* keep the banner */ }
+      }
     } finally {
       setBusy(false);
     }
-  }, [applyUpdate]);
+  }, [applyUpdate, clearFailure, reportFailure, setData]);
 
   const handleRecategorise = (id, categoryId) => {
     const label = CATEGORIES.find((c) => c.categoryId === categoryId)?.label || categoryId;
@@ -224,36 +241,36 @@ export default function ComplaintQueue({ title, subtitle }) {
   // gains a link -- so refetch rather than patching a single row.
   const handleMerge = useCallback(async (id, intoId, remarks) => {
     setBusy(true);
-    setActionError('');
+    clearFailure();
     try {
       await mergeComplaint(id, intoId, remarks);
       setData(await listComplaints());
       setToast(`${id} merged into ${intoId}.`);
       setSelectedId(null);
     } catch (err) {
-      if (err.name !== 'SessionExpiredError') setActionError(err.message);
+      reportFailure(err);
     } finally {
       setBusy(false);
     }
-  }, [setData]);
+  }, [setData, clearFailure, reportFailure]);
 
   // POST /ai/complaints/{id}/analyze returns the triage result, not the
   // complaint, so refetch the row rather than trying to patch it from a
   // different shape.
   const handleAnalyse = useCallback(async (id) => {
     setBusy(true);
-    setActionError('');
+    clearFailure();
     try {
       await analyzeComplaint(id);
       const fresh = await listComplaints();
       setData(fresh);
       setToast(`${id} re-analysed.`);
     } catch (err) {
-      if (err.name !== 'SessionExpiredError') setActionError(err.message);
+      reportFailure(err);
     } finally {
       setBusy(false);
     }
-  }, [setData]);
+  }, [setData, clearFailure, reportFailure]);
 
   const resetFilters = () => {
     setQuery(''); setStatus('All'); setCategory('All'); setSeverity('All'); setSince('');
@@ -273,7 +290,7 @@ export default function ComplaintQueue({ title, subtitle }) {
     const ids = pickedVisible.map((c) => c.id);
     if (!ids.length || !bulkWorkerId) return;
     setBusy(true);
-    setActionError('');
+    clearFailure();
     setBulkResult(null);
     try {
       const result = await bulkAssign(ids, bulkWorkerId);
@@ -292,11 +309,11 @@ export default function ComplaintQueue({ title, subtitle }) {
       }
       await refetch();
     } catch (err) {
-      if (err.name !== 'SessionExpiredError') setActionError(err.message);
+      reportFailure(err);
     } finally {
       setBusy(false);
     }
-  }, [pickedVisible, bulkWorkerId, refetch]);
+  }, [pickedVisible, bulkWorkerId, refetch, clearFailure, reportFailure]);
 
   const statChips = [
     { label: 'Awaiting assignment', value: counts.unassigned, tone: 'bg-amber-50 text-amber-700 border-amber-200', filter: 'New' },
@@ -315,7 +332,13 @@ export default function ComplaintQueue({ title, subtitle }) {
       <Toast message={toast} tone="success" onDismiss={() => setToast('')} />
       {/* Errors do not auto-hide: the action did not happen, so the user needs
           to read this at their own pace. */}
-      <Toast message={actionError} tone="error" onDismiss={() => setActionError('')} autoHideMs={0} />
+      <Toast
+        message={failure?.message}
+        heading={failure?.heading}
+        tone={failure?.tone || 'error'}
+        onDismiss={clearFailure}
+        autoHideMs={0}
+      />
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {statChips.map((s) => (
@@ -342,7 +365,9 @@ export default function ComplaintQueue({ title, subtitle }) {
           />
         </div>
         <FilterSelect label="Status" value={status} onChange={setStatus} options={ASSIGNABLE_STATUSES} allLabel="All Statuses" />
-        <FilterSelect label="Category" value={category} onChange={setCategory} options={CATEGORY_LABELS} allLabel="All Categories" />
+        {!isOfficer && (
+          <FilterSelect label="Category" value={category} onChange={setCategory} options={CATEGORY_LABELS} allLabel="All Categories" />
+        )}
         <FilterSelect label="Severity" value={severity} onChange={setSeverity} options={SEVERITIES} allLabel="All Severities" />
         <input
           type="date"
@@ -399,7 +424,7 @@ export default function ComplaintQueue({ title, subtitle }) {
           mentally and lose half of it. Only counts what is currently visible —
           acting on rows a filter is hiding is a trap. */}
       {pickedVisible.length > 0 && (
-        <div className="sticky top-2 z-20 flex items-center gap-3 flex-wrap bg-civic-700 text-white rounded-xl px-4 py-3 shadow-md">
+        <div className="sticky top-2 z-20 flex items-center gap-3 flex-wrap bg-leaf-700 text-white rounded-xl px-4 py-3 shadow-md">
           <span className="text-[13px] font-semibold">
             {pickedVisible.length} selected
           </span>
@@ -419,7 +444,7 @@ export default function ComplaintQueue({ title, subtitle }) {
           <button
             onClick={runBulkAssign}
             disabled={busy || !bulkWorkerId}
-            className="focus-ring bg-white text-civic-800 font-semibold text-[13px] px-3.5 py-1.5 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
+            className="focus-ring bg-white text-leaf-800 font-semibold text-[13px] px-3.5 py-1.5 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
           >
             {busy ? 'Assigning…' : `Assign ${pickedVisible.length}`}
           </button>
@@ -465,7 +490,11 @@ export default function ComplaintQueue({ title, subtitle }) {
       ) : filtered.length === 0 ? (
         <EmptyPanel
           title={items.length === 0 ? 'No complaints yet' : 'No complaints match'}
-          message={items.length === 0 ? 'Nothing has been reported to the city yet.' : 'Try widening the filters.'}
+          message={items.length === 0
+            ? (isOfficer
+              ? 'Nothing has been reported to your department yet.'
+              : 'Nothing has been reported to the city yet.')
+            : 'Try widening the filters.'}
         >
           {items.length > 0 && (
             <button onClick={resetFilters} className="text-[13px] font-semibold text-primary hover:underline">
@@ -523,7 +552,16 @@ export default function ComplaintQueue({ title, subtitle }) {
                         className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-emerald-200 cursor-pointer"
                       />
                     </td>
-                    <td className="px-3 py-3 text-[12px] font-mono text-slate-500 whitespace-nowrap">{c.id}</td>
+                    <td className="px-3 py-3 text-[12px] font-mono whitespace-nowrap">
+                      {/* The drawer is for a triage pass; the reference opens
+                          the full record for the reading and deciding half. */}
+                      <Link
+                        to={complaintPath(getCurrentUser()?.role, c.id)}
+                        className="focus-ring rounded text-slate-500 hover:text-leaf-700 hover:underline"
+                      >
+                        {c.id}
+                      </Link>
+                    </td>
                     <td className="px-3 py-3 text-[13px] font-medium text-slate-800">{c.issue}</td>
                     <td className="px-3 py-3 text-[13px] text-slate-600 whitespace-nowrap">{c.category}</td>
                     <td className="px-3 py-3">

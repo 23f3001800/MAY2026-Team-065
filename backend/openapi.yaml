@@ -3,6 +3,32 @@ info:
   title: Municipal Complaint Management API
   version: 0.1.0
 paths:
+  /health:
+    get:
+      tags:
+      - health
+      summary: Liveness
+      description: Is the process up? Deliberately does no work at all.
+      operationId: health_health_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+  /health/ready:
+    get:
+      tags:
+      - health
+      summary: Readiness
+      description: Is the process able to serve requests, and what is degraded if not?
+      operationId: health_ready_health_ready_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
   /auth/register:
     post:
       summary: Register User
@@ -42,6 +68,99 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Token'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /auth/forgot-password:
+    post:
+      tags:
+      - auth
+      summary: Send a password reset code
+      description: 'Email a verification code to the address, if it belongs to an account.
+
+
+        Always 202, always the same wording. Whether the address is registered, is
+
+        suspended, or has asked five times in the last hour is recorded in the log
+
+        and never in the response -- otherwise this endpoint tells anyone who asks
+
+        which addresses are on the register.'
+      operationId: forgot_password_auth_forgot_password_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ForgotPasswordRequest'
+        required: true
+      responses:
+        '202':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ForgotPasswordResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /auth/verify-reset-code:
+    post:
+      tags:
+      - auth
+      summary: Check a reset code without using it
+      description: 'Confirm a code is good, so the UI can move on to collecting a password.
+
+
+        Does not consume the code -- the reset call still needs it. Wrong answers
+
+        do count against the code''s attempt limit, which is what stops this being
+
+        a free oracle for guessing.'
+      operationId: verify_reset_code_auth_verify_reset_code_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VerifyResetCodeRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VerifyResetCodeResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /auth/reset-password:
+    post:
+      tags:
+      - auth
+      summary: Set a new password using a verification code
+      description: Change the password and retire the code.
+      operationId: reset_password_with_code_auth_reset_password_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResetPasswordWithCode'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
         '422':
           description: Validation Error
           content:
@@ -755,6 +874,29 @@ paths:
                 $ref: '#/components/schemas/HTTPValidationError'
       security:
       - OAuth2PasswordBearer: []
+  /officers/me/profile:
+    get:
+      summary: Get Officer Profile
+      description: 'The signed-in municipal officer''s own profile.
+
+
+        Read-only on purpose. Which department an officer sits in decides which
+
+        complaints they are shown and which ones route to them, so it is an
+
+        administrator''s decision (PATCH /admin/users/{id}), not a self-service
+
+        field -- an officer editing it would be reassigning their own workload.'
+      operationId: get_officer_profile_officers_me_profile_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OfficerProfileResponse'
+      security:
+      - OAuth2PasswordBearer: []
   /workers/me/profile:
     get:
       summary: Get Worker Profile
@@ -861,6 +1003,39 @@ paths:
       summary: Trigger Sla Sweep
       description: Run the SLA breach sweep now and report what it found.
       operationId: trigger_sla_sweep_admin_sla_sweep_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - OAuth2PasswordBearer: []
+  /admin/complaints/route-unassigned:
+    post:
+      summary: Route Unassigned Complaints
+      description: 'Give every ownerless open complaint to its department''s officer.
+
+
+        Complaints are routed on filing, but that only helps the ones filed since.
+
+        Everything already in the system was created when ownership was a side
+
+        effect of dispatch, so anything never dispatched has no officer -- and the
+
+        officer notifications for escalation, resolution and SLA breach are
+
+        addressed to ``officerId``, which means for those complaints they are
+
+        created for nobody.
+
+
+        Safe to run repeatedly: it only touches complaints where officerId is null,
+
+        and complaints in a department with no officer are reported back rather
+
+        than being pushed onto somebody who cannot act on them.'
+      operationId: route_unassigned_complaints_admin_complaints_route_unassigned_post
       responses:
         '200':
           description: Successful Response
@@ -1068,20 +1243,56 @@ paths:
   /categories:
     get:
       summary: List Categories
-      description: List every complaint category and its owning department.
+      description: 'List every complaint category and its owning department.
+
+
+        Reference data: it changes when somebody adds a department, which is roughly
+
+        never, and the frontend re-fetches it on every dashboard mount and every
+
+        report form. So it carries validators.
+
+
+        The ETag is computed from the rows themselves rather than a timestamp, which
+
+        means adding a category invalidates every client''s copy immediately -- no
+
+        waiting for max-age to lapse, and no stale category list on the one screen
+
+        where a stale list means a complaint filed against the wrong department.
+
+
+        ``private`` on the Cache-Control because this needs a token: a shared proxy
+
+        must not hold one user''s copy and hand it to an unauthenticated caller.'
       operationId: list_categories_categories_get
+      security:
+      - OAuth2PasswordBearer: []
+      parameters:
+      - name: If-None-Match
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: If-None-Match
       responses:
         '200':
           description: Successful Response
           content:
             application/json:
               schema:
+                type: array
                 items:
                   $ref: '#/components/schemas/CategoryResponse'
-                type: array
                 title: Response List Categories Categories Get
-      security:
-      - OAuth2PasswordBearer: []
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /complaints/{complaintId}/history:
     get:
       summary: Get Complaint History
@@ -1205,6 +1416,50 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/FeedbackResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /complaints/{complaintId}/allowed-statuses:
+    get:
+      summary: Get Allowed Statuses
+      description: 'Which statuses THIS user may move THIS complaint to, right now.
+
+
+        Two rules decide it -- what the lifecycle permits from the current status,
+
+        and what this role is allowed to do -- and both live in services/lifecycle.
+
+        Duplicating either of them in the client is how the two drift apart, and the
+
+        symptom is a button that looks available and answers 403 or 409 when pressed.
+
+
+        ``allowed`` is what to offer. ``transitions`` is every move that is legal
+
+        from here regardless of role, which is what lets an interface explain why
+
+        something is missing ("only the citizen can verify this") rather than
+
+        silently hiding it.'
+      operationId: get_allowed_statuses_complaints__complaintId__allowed_statuses_get
+      security:
+      - OAuth2PasswordBearer: []
+      parameters:
+      - name: complaintId
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Complaintid
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
         '422':
           description: Validation Error
           content:
@@ -1984,6 +2239,12 @@ components:
           type: array
           title: Contextused
           default: []
+        followUps:
+          items:
+            type: string
+          type: array
+          title: Followups
+          default: []
       type: object
       required:
       - answer
@@ -2459,6 +2720,10 @@ components:
           - type: string
           - type: 'null'
           title: Duplicateofcomplaintid
+        duplicateWarning:
+          anyOf:
+          - $ref: '#/components/schemas/DuplicateWarning'
+          - type: 'null'
       type: object
       required:
       - complaintId
@@ -2470,6 +2735,29 @@ components:
       - location
       - category
       title: ComplaintResponse
+    CredentialDelivery:
+      properties:
+        emailed:
+          type: boolean
+          title: Emailed
+        detail:
+          type: string
+          title: Detail
+      type: object
+      required:
+      - emailed
+      - detail
+      title: CredentialDelivery
+      description: 'Whether the new account holder was actually told their password.
+
+
+        Returned to the administrator who created the account, because "created" and
+
+        "they can sign in" are different facts and only one of them is guaranteed.
+
+        When ``emailed`` is false the administrator still has to make contact, and
+
+        they need to know that at the moment of creation rather than a week later.'
     DescriptionWriteupRequest:
       properties:
         description:
@@ -2587,6 +2875,48 @@ components:
       - candidates
       - source
       title: DuplicateCheckResponse
+    DuplicateWarning:
+      properties:
+        complaintId:
+          type: string
+          title: Complaintid
+        similarity:
+          type: number
+          title: Similarity
+        matchedOn:
+          type: string
+          title: Matchedon
+        reason:
+          type: string
+          title: Reason
+        status:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Status
+        description:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Description
+        filedAt:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Filedat
+      type: object
+      required:
+      - complaintId
+      - similarity
+      - matchedOn
+      - reason
+      title: DuplicateWarning
+      description: "A complaint that looks like the same real-world issue as this one.\n\nAdvisory. Nothing\
+        \ is merged or rejected on the strength of it -- a false\nlink hides one citizen's report behind\
+        \ another's, which costs more than a\nmissed duplicate. An officer confirms with POST /complaints/{id}/merge.\n\
+        \n``matchedOn`` says WHY, and the two reasons have very different strength:\n  * \"photo\" --\
+        \ byte-identical file already attached elsewhere. Certain that\n    it is the same file; not proof\
+        \ it is the same report.\n  * \"text\"  -- similar wording nearby, scored 0-1 in ``similarity``."
     EscalationItem:
       properties:
         complaintId:
@@ -2724,12 +3054,17 @@ components:
           title: Name
         email:
           type: string
+          format: email
           title: Email
         phone:
           type: string
           title: Phone
         password:
-          type: string
+          anyOf:
+          - type: string
+            maxLength: 128
+            minLength: 8
+          - type: 'null'
           title: Password
         skillSet:
           type: string
@@ -2739,7 +3074,6 @@ components:
       - name
       - email
       - phone
-      - password
       - skillSet
       title: FieldWorkerCreate
     FieldWorkerResponse:
@@ -2759,6 +3093,10 @@ components:
         availabilityStatus:
           type: string
           title: Availabilitystatus
+        credentialDelivery:
+          anyOf:
+          - $ref: '#/components/schemas/CredentialDelivery'
+          - type: 'null'
       type: object
       required:
       - userId
@@ -2767,6 +3105,37 @@ components:
       - skillSet
       - availabilityStatus
       title: FieldWorkerResponse
+    ForgotPasswordRequest:
+      properties:
+        email:
+          type: string
+          format: email
+          title: Email
+      type: object
+      required:
+      - email
+      title: ForgotPasswordRequest
+    ForgotPasswordResponse:
+      properties:
+        message:
+          type: string
+          title: Message
+        expiresInMinutes:
+          type: integer
+          title: Expiresinminutes
+      type: object
+      required:
+      - message
+      - expiresInMinutes
+      title: ForgotPasswordResponse
+      description: 'Deliberately says nothing about whether the account exists.
+
+
+        The wording is identical for a registered address, an unregistered one and
+
+        a suspended account. Anything else turns this endpoint into a way to test
+
+        whether a given person is on the register.'
     HTTPValidationError:
       properties:
         detail:
@@ -2915,6 +3284,51 @@ components:
       - isRead
       - complaintId
       title: NotificationResponse
+    OfficerProfileResponse:
+      properties:
+        userId:
+          type: string
+          title: Userid
+        name:
+          type: string
+          title: Name
+        email:
+          type: string
+          title: Email
+        phone:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Phone
+        department:
+          type: string
+          title: Department
+        designation:
+          type: string
+          title: Designation
+      type: object
+      required:
+      - userId
+      - name
+      - email
+      - department
+      - designation
+      title: OfficerProfileResponse
+      description: 'The signed-in municipal officer''s own record.
+
+
+        department and designation live on municipal_officers, not on users, and
+
+        the login JWT carries only email/userId/role -- so a client that decoded the
+
+        token still had no way to tell an officer which department they answer for.
+
+        That matters now the department is what decides which complaints reach them:
+
+        "which desk am I" and "why am I seeing these" are the same question.
+
+
+        Both columns are NOT NULL on the model, so neither is optional here.'
     PasswordReset:
       properties:
         newPassword:
@@ -2924,6 +3338,28 @@ components:
       required:
       - newPassword
       title: PasswordReset
+    ResetPasswordWithCode:
+      properties:
+        email:
+          type: string
+          format: email
+          title: Email
+        code:
+          type: string
+          maxLength: 12
+          minLength: 4
+          title: Code
+        newPassword:
+          type: string
+          maxLength: 128
+          minLength: 8
+          title: Newpassword
+      type: object
+      required:
+      - email
+      - code
+      - newPassword
+      title: ResetPasswordWithCode
     SeverityEnum:
       type: string
       enum:
@@ -3056,12 +3492,17 @@ components:
           title: Name
         email:
           type: string
+          format: email
           title: Email
         phone:
           type: string
           title: Phone
         password:
-          type: string
+          anyOf:
+          - type: string
+            maxLength: 128
+            minLength: 8
+          - type: 'null'
           title: Password
         role:
           type: string
@@ -3086,7 +3527,6 @@ components:
       - name
       - email
       - phone
-      - password
       - role
       title: SystemOfficialCreate
     Token:
@@ -3243,6 +3683,8 @@ components:
           title: Phone
         password:
           type: string
+          maxLength: 128
+          minLength: 8
           title: Password
         role:
           type: string
@@ -3341,6 +3783,35 @@ components:
       - msg
       - type
       title: ValidationError
+    VerifyResetCodeRequest:
+      properties:
+        email:
+          type: string
+          format: email
+          title: Email
+        code:
+          type: string
+          maxLength: 12
+          minLength: 4
+          title: Code
+      type: object
+      required:
+      - email
+      - code
+      title: VerifyResetCodeRequest
+    VerifyResetCodeResponse:
+      properties:
+        verified:
+          type: boolean
+          title: Verified
+        expiresInMinutes:
+          type: integer
+          title: Expiresinminutes
+      type: object
+      required:
+      - verified
+      - expiresInMinutes
+      title: VerifyResetCodeResponse
     VisionResponse:
       properties:
         available:
@@ -3583,6 +4054,10 @@ components:
           - type: string
           - type: 'null'
           title: Duplicateofcomplaintid
+        duplicateWarning:
+          anyOf:
+          - $ref: '#/components/schemas/DuplicateWarning'
+          - type: 'null'
         distanceKm:
           anyOf:
           - type: number

@@ -5,22 +5,30 @@
 // complaint, so a failure in either degrades that one panel instead of blanking
 // the page.
 //
-// Still not readable from the backend: existing feedback. A rating submitted
-// here shows until reload and then disappears, which the form says out loud.
+// Feedback is read back as well as written, so a rating persists across a
+// reload and the form is only offered when none exists. The rating is also
+// shown to the officer and to the field worker who did the work -- it is the
+// only judgement of the job that comes from outside the organisation, and it
+// was previously collected and shown to nobody.
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import StatusBadge from '../components/dashboard/StatusBadge';
+import FeedbackPanel from '../components/dashboard/FeedbackPanel';
 import SlaBadge from '../components/dashboard/SlaBadge';
 import SeverityBadge from '../components/dashboard/SeverityBadge';
 import { LoadingPanel, ErrorPanel } from '../components/dashboard/AsyncStates';
 import EvidencePanel from '../components/dashboard/EvidencePanel';
 import ReportSlipModal from '../components/dashboard/ReportSlipModal';
 import ComplaintMap from '../components/map/ComplaintMap';
+import OwningOfficer from '../components/dashboard/OwningOfficer';
 import {
   IconArrowLeft, IconMapPin, IconInbox, IconStar, IconBuilding, IconSend,
-  IconExternal, IconReport as IconFileText,
+  IconExternal, IconUsers, IconReport as IconFileText, IconAlertTriangle,
 } from '../components/dashboard/icons';
-import { getComplaint, getComplaintHistory, getComplaintMedia, submitFeedback } from '../api/complaints';
+import {
+  getComplaint, getComplaintFeedback, getComplaintHistory, getComplaintMedia,
+  submitFeedback,
+} from '../api/complaints';
 import useAsync from '../hooks/useAsync';
 import { splitEvidence } from '../lib/evidence';
 import { getCurrentUser } from '../api/auth';
@@ -110,17 +118,23 @@ export default function ComplaintDetails() {
   // the control is offered by role and the backend remains the authority.
   // A citizen adds "before" context, a worker adds "after" evidence.
   const currentUser = getCurrentUser();
-  const canUpload = currentUser?.role === 'citizen' || currentUser?.role === 'field_worker';
+  const isCitizen = currentUser?.role === 'citizen';
+  const canUpload = isCitizen || currentUser?.role === 'field_worker';
   const uploadKind = currentUser?.role === 'field_worker' ? 'after' : 'before';
 
   useEffect(() => {
     let alive = true;
-    Promise.allSettled([getComplaintHistory(id), getComplaintMedia(id)])
-      .then(([h, m]) => {
+    Promise.allSettled([
+      getComplaintHistory(id), getComplaintMedia(id), getComplaintFeedback(id),
+    ])
+      .then(([h, m, f]) => {
         if (!alive) return;
         if (h.status === 'fulfilled') setHistory(h.value);
         if (m.status === 'fulfilled') setMedia(m.value);
-        const failed = [h, m].filter((r) => r.status === 'rejected'
+        // Existing feedback, so a rating survives a reload and the form does
+        // not invite a second one.
+        if (f.status === 'fulfilled') setFeedback(f.value?.[0] || null);
+        const failed = [h, m, f].filter((r) => r.status === 'rejected'
           && r.reason?.name !== 'SessionExpiredError');
         if (failed.length) setSideError(failed[0].reason?.message || 'Could not load attachments.');
       });
@@ -224,6 +238,32 @@ export default function ComplaintDetails() {
 
       {slipOpen && <ReportSlipModal complaintId={complaint.id} onDismiss={() => setSlipOpen(false)} />}
 
+      {/* A merged complaint used to be visible only in the officer's drawer, so
+          the person who filed it saw their report sitting at Rejected with no
+          explanation. Being told it was folded into another one — and being
+          able to follow that one — is the difference between "handled" and
+          "ignored". */}
+      {complaint.duplicateOfComplaintId && (
+        <div className="mb-5 rounded-2xl border border-amber-200 bg-amber-50 p-4">
+          <div className="flex items-center gap-2 text-[13px] font-semibold text-amber-900">
+            <IconAlertTriangle size={15} />
+            Reported already
+          </div>
+          <p className="text-[12.5px] text-amber-900/90 mt-2 leading-relaxed">
+            {isCitizen
+              ? 'This was the same issue as an earlier report, so the two have been joined. Progress is tracked on '
+              : 'Closed as a duplicate of '}
+            <Link
+              to={`/complaints/${complaint.duplicateOfComplaintId}`}
+              className="font-mono font-semibold underline"
+            >
+              {complaint.duplicateOfComplaintId}
+            </Link>
+            {isCitizen ? ' — follow that one for updates.' : '.'}
+          </p>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 items-start">
         <div className="lg:col-span-2 space-y-5">
           <section className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
@@ -257,7 +297,7 @@ export default function ComplaintDetails() {
                   href={`https://www.google.com/maps/dir/?api=1&destination=${complaint.coords.latitude},${complaint.coords.longitude}`}
                   target="_blank"
                   rel="noreferrer"
-                  className="focus-ring inline-flex items-center gap-1.5 text-[12px] font-semibold text-ink-muted hover:text-civic-700 transition-colors"
+                  className="focus-ring inline-flex items-center gap-1.5 text-[12px] font-semibold text-ink-muted hover:text-leaf-700 transition-colors"
                 >
                   <IconExternal size={13} /> Directions
                 </a>
@@ -276,45 +316,58 @@ export default function ComplaintDetails() {
           )}
 
           {/* Feedback — the backend accepts it only for RESOLVED complaints. */}
-          {complaint.status === 'Resolved' && (
-            <section className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
-              <h2 className="font-semibold text-slate-800 text-[15px] mb-3">
-                {feedback ? 'Your Feedback' : 'Rate this resolution'}
-              </h2>
+          {/* Staff see the rating as information; only the citizen who filed
+              it is offered the form. */}
+          {currentUser?.role !== 'citizen' && (
+            <FeedbackPanel items={feedback ? [feedback] : []} audience="officer" />
+          )}
 
-              {feedback ? (
-                <div>
-                  <StarRating value={feedback.rating} readOnly />
-                  {feedback.comments && (
-                    <p className="text-[14px] text-slate-600 leading-relaxed mt-3">“{feedback.comments}”</p>
-                  )}
-                  <p className="text-[12px] text-slate-400 mt-2">Submitted {formatStamp(feedback.submittedAt)}</p>
-                </div>
-              ) : (
-                <form onSubmit={handleFeedback} className="space-y-4">
-                  <p className="text-[14px] text-slate-500">How satisfied are you with how this was handled?</p>
-                  <StarRating value={rating} onChange={(n) => { setRating(n); setFeedbackError(''); }} />
-                  <textarea
-                    value={comments}
-                    onChange={(e) => setComments(e.target.value)}
-                    rows={3}
-                    placeholder="Add a comment (optional)…"
-                    className="w-full rounded-xl border border-slate-200 p-3.5 text-[14px] text-slate-800 outline-none resize-y focus:border-primary focus:ring-2 focus:ring-emerald-100 transition"
-                  />
-                  {feedbackError && <p className="text-[13px] font-medium text-red-600">{feedbackError}</p>}
-                  <button
-                    type="submit"
-                    disabled={saving}
-                    className="inline-flex items-center gap-2 bg-primary hover:bg-emerald-600 disabled:opacity-60 text-white font-semibold text-[14px] px-4 py-2.5 rounded-xl shadow-btn transition-colors"
-                  >
-                    <IconSend size={16} /> {saving ? 'Submitting…' : 'Submit Feedback'}
-                  </button>
-                  <p className="text-[12px] text-slate-400">
-                    Existing feedback cannot be shown yet — the backend has no endpoint to read it
-                    back, so submitting twice will create a second entry.
-                  </p>
-                </form>
+          {/* The rating they left, at ANY status.
+              This used to live inside a Resolved-only block, so the moment a
+              citizen confirmed the work -- which moves the complaint to
+              Verified -- their own rating disappeared with the block. Showing a
+              record of what someone said, only while the record is in one
+              particular state, is the wrong condition entirely. */}
+          {currentUser?.role === 'citizen' && feedback && (
+            <section className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+              <h2 className="font-semibold text-slate-800 text-[15px] mb-3">Your feedback</h2>
+              <StarRating value={feedback.rating} readOnly />
+              {feedback.comments && (
+                <p className="text-[14px] text-slate-600 leading-relaxed mt-3">“{feedback.comments}”</p>
               )}
+              <p className="text-[12px] text-slate-400 mt-2">
+                Submitted {formatStamp(feedback.submittedAt)}
+              </p>
+            </section>
+          )}
+
+          {/* The form, only while there is finished work to rate and nothing
+              rated yet. Verified is included: confirming the fix and rating it
+              are two separate actions, and someone who did the first should not
+              be locked out of the second. */}
+          {currentUser?.role === 'citizen' && !feedback
+            && ['Resolved', 'Verified'].includes(complaint.status) && (
+            <section className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+              <h2 className="font-semibold text-slate-800 text-[15px] mb-3">Rate this resolution</h2>
+              <form onSubmit={handleFeedback} className="space-y-4">
+                <p className="text-[14px] text-slate-500">How satisfied are you with how this was handled?</p>
+                <StarRating value={rating} onChange={(n) => { setRating(n); setFeedbackError(''); }} />
+                <textarea
+                  value={comments}
+                  onChange={(e) => setComments(e.target.value)}
+                  rows={3}
+                  placeholder="Add a comment (optional)…"
+                  className="w-full rounded-xl border border-slate-200 p-3.5 text-[14px] text-slate-800 outline-none resize-y focus:border-primary focus:ring-2 focus:ring-emerald-100 transition"
+                />
+                {feedbackError && <p className="text-[13px] font-medium text-red-600">{feedbackError}</p>}
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className="inline-flex items-center gap-2 bg-primary hover:bg-leaf-700 disabled:opacity-60 text-white font-semibold text-[14px] px-4 py-2.5 rounded-xl shadow-btn transition-colors"
+                >
+                  <IconSend size={16} /> {saving ? 'Submitting…' : 'Submit Feedback'}
+                </button>
+              </form>
             </section>
           )}
         </div>
@@ -335,6 +388,19 @@ export default function ComplaintDetails() {
               <SummaryRow icon={IconBuilding} label="Department">
                 {complaint.department || <span className="text-slate-400">Unassigned</span>}
               </SummaryRow>
+              {/* Staff-facing only. A citizen has no use for the name of the
+                  officer holding their complaint, and "no officer is registered
+                  for Sanitation" is an internal staffing gap, not something to
+                  tell the person waiting on a pothole. */}
+              {!isCitizen && (
+                <SummaryRow icon={IconUsers} label="Owning officer">
+                  <OwningOfficer
+                    officerId={complaint.officerId}
+                    department={complaint.department}
+                    variant="inline"
+                  />
+                </SummaryRow>
+              )}
             </div>
           </section>
 

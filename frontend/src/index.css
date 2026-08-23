@@ -61,12 +61,19 @@
   --ink-400: #8593a1;   /* meta, timestamps */
 
   --surface:        #ffffff;
-  --surface-sunken: #f5f4f1;  /* page background — warm off-white */
+  /* Page ground. Was #f5f4f1, a warm off-white so close to the cards sitting
+     on it that the app read as one flat sheet of white. Now a faint civic
+     blue-grey from the same family as --civic-50: cards still read as raised
+     because they are white against it, and the product looks like the service
+     it is rather than a blank page. */
+  --surface-sunken: #eaeef4;
   --surface-raised: #ffffff;
-  --surface-inset:  #fafaf8;
+  /* Wells inside a card -- one step in from white, matching the ground's hue
+     rather than the old warm grey, so the two do not disagree. */
+  --surface-inset:  #f4f6fa;
 
-  --line:        #e4e2dd;
-  --line-strong: #d0cdc6;
+  --line:        #dde2ea;
+  --line-strong: #c5cdd9;
 
   /* Elevation. Two layers each: a tight contact shadow plus a soft ambient
      one. A single layer is what makes a card read as a flat outlined box. */
@@ -293,4 +300,40 @@
 
   .break-before-page { break-before: page; }
   .break-inside-avoid { break-inside: avoid; }
+
+  /* ── Printable sheets ───────────────────────────────────────
+     The acknowledgement slip lives in a fixed, scrolling modal on screen. Left
+     alone, window.print() sends the whole document to paper: the page behind
+     the modal prints in full, and the slip itself is clipped to one viewport
+     because of its own max-height and overflow.
+
+     The slip renders through a portal onto <body>, so it is a SIBLING of the
+     app root rather than a descendant. That is what makes this simple: drop
+     the root outright and the sheet is the only thing left. Hiding the page
+     with visibility instead would keep its layout and emit blank pages. */
+  body.printing-sheet > #root { display: none !important; }
+
+  .print-sheet-shell {
+    position: static !important;
+    display: block !important;
+    padding: 0 !important;
+  }
+
+  /* On paper the sheet is an ordinary block: no viewport cap, no scroll
+     container to clip it, no card chrome. */
+  .print-sheet {
+    position: static !important;
+    width: 100% !important;
+    max-width: none !important;
+    max-height: none !important;
+    overflow: visible !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    transform: none !important;
+    animation: none !important;
+  }
+
+  /* A sticky header inside the sheet would either repeat on every page or sit
+     over the content. On paper it is just the first thing on the first page. */
+  .print-sheet .sticky { position: static !important; }
 }

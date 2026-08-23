@@ -86,7 +86,7 @@ export default function EvidencePanel({
 
   const uploadControl = canUpload && (
     <div className="mt-3">
-      <label className="focus-ring flex items-center justify-center gap-2 cursor-pointer rounded-lg border-2 border-dashed border-line hover:border-civic-400 hover:bg-surface px-3 py-2.5 transition-colors">
+      <label className="focus-ring flex items-center justify-center gap-2 cursor-pointer rounded-lg border-2 border-dashed border-line hover:border-leaf-400 hover:bg-surface px-3 py-2.5 transition-colors">
         <input
           ref={fileRef}
           type="file"
@@ -96,7 +96,7 @@ export default function EvidencePanel({
           disabled={busy}
           onChange={(e) => upload(e.target.files)}
         />
-        <IconUpload size={15} className="text-civic-600" />
+        <IconUpload size={15} className="text-leaf-600" />
         <span className="text-[12px] font-semibold text-ink-body">
           {busy ? 'Uploading…' : uploadKind === 'after' ? 'Add completion photos' : 'Add more photos'}
         </span>

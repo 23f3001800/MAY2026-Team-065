@@ -1,9 +1,9 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import AuthBackground from './components/AuthBackground';
 import Home from './pages/Home';
 import Login from './pages/Login';
 import Register from './pages/Register';
+import ForgotPassword from './pages/ForgotPassword';
 import CitizenLayout from './layouts/CitizenLayout';
 import CitizenDashboard from './pages/CitizenDashboard';
 import ReportIssue from './pages/ReportIssue';
@@ -23,6 +23,7 @@ import OfficerComplaints from './pages/officer/OfficerComplaints';
 import OfficerWorkers from './pages/officer/OfficerWorkers';
 import OfficerVerification from './pages/officer/OfficerVerification';
 import OfficerEscalations from './pages/officer/OfficerEscalations';
+import OfficerComplaintView from './pages/officer/OfficerComplaintView';
 import WorkerLayout from './layouts/WorkerLayout';
 import WorkerDashboard from './pages/worker/WorkerDashboard';
 import WorkerTasks from './pages/worker/WorkerTasks';
@@ -50,18 +51,6 @@ function RoleHome() {
   return <Navigate to={user ? homePathForRole(user.role) : '/'} replace />;
 }
 
-// Dark, centered layout for the auth screens (login/register).
-function AuthScreen({ children }) {
-  return (
-    <>
-      <AuthBackground />
-      <div className="flex items-center justify-center min-h-screen px-6 py-6 relative z-10">
-        {children}
-      </div>
-    </>
-  );
-}
-
 function App() {
   return (
     <BrowserRouter>
@@ -69,9 +58,10 @@ function App() {
         {/* Public landing page — redirects a signed-in visitor to their dashboard */}
         <Route path="/" element={<Home />} />
 
-        {/* Public auth screens */}
-        <Route path="/login" element={<AuthScreen><Login /></AuthScreen>} />
-        <Route path="/register" element={<AuthScreen><Register /></AuthScreen>} />
+        {/* Public auth screens — each page renders its own AuthShell frame */}
+        <Route path="/login" element={<Login />} />
+        <Route path="/register" element={<Register />} />
+        <Route path="/forgot-password" element={<ForgotPassword />} />
 
         {/* Authenticated citizen area (dark sidebar + light content) */}
         <Route
@@ -129,7 +119,7 @@ function App() {
           {/* Same detail view the citizen sees, inside the officer's layout.
               /complaints/:id is guarded to citizens, so linking an officer
               there bounced them to their dashboard. */}
-          <Route path="/officer/complaints/:id" element={<ComplaintDetails />} />
+          <Route path="/officer/complaints/:id" element={<OfficerComplaintView />} />
           <Route path="/officer/verification" element={<OfficerVerification />} />
           <Route path="/officer/escalations" element={<OfficerEscalations />} />
           <Route path="/officer/workers" element={<OfficerWorkers />} />

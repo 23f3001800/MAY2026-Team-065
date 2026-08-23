@@ -21,8 +21,10 @@ import {
   IconX, IconMapPin, IconClock, IconCheckCircle, IconAlertTriangle, IconSparkles,
   IconRefresh, IconArrowRight, IconImage,
 } from '../dashboard/icons';
-import { CATEGORIES, ALL_STATUSES, statusesSettableBy, aiDisagrees } from '../../api/mappers';
+import { CATEGORIES, ALL_STATUSES, aiDisagrees } from '../../api/mappers';
 import { getComplaintHistory, getComplaintMedia } from '../../api/complaints';
+import useAllowedStatuses from '../../hooks/useAllowedStatuses';
+import OwningOfficer from '../dashboard/OwningOfficer';
 import { splitEvidence } from '../../lib/evidence';
 import AiVerificationPanel from './AiVerificationPanel';
 
@@ -143,7 +145,15 @@ export default function ComplaintDrawer({
   const canTake = (w) =>
     Boolean(department) && String(w.skill || '').toLowerCase().includes(department.toLowerCase());
 
-  const settable = statusesSettableBy(role);
+  // Which moves are legal for this person on THIS complaint, asked of the
+  // server rather than inferred from the role. Re-asked whenever the status
+  // changes, because the answer moves with it.
+  const {
+    allowed, loading: statusesLoading, stale: statusesStale, reasonFor,
+  } = useAllowedStatuses(complaint.id, { role, status: complaint.status });
+  // While the answer is in flight the set is empty, which would read as "you
+  // may do nothing here". Hold the controls closed and say why instead.
+  const canSet = (s) => s === complaint.status || allowed.includes(s);
   const timeline = [...history].sort((a, b) => new Date(a.at) - new Date(b.at));
 
   return (
@@ -280,7 +290,7 @@ export default function ComplaintDrawer({
                 {/* The verification decision, where the evidence is — not
                     buried in the status dropdown further down. */}
                 {AWAITING_SIGN_OFF.includes(complaint.status) && (
-                  <div className="mt-3 rounded-lg border border-civic-100 bg-civic-50/60 p-3">
+                  <div className="mt-3 rounded-lg border border-leaf-100 bg-leaf-50/60 p-3">
                     <p className="text-[12px] text-ink-body leading-snug mb-2.5">
                       A field worker has submitted this as complete. Verify the work matches the
                       report, or send it back.
@@ -288,15 +298,19 @@ export default function ComplaintDrawer({
                     <div className="flex gap-2">
                       <button
                         onClick={() => onStatusChange(complaint.id, 'Verified', 'Evidence verified by officer.')}
-                        disabled={busy || afterPhotos.length === 0}
-                        title={afterPhotos.length === 0 ? 'No completion evidence to verify' : undefined}
+                        disabled={busy || statusesLoading || afterPhotos.length === 0 || !canSet('Verified')}
+                        title={
+                          afterPhotos.length === 0 ? 'No completion evidence to verify'
+                            : reasonFor('Verified') || undefined
+                        }
                         className="focus-ring flex-1 inline-flex items-center justify-center gap-1.5 bg-teal-600 hover:bg-teal-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold text-[12px] py-2 rounded-lg transition-colors"
                       >
                         <IconCheckCircle size={14} /> Verify &amp; close
                       </button>
                       <button
                         onClick={() => onStatusChange(complaint.id, 'In Progress', 'Sent back by officer — work not accepted.')}
-                        disabled={busy}
+                        disabled={busy || statusesLoading || !canSet('In Progress')}
+                        title={reasonFor('In Progress') || undefined}
                         className="focus-ring flex-1 bg-surface border border-line hover:border-caution-500 text-caution-700 font-semibold text-[12px] py-2 rounded-lg transition-colors disabled:opacity-40"
                       >
                         Send back
@@ -305,6 +319,11 @@ export default function ComplaintDrawer({
                     {afterPhotos.length === 0 && (
                       <p className="text-[11px] text-caution-700 mt-2">
                         Nothing to verify — no completion photo was attached.
+                      </p>
+                    )}
+                    {reasonFor('Verified') && (
+                      <p className="text-[11px] text-ink-faint mt-2">
+                        Waiting on someone else — {reasonFor('Verified')}.
                       </p>
                     )}
                   </div>
@@ -446,13 +465,35 @@ export default function ComplaintDrawer({
             <>
               {/* Status */}
               <Card title="Update status">
-                <select value={status} onChange={(e) => setStatus(e.target.value)} aria-label="Status" className={selectCls}>
-                  {ALL_STATUSES.map((s) => (
-                    <option key={s} value={s} disabled={!settable.includes(s) && s !== complaint.status}>
-                      {s}{!settable.includes(s) && s !== complaint.status ? ' — not yours to set' : ''}
-                    </option>
-                  ))}
+                <select
+                  value={status}
+                  onChange={(e) => setStatus(e.target.value)}
+                  aria-label="Status"
+                  disabled={statusesLoading}
+                  className={selectCls}
+                >
+                  {ALL_STATUSES.map((s) => {
+                    // Three states, and the difference matters. Available;
+                    // legal from here but somebody else's call, which is worth
+                    // naming; or simply not a step you can take from this
+                    // status, which is not a permission problem at all.
+                    const note = canSet(s) ? '' : reasonFor(s) || 'not a valid next step from here';
+                    return (
+                      <option key={s} value={s} disabled={!canSet(s)}>
+                        {s}{note ? ` — ${note}` : ''}
+                      </option>
+                    );
+                  })}
                 </select>
+                {statusesLoading && (
+                  <p className="text-[11px] text-ink-faint mt-2">Checking which moves are valid…</p>
+                )}
+                {statusesStale && (
+                  <p className="text-[11px] text-caution-700 mt-2 leading-snug">
+                    Could not check which moves are valid right now, so this list is
+                    the full set for your role. Some options may be refused.
+                  </p>
+                )}
                 <textarea
                   value={remarks}
                   onChange={(e) => setRemarks(e.target.value)}
@@ -463,7 +504,7 @@ export default function ComplaintDrawer({
                 <button
                   onClick={() => onStatusChange(complaint.id, status, remarks)}
                   disabled={!statusChanged || busy}
-                  className="focus-ring mt-2 w-full inline-flex items-center justify-center gap-2 bg-primary hover:bg-emerald-600 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold text-[13px] py-2.5 rounded-lg shadow-btn transition-colors"
+                  className="focus-ring mt-2 w-full inline-flex items-center justify-center gap-2 bg-primary hover:bg-leaf-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold text-[13px] py-2.5 rounded-lg shadow-btn transition-colors"
                 >
                   <IconCheckCircle size={16} /> {statusChanged ? `Mark as ${status}` : 'No change to apply'}
                 </button>
@@ -504,6 +545,13 @@ export default function ComplaintDrawer({
 
               {/* Assignment */}
               <Card title="Assign field worker">
+                {/* Who owns it, above who does the work. A worker is dispatched
+                    to a complaint; an officer is answerable for it. */}
+                <div className="mb-3 pb-3 border-b border-line">
+                  <Label>Owning officer</Label>
+                  <OwningOfficer officerId={complaint.officerId} department={complaint.department} />
+                </div>
+
                 {workersError ? (
                   <p className="flex items-start gap-2 text-[12px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
                     <IconAlertTriangle size={14} className="mt-0.5 shrink-0" />
@@ -535,7 +583,7 @@ export default function ComplaintDrawer({
                           <button
                             onClick={() => onAssign(complaint.id, w)}
                             disabled={offDuty || !eligible || busy}
-                            className="focus-ring shrink-0 text-[12px] font-semibold px-3 py-1.5 rounded-lg bg-primary hover:bg-emerald-600 disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed text-white transition-colors"
+                            className="focus-ring shrink-0 text-[12px] font-semibold px-3 py-1.5 rounded-lg bg-primary hover:bg-leaf-700 disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed text-white transition-colors"
                           >
                             Assign
                           </button>

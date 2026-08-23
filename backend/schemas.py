@@ -8,11 +8,15 @@ from pydantic import BaseModel, EmailStr, Field
 class UserRegister(BaseModel):
     userId: str
     name: str
-    email: str 
+    email: str
     phone: str
-    password: str
+    # Registration was the one password path with no minimum, so an empty
+    # string was accepted, hashed, and stored -- creating an account whose
+    # password is "". Every other path (reset, admin-created accounts, password
+    # change) already enforced this; this one was simply missed.
+    password: str = Field(..., min_length=8, max_length=128)
     role: str = "citizen"
-    address: Optional[str] = None 
+    address: Optional[str] = None
 
 class Token(BaseModel):
     access_token: str
@@ -38,6 +42,28 @@ class CategoryResponse(BaseModel):
     department: str
     class Config: 
         from_attributes = True
+
+class DuplicateWarning(BaseModel):
+    """A complaint that looks like the same real-world issue as this one.
+
+    Advisory. Nothing is merged or rejected on the strength of it -- a false
+    link hides one citizen's report behind another's, which costs more than a
+    missed duplicate. An officer confirms with POST /complaints/{id}/merge.
+
+    ``matchedOn`` says WHY, and the two reasons have very different strength:
+      * "photo" -- byte-identical file already attached elsewhere. Certain that
+        it is the same file; not proof it is the same report.
+      * "text"  -- similar wording nearby, scored 0-1 in ``similarity``.
+    """
+
+    complaintId: str
+    similarity: float
+    matchedOn: str
+    reason: str
+    status: Optional[str] = None
+    description: Optional[str] = None
+    filedAt: Optional[str] = None
+
 
 # --- Complaint Schemas ---
 class ComplaintCreate(BaseModel):
@@ -93,6 +119,15 @@ class ComplaintResponse(BaseModel):
     aiSource: Optional[str] = None
     aiAnalyzedAt: Optional[datetime] = None
     duplicateOfComplaintId: Optional[str] = None
+
+    # Populated ONLY by the endpoints that can raise it -- filing a complaint
+    # and uploading a photo. Absent everywhere a complaint is merely listed.
+    #
+    # It exists because duplicateOfComplaintId alone was not enough to build a
+    # warning on: it is set only above the auto-link threshold, so every match
+    # in the 0.55-0.75 band was detected, logged, and then discarded without
+    # anyone being told. This carries those too.
+    duplicateWarning: Optional[DuplicateWarning] = None
 
     class Config:
         from_attributes = True
@@ -187,19 +222,39 @@ class EscalationResponse(BaseModel):
     atRiskCount: int
 
 # Field Worker Schemas
+class CredentialDelivery(BaseModel):
+    """Whether the new account holder was actually told their password.
+
+    Returned to the administrator who created the account, because "created" and
+    "they can sign in" are different facts and only one of them is guaranteed.
+    When ``emailed`` is false the administrator still has to make contact, and
+    they need to know that at the moment of creation rather than a week later.
+    """
+
+    emailed: bool
+    detail: str
+
+
 class FieldWorkerCreate(BaseModel):
     name: str
-    email: str
+    email: EmailStr
     phone: str
-    password: str
+    # See SystemOfficialCreate: omit it and the server generates one and emails
+    # it to the worker.
+    password: Optional[str] = Field(None, min_length=8, max_length=128)
     skillSet: str  # E.g., "Plumbing, Sanitation"
 
 class FieldWorkerResponse(BaseModel):
-    userId: str    
+    userId: str
     name: str
     phone: str
-    skillSet: str  
+    skillSet: str
     availabilityStatus: str
+
+    # Only populated on creation, where the administrator needs to know whether
+    # the new worker was actually sent their sign-in details. Absent everywhere
+    # the worker is merely listed.
+    credentialDelivery: Optional["CredentialDelivery"] = None
 
     class Config:
         from_attributes = True
@@ -239,22 +294,78 @@ class WorkerProfileResponse(BaseModel):
         from_attributes = True
 
 
+class OfficerProfileResponse(BaseModel):
+    """The signed-in municipal officer's own record.
+
+    department and designation live on municipal_officers, not on users, and
+    the login JWT carries only email/userId/role -- so a client that decoded the
+    token still had no way to tell an officer which department they answer for.
+    That matters now the department is what decides which complaints reach them:
+    "which desk am I" and "why am I seeing these" are the same question.
+
+    Both columns are NOT NULL on the model, so neither is optional here.
+    """
+
+    userId: str
+    name: str
+    email: str
+    phone: Optional[str] = None
+    department: str
+    designation: str
+
+    class Config:
+        from_attributes = True
+
+
 class PasswordReset(BaseModel):
     newPassword: str
+
+
+# --- Self-service password reset (emailed verification code) ---------------
+# Three steps rather than one, because the code arrives on a phone and the new
+# password is typed on a keyboard: being told the code was wrong only after
+# choosing and confirming a password is where people give up.
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+class ForgotPasswordResponse(BaseModel):
+    """Deliberately says nothing about whether the account exists.
+
+    The wording is identical for a registered address, an unregistered one and
+    a suspended account. Anything else turns this endpoint into a way to test
+    whether a given person is on the register.
+    """
+
+    message: str
+    expiresInMinutes: int
+
+
+class VerifyResetCodeRequest(BaseModel):
+    email: EmailStr
+    code: str = Field(..., min_length=4, max_length=12)
+
+
+class VerifyResetCodeResponse(BaseModel):
+    verified: bool
+    expiresInMinutes: int
+
+
+class ResetPasswordWithCode(BaseModel):
+    email: EmailStr
+    code: str = Field(..., min_length=4, max_length=12)
+    # A floor, not a policy. Eight characters is the shortest thing worth
+    # calling a password; anything more opinionated belongs somewhere both the
+    # frontend and this endpoint can read, not hard-coded twice.
+    newPassword: str = Field(..., min_length=8, max_length=128)
+
 
 # available
 class AvailabilityUpdate(BaseModel):
     status: str = Field(..., pattern="^(AVAILABLE|UNAVAILABLE)$", description="Must be AVAILABLE or UNAVAILABLE")
 
-
-# officer 
-class SystemOfficialCreate(BaseModel):
-    name: str
-    email: str
-    password: str
-    role: str = Field(..., pattern="^(municipal_officer|field_worker)$")
-    department: Optional[str] = None 
-    skills: Optional[List[str]] = None
 
 class UserUpdate(BaseModel):
     """Fields an administrator may change on an existing account.
@@ -298,14 +409,19 @@ class UserAdminResponse(BaseModel):
     class Config:
         from_attributes = True
 
+# officer
 class SystemOfficialCreate(BaseModel):
     name: str
-    email: str
-    phone: str   
-    password: str
-    role: str    
-    department: str = "Unassigned" 
-    designation: str = "General Officer" 
+    email: EmailStr
+    phone: str
+    # Optional now. Left out, the server generates a strong temporary password
+    # and emails it to the new officer -- which is both better than whatever an
+    # administrator invents under time pressure, and better than the previous
+    # arrangement where the administrator had to read it down a phone line.
+    password: Optional[str] = Field(None, min_length=8, max_length=128)
+    role: str
+    department: str = "Unassigned"
+    designation: str = "General Officer"
     skills: Optional[List[str]] = None
 
 # --- FEEDBACK SCHEMAS ---
@@ -518,6 +634,10 @@ class AssistantQueryResponse(BaseModel):
     citations: List[str] = []
     source: str
     contextUsed: List[str] = []
+    # Up to three suggested next questions, grounded in the caller's own
+    # records. Render them as one-tap chips; they are safe to show verbatim
+    # because they are built from retrieved rows, not written by the model.
+    followUps: List[str] = []
 
 
 class DescriptionWriteupRequest(BaseModel):

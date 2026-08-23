@@ -13,7 +13,7 @@ import { Link } from 'react-router-dom';
 import { askAssistant, aiHealth } from '../../api/ai';
 import { getCurrentUser } from '../../api/auth';
 import {
-  IconBot, IconX, IconSend, IconSparkles, IconAlertTriangle, IconArrowRight,
+  IconX, IconSend, IconSparkles, IconAlertTriangle, IconArrowRight,
 } from '../dashboard/icons';
 
 // What the assistant opens with, per role. Each says what it can see, because
@@ -126,15 +126,27 @@ export default function AssistantWidget({ role = 'citizen' }) {
       {/* Launcher */}
       <button
         onClick={() => setOpen((o) => !o)}
-        aria-label={open ? 'Close AI assistant' : 'Open AI assistant'}
+        aria-label={open ? 'Close the help desk' : 'Open the help desk'}
         aria-expanded={open}
         className={`focus-ring fixed bottom-5 right-5 z-40 w-14 h-14 rounded-full shadow-lg flex items-center justify-center
           text-white transition-all duration-200 hover:scale-105 active:scale-95
-          ${open ? 'bg-slate-800' : 'logo-gradient'}`}
+          ${open ? 'bg-leaf-700' : 'bg-leaf-600 hover:bg-leaf-700'}`}
       >
-        {open ? <IconX size={22} /> : <IconBot size={24} />}
+        {open ? (
+          <IconX size={22} />
+        ) : (
+          <>
+            <IconSparkles size={23} />
+            {/* A quiet halo so the launcher reads as something that responds,
+                without the constant pulsing that makes a page feel restless. */}
+            <span
+              aria-hidden="true"
+              className="absolute inset-0 rounded-full ring-2 ring-leaf-300/50 animate-pulse-dot"
+            />
+          </>
+        )}
         {!open && (
-          <span className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-emerald-400 ring-2 ring-white" aria-hidden="true" />
+          <span className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-leaf-500 ring-2 ring-white" aria-hidden="true" />
         )}
       </button>
 
@@ -143,22 +155,22 @@ export default function AssistantWidget({ role = 'citizen' }) {
       {open && (
         <div
           role="dialog"
-          aria-label="AI assistant"
+          aria-label="Help desk"
           className="fixed bottom-24 right-5 z-40 w-[calc(100vw-2.5rem)] sm:w-[380px] max-h-[min(560px,calc(100vh-8rem))]
                      bg-white rounded-2xl border border-line shadow-xl flex flex-col overflow-hidden animate-scale-in origin-bottom-right"
         >
-          <div className="flex items-center gap-2.5 px-4 py-3 border-b border-line bg-slate-50 shrink-0">
-            <span className="w-8 h-8 rounded-lg logo-gradient text-white flex items-center justify-center">
+          <div className="flex items-center gap-2.5 px-4 py-3 border-b border-line bg-leaf-700 text-white shrink-0">
+            <span className="w-8 h-8 rounded-lg bg-white/10 text-teal-300 flex items-center justify-center">
               <IconSparkles size={16} />
             </span>
             <div className="min-w-0">
-              <div className="text-[14px] font-semibold text-ink leading-tight">Assistant</div>
-              <div className="text-[11px] text-ink-faint">Answers from your own data</div>
+              <div className="text-[14px] font-semibold leading-tight">Help desk</div>
+              <div className="text-[11px] text-white/55">Answers drawn from your own records</div>
             </div>
             <button
               onClick={() => setOpen(false)}
               aria-label="Close"
-              className="focus-ring ml-auto w-7 h-7 rounded-md text-ink-faint hover:bg-slate-200 flex items-center justify-center transition"
+              className="focus-ring ml-auto w-7 h-7 rounded-md text-white/60 hover:bg-white/10 hover:text-white flex items-center justify-center transition"
             >
               <IconX size={15} />
             </button>
@@ -175,7 +187,7 @@ export default function AssistantWidget({ role = 'citizen' }) {
             {messages.map((m, i) => (
               <div key={i} className={`animate-rise-in ${m.role === 'user' ? 'flex justify-end' : ''}`}>
                 {m.role === 'user' ? (
-                  <div className="max-w-[85%] bg-primary text-white text-[13px] rounded-2xl rounded-br-sm px-3.5 py-2 leading-snug">
+                  <div className="max-w-[85%] bg-leaf-600 text-white text-[13px] rounded-2xl rounded-br-sm px-3.5 py-2 leading-snug">
                     {m.text}
                   </div>
                 ) : m.role === 'error' ? (
@@ -261,15 +273,15 @@ export default function AssistantWidget({ role = 'citizen' }) {
               value={question}
               onChange={(e) => setQuestion(e.target.value)}
               disabled={busy || Boolean(unavailable)}
-              placeholder={unavailable ? 'Assistant unavailable' : 'Ask a question…'}
-              aria-label="Ask the assistant"
+              placeholder={unavailable ? 'Help desk unavailable' : 'Ask about your complaints…'}
+              aria-label="Ask the help desk"
               className="focus-ring flex-1 min-w-0 text-[13px] text-ink px-3 py-2 rounded-lg border border-line outline-none disabled:bg-slate-50 transition"
             />
             <button
               type="submit"
               disabled={!question.trim() || busy || Boolean(unavailable)}
               aria-label="Send"
-              className="focus-ring shrink-0 w-9 h-9 rounded-lg bg-primary hover:bg-emerald-600 disabled:opacity-40 disabled:cursor-not-allowed text-white flex items-center justify-center transition"
+              className="focus-ring shrink-0 w-9 h-9 rounded-lg bg-leaf-600 hover:bg-leaf-700 disabled:opacity-40 disabled:cursor-not-allowed text-white flex items-center justify-center transition"
             >
               <IconSend size={16} />
             </button>

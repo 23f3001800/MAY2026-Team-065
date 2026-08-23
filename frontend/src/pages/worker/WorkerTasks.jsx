@@ -29,6 +29,7 @@ import {
 import SlaBadge from '../../components/dashboard/SlaBadge';
 import { listMyTasks, updateComplaintStatus } from '../../api/complaints';
 import useAsync from '../../hooks/useAsync';
+import { describeApiError } from '../../api/client';
 import { TERMINAL_STATUSES } from '../../api/mappers';
 import ComplaintMap from '../../components/map/ComplaintMap';
 
@@ -86,7 +87,7 @@ function canHold(status) {
 }
 
 const TONE_BTN = {
-  civic: 'bg-civic-700 hover:bg-civic-800 text-white',
+  civic: 'bg-leaf-600 hover:bg-leaf-700 text-white',
   teal: 'bg-teal-600 hover:bg-teal-700 text-white',
   caution: 'bg-caution-600 hover:bg-caution-700 text-white',
 };
@@ -104,7 +105,7 @@ function TaskCard({ task, busy, onQuick, onOpen, index = 0 }) {
       style={{ '--i': index }}
       className={`group relative bg-surface rounded-2xl border shadow-sm overflow-hidden
         animate-rise-in stagger transition-all duration-200 hover:shadow-md hover:-translate-y-0.5
-        ${active ? 'border-civic-300 ring-1 ring-civic-100' : 'border-line'}`}
+        ${active ? 'border-leaf-300 ring-1 ring-leaf-100' : 'border-line'}`}
     >
       {/* Severity rail. A delivery app tells you at a glance which drop is the
           urgent one without reading anything — this is that. */}
@@ -113,7 +114,7 @@ function TaskCard({ task, busy, onQuick, onOpen, index = 0 }) {
         className={`absolute left-0 top-0 bottom-0 w-1 ${
           task.severity === 'Critical' ? 'bg-danger-600'
           : task.severity === 'High' ? 'bg-caution-500'
-          : task.severity === 'Medium' ? 'bg-civic-400'
+          : task.severity === 'Medium' ? 'bg-leaf-400'
           : 'bg-teal-500'}`}
       />
 
@@ -123,8 +124,8 @@ function TaskCard({ task, busy, onQuick, onOpen, index = 0 }) {
             <div className="flex items-center gap-2 mb-1.5 flex-wrap">
               <StatusBadge status={task.status} />
               {active && (
-                <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide text-civic-700">
-                  <span className="w-1.5 h-1.5 rounded-full bg-civic-600 animate-pulse-dot" />
+                <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide text-leaf-700">
+                  <span className="w-1.5 h-1.5 rounded-full bg-leaf-600 animate-pulse-dot" />
                   on this now
                 </span>
               )}
@@ -148,7 +149,7 @@ function TaskCard({ task, busy, onQuick, onOpen, index = 0 }) {
             grey line of metadata. */}
         <div className="flex items-start gap-2.5 mt-3 rounded-xl bg-surface-inset px-3 py-2.5">
           <span className="w-7 h-7 rounded-lg bg-surface border border-line flex items-center justify-center shrink-0 mt-0.5">
-            <IconMapPin size={14} className="text-civic-600" />
+            <IconMapPin size={14} className="text-leaf-600" />
           </span>
           <div className="min-w-0">
             <div className="text-[13px] font-medium text-ink leading-snug">{task.location}</div>
@@ -159,7 +160,7 @@ function TaskCard({ task, busy, onQuick, onOpen, index = 0 }) {
               {/* Only present when the list was ordered by distance -- a figure
                   with no point of origin would be meaningless. */}
               {task.distanceKm !== null && (
-                <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-civic-700">
+                <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-leaf-700">
                   <IconCrosshair size={11} />
                   {task.distanceKm < 1
                     ? `${Math.round(task.distanceKm * 1000)} m away`
@@ -283,6 +284,7 @@ export default function WorkerTasks() {
 
   const [toast, setToast] = useState('');
   const [toastTone, setToastTone] = useState('success');
+  const [toastHeading, setToastHeading] = useState('');
   const [busy, setBusy] = useState(false);
   // List or map over the SAME open tasks. This was a separate page, which meant
   // leaving your task list to find out where the tasks were.
@@ -322,7 +324,9 @@ export default function WorkerTasks() {
     setData((list) => (list || []).map((t) => (t.id === updated.id ? updated : t)));
   }, [setData]);
 
-  const say = (msg, tone = 'success') => { setToast(msg); setToastTone(tone); };
+  const say = (msg, tone = 'success', heading = '') => {
+    setToast(msg); setToastTone(tone); setToastHeading(heading);
+  };
 
 
   // One-tap transition straight from the card.
@@ -332,7 +336,12 @@ export default function WorkerTasks() {
       applyUpdate(await updateComplaintStatus(task.id, action.next, null));
       say(`${task.id} — ${action.next}.`);
     } catch (err) {
-      if (err.name !== 'SessionExpiredError') say(err.message, 'error');
+      if (err.name !== 'SessionExpiredError') {
+        const { tone, heading, message, recoverable } = describeApiError(err);
+        say(message, tone, heading);
+        // 409 means this card is showing a status the task has already left.
+        if (recoverable) refetch();
+      }
     } finally {
       setBusy(false);
     }
@@ -359,7 +368,7 @@ export default function WorkerTasks() {
                 onClick={() => setScope(k)}
                 aria-pressed={scope === k}
                 className={`focus-ring px-3.5 py-2.5 text-[13px] font-semibold transition-colors ${
-                  scope === k ? 'bg-civic-700 text-white' : 'text-ink-body hover:bg-surface-inset'
+                  scope === k ? 'bg-leaf-700 text-white' : 'text-ink-body hover:bg-surface-inset'
                 }`}
               >
                 {label}
@@ -373,7 +382,7 @@ export default function WorkerTasks() {
                 onClick={() => setView(v)}
                 aria-pressed={view === v}
                 className={`focus-ring px-3.5 py-2.5 text-[13px] font-semibold capitalize transition-colors ${
-                  view === v ? 'bg-civic-700 text-white' : 'text-ink-body hover:bg-surface-inset'
+                  view === v ? 'bg-leaf-700 text-white' : 'text-ink-body hover:bg-surface-inset'
                 }`}
               >
                 {v}
@@ -388,7 +397,7 @@ export default function WorkerTasks() {
               onClick={() => setSortBy('urgency')}
               aria-pressed={sortBy === 'urgency'}
               className={`focus-ring px-3.5 py-2.5 text-[13px] font-semibold transition-colors ${
-                sortBy === 'urgency' ? 'bg-civic-700 text-white' : 'text-ink-body hover:bg-surface-inset'
+                sortBy === 'urgency' ? 'bg-leaf-700 text-white' : 'text-ink-body hover:bg-surface-inset'
               }`}
             >
               Urgency
@@ -398,7 +407,7 @@ export default function WorkerTasks() {
               aria-pressed={sortBy === 'distance'}
               disabled={locating}
               className={`focus-ring inline-flex items-center gap-1.5 px-3.5 py-2.5 text-[13px] font-semibold transition-colors disabled:opacity-60 ${
-                sortBy === 'distance' ? 'bg-civic-700 text-white' : 'text-ink-body hover:bg-surface-inset'
+                sortBy === 'distance' ? 'bg-leaf-700 text-white' : 'text-ink-body hover:bg-surface-inset'
               }`}
             >
               <IconCrosshair size={14} />
@@ -407,7 +416,7 @@ export default function WorkerTasks() {
           </div>
           <button
             onClick={refetch}
-            className="focus-ring lift inline-flex items-center gap-2 bg-surface border border-line hover:border-civic-400 text-ink-body font-semibold text-[13px] px-3.5 py-2.5 rounded-lg shadow-sm transition-all"
+            className="focus-ring lift inline-flex items-center gap-2 bg-surface border border-line hover:border-leaf-400 text-ink-body font-semibold text-[13px] px-3.5 py-2.5 rounded-lg shadow-sm transition-all"
           >
             <IconRefresh size={15} /> Refresh
           </button>
@@ -420,7 +429,13 @@ export default function WorkerTasks() {
         </p>
       )}
 
-      <Toast message={toast} tone={toastTone} onDismiss={() => setToast('')} autoHideMs={toastTone === 'error' ? 0 : 4000} />
+      <Toast
+        message={toast}
+        heading={toastHeading}
+        tone={toastTone}
+        onDismiss={() => setToast('')}
+        autoHideMs={toastTone === 'success' ? 4000 : 0}
+      />
 
       {loading ? (
         <LoadingPanel label="Loading your tasks…" variant="cards" />

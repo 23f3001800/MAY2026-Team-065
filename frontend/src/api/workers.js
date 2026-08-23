@@ -1,7 +1,7 @@
 // Field worker endpoints (officer and admin facing, plus the worker's own
 // availability toggle).
 import { apiRequest } from './client';
-import { fromApiWorker } from './mappers';
+import { fromApiWorker, fromApiCredentialDelivery } from './mappers';
 
 /**
  * @param {string} [skillSet] free-text filter, matched with ILIKE server-side.
@@ -25,16 +25,33 @@ export function setMyAvailability(available) {
   });
 }
 
-// Admin-only: register a new field worker account.
-// skillSet is free text (e.g. "Roads & Transport, Sanitation") -- assignment
-// later does a plain substring match against a complaint's department, so it
-// is worth typing department names out in full rather than abbreviating.
+/**
+ * Admin-only: register a new field worker account.
+ *
+ * skillSet is free text (e.g. "Roads & Transport, Sanitation") -- assignment
+ * later does a plain substring match against a complaint's department, so it
+ * is worth typing department names out in full rather than abbreviating.
+ *
+ * `password` is optional. Omit it and the server generates one and emails it,
+ * which is better than whatever an administrator invents under time pressure --
+ * and means nobody but the account holder ever sees it. Whether that email
+ * actually went anywhere comes back in credentialDelivery, which is the
+ * caller's problem to surface: an account nobody can sign in to is not a
+ * success.
+ *
+ * @returns {{worker: object, credentialDelivery: {emailed, detail}|null}}
+ */
 export async function createFieldWorker({ name, email, phone, password, skillSet }) {
   const data = await apiRequest('/workers/', {
     method: 'POST',
-    body: { name, email, phone, password, skillSet },
+    // undefined is dropped by JSON.stringify, so an omitted password reaches
+    // the server as absent rather than as null -- which the schema rejects.
+    body: { name, email, phone, password: password || undefined, skillSet },
   });
-  return fromApiWorker(data);
+  return {
+    worker: fromApiWorker(data),
+    credentialDelivery: fromApiCredentialDelivery(data?.credentialDelivery),
+  };
 }
 
 /**

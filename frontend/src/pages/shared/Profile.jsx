@@ -12,14 +12,22 @@
 // /citizens/me/profile and /citizens/me/password and nothing equivalent for
 // officers, workers or admins. Rather than show them a form that would 403,
 // those roles get an explanation.
-import React, { useState } from 'react';
+//
+// Officers are the one exception to "identity comes from the token": their
+// department and designation are not in it, and the department is what decides
+// which complaints reach them, so GET /officers/me/profile is fetched on top.
+// It is read-only -- reassigning a department is an administrator's call.
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { IconUser, IconMail, IconShieldCheck } from '../../components/icons';
-import { IconLogout, IconCheckCircle } from '../../components/dashboard/icons';
+import {
+  IconLogout, IconCheckCircle, IconBuilding, IconTag,
+} from '../../components/dashboard/icons';
 import UnavailableNote from '../../components/dashboard/UnavailableNote';
 import Toast from '../../components/dashboard/Toast';
 import { getCurrentUser, clearSession } from '../../api/auth';
 import { updateMyProfile, changeMyPassword } from '../../api/citizens';
+import { getMyOfficerProfile } from '../../api/officers';
 import { resetUserPassword } from '../../api/admin';
 import { ROLES } from '../../config';
 
@@ -60,6 +68,22 @@ export default function Profile() {
   // admin can use it on their own account. That is why admins get a password
   // form while officers and workers do not.
   const isAdmin = user?.role === 'admin';
+  const isOfficer = user?.role === 'municipal_officer';
+
+  // The officer's own record. Null until it arrives, and null for good if the
+  // call fails -- the rows below are simply not rendered in that case. Showing
+  // an em dash where a department belongs would read as "you have none", which
+  // for an officer is a statement about their queue, not about the network.
+  const [officerProfile, setOfficerProfile] = useState(null);
+
+  useEffect(() => {
+    if (!isOfficer) return undefined;
+    let cancelled = false;
+    getMyOfficerProfile()
+      .then((p) => { if (!cancelled) setOfficerProfile(p); })
+      .catch(() => { /* leave it unknown rather than guess */ });
+    return () => { cancelled = true; };
+  }, [isOfficer]);
 
   // There is no GET /citizens/me, so these start blank rather than prefilled.
   // Sending only what is filled in means a blank field leaves the stored value
@@ -76,6 +100,10 @@ export default function Profile() {
 
   const [toast, setToast] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
+
+  // The token carries no name -- userFromToken falls back to the email's
+  // local part -- so the officer record's name is preferred where we have it.
+  const displayName = officerProfile?.name || user?.name;
 
   const handleLogout = () => {
     clearSession();
@@ -149,10 +177,10 @@ export default function Profile() {
       <div className="bg-white rounded-2xl border border-line shadow-sm p-6">
         <div className="flex items-center gap-4 pb-5 border-b border-slate-100">
           <div className="w-14 h-14 rounded-2xl bg-emerald-50 text-primary flex items-center justify-center font-display font-bold text-xl shrink-0">
-            {(user?.name || '?').charAt(0).toUpperCase()}
+            {(displayName || '?').charAt(0).toUpperCase()}
           </div>
           <div className="min-w-0">
-            <div className="font-display font-bold text-ink text-[17px] truncate">{user?.name || 'Unknown'}</div>
+            <div className="font-display font-bold text-ink text-[17px] truncate">{displayName || 'Unknown'}</div>
             <span className="inline-block mt-1 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-violet-50 text-violet-700">
               {roleLabel}
             </span>
@@ -162,6 +190,14 @@ export default function Profile() {
         <div className="divide-y divide-slate-100">
           <Row icon={IconMail} label="Email" value={user?.email || '—'} />
           <Row icon={IconShieldCheck} label="Role" value={roleLabel} />
+          {/* Department first: it is the one that decides what lands in this
+              officer's queue, so it is the answer to "why am I seeing this". */}
+          {isOfficer && officerProfile?.department && (
+            <Row icon={IconBuilding} label="Department" value={officerProfile.department} />
+          )}
+          {isOfficer && officerProfile?.designation && (
+            <Row icon={IconTag} label="Designation" value={officerProfile.designation} />
+          )}
           <Row icon={IconUser} label="User ID" value={user?.userId || '—'} />
         </div>
       </div>
@@ -183,7 +219,7 @@ export default function Profile() {
             <button
               type="submit"
               disabled={savingProfile}
-              className="focus-ring inline-flex items-center gap-2 bg-primary hover:bg-emerald-600 disabled:opacity-60 text-white font-semibold text-[14px] px-4 py-2.5 rounded-xl shadow-btn transition-colors"
+              className="focus-ring inline-flex items-center gap-2 bg-primary hover:bg-leaf-700 disabled:opacity-60 text-white font-semibold text-[14px] px-4 py-2.5 rounded-xl shadow-btn transition-colors"
             >
               <IconCheckCircle size={16} /> {savingProfile ? 'Saving…' : 'Save changes'}
             </button>
@@ -226,9 +262,13 @@ export default function Profile() {
         </>
       ) : (
         <UnavailableNote>
-          Editing your details or password from here isn't available for this role — the backend
-          exposes self-service endpoints for citizen accounts only. An administrator can update your
-          record or reset your password.
+          {isOfficer
+            ? 'Your department and designation set which complaints are routed to you, so they '
+              + 'are not editable here. An administrator can change your record or reset your '
+              + 'password.'
+            : "Editing your details or password from here isn't available for this role — the "
+              + 'backend exposes self-service endpoints for citizen accounts only. An '
+              + 'administrator can update your record or reset your password.'}
         </UnavailableNote>
       )}
 

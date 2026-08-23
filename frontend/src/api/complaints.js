@@ -4,7 +4,7 @@ import { apiRequest } from './client';
 import { API_BASE_URL } from '../config';
 import {
   fromApiComplaint, fromApiFeedback, fromApiHistory, fromApiMedia,
-  toApiStatus, toApiSeverity, UI_ONLY_STATUSES,
+  fromApiStatus, toApiStatus, toApiSeverity, UI_ONLY_STATUSES,
 } from './mappers';
 
 /**
@@ -31,13 +31,24 @@ export async function createComplaint({ description, categoryId, latitude, longi
 
   const complaint = fromApiComplaint(created);
   const files = Array.from(images || []).filter(Boolean);
-  if (!files.length) return { complaint, imageError: null };
+
+  // Two independent duplicate signals, and they arrive from different calls.
+  //
+  // The text one comes back on the complaint itself, from the wording and
+  // location. The photo one can only come from the upload, because the server
+  // compares the actual file — and it is the stronger of the two: same bytes is
+  // certain, similar wording is a guess. So the upload response is read rather
+  // than discarded, which is what used to happen here.
+  let duplicateWarning = complaint?.duplicateWarning || null;
+
+  if (!files.length) return { complaint, imageError: null, duplicateWarning };
 
   try {
-    await uploadComplaintImages(complaint.id, files);
-    return { complaint, imageError: null };
+    const upload = await uploadComplaintImages(complaint.id, files);
+    if (upload?.duplicateWarning) duplicateWarning = upload.duplicateWarning;
+    return { complaint, imageError: null, duplicateWarning };
   } catch (err) {
-    return { complaint, imageError: err.message };
+    return { complaint, imageError: err.message, duplicateWarning };
   }
 }
 
@@ -159,6 +170,34 @@ export async function updateComplaintStatus(complaintId, status, remarks) {
   return fromApiComplaint(data);
 }
 
+/**
+ * Which statuses this user may move THIS complaint to, right now.
+ *
+ * Two rules decide it -- what the lifecycle permits from the current status,
+ * and what the role is allowed to do -- and both live on the server. Asking is
+ * the only way to get both: a client-side role map cannot know that RESOLVED is
+ * illegal on a complaint nobody has been dispatched to, so it offers the button
+ * and the officer collects a 409 for pressing it.
+ *
+ * `allowed` is what to offer. `transitions` is every move legal from here
+ * regardless of who is asking, so a control that is present-but-disabled can
+ * say why ("only the citizen can verify this") instead of vanishing.
+ *
+ * The set changes with the status, so refetch after any status change.
+ *
+ * @returns {{complaintId: string, current: string, allowed: string[], transitions: string[]}}
+ *          statuses as UI labels, not wire enums.
+ */
+export async function getAllowedStatuses(complaintId) {
+  const data = await apiRequest(`/complaints/${encodeURIComponent(complaintId)}/allowed-statuses`);
+  return {
+    complaintId: data?.complaintId || complaintId,
+    current: fromApiStatus(data?.current),
+    allowed: (data?.allowed || []).map(fromApiStatus),
+    transitions: (data?.transitions || []).map(fromApiStatus),
+  };
+}
+
 export async function recategoriseComplaint(complaintId, categoryId) {
   const data = await apiRequest(`/complaints/${encodeURIComponent(complaintId)}/category`, {
     method: 'PATCH',
@@ -238,6 +277,19 @@ export async function mergeComplaint(complaintId, intoComplaintId, remarks) {
 // The citizen's acknowledgement slip for a filed complaint.
 export function getReportSlip(complaintId) {
   return apiRequest(`/complaints/${encodeURIComponent(complaintId)}/report-slip`);
+}
+
+/**
+ * Feedback left on a complaint.
+ *
+ * The rating is the only judgement of the work that comes from outside the
+ * organisation, so it is worth showing to the people who did it -- not just
+ * collecting it. The backend authorises the same people who can read the
+ * complaint, so an officer and the assigned worker both see it.
+ */
+export async function getComplaintFeedback(complaintId) {
+  const data = await apiRequest(`/complaints/${encodeURIComponent(complaintId)}/feedback`);
+  return (data || []).map(fromApiFeedback).filter(Boolean);
 }
 
 export async function submitFeedback(complaintId, { rating, comments }) {

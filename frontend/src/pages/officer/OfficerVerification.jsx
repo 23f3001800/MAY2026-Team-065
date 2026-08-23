@@ -38,6 +38,7 @@ import { listComplaints, getComplaintMedia, updateComplaintStatus } from '../../
 import { complaintPath } from '../../api/session';
 import { splitEvidence } from '../../lib/evidence';
 import useAsync from '../../hooks/useAsync';
+import useActionError from '../../hooks/useActionError';
 
 // Waiting on verification, versus already verified and closed.
 const AWAITING = 'Resolved';
@@ -59,8 +60,8 @@ function ageDays(iso) {
  */
 function EvidenceColumn({ label, tone, photos, emptyMessage }) {
   const [open, setOpen] = useState(null);
-  const ring = tone === 'after' ? 'ring-teal-600/20 bg-teal-50' : 'ring-civic-600/20 bg-civic-50';
-  const text = tone === 'after' ? 'text-teal-700' : 'text-civic-700';
+  const ring = tone === 'after' ? 'ring-teal-600/20 bg-teal-50' : 'ring-leaf-600/20 bg-leaf-50';
+  const text = tone === 'after' ? 'text-teal-700' : 'text-leaf-700';
 
   return (
     <div className="min-w-0">
@@ -164,24 +165,27 @@ export default function OfficerVerification() {
   );
 
   const [busy, setBusy] = useState(false);
-  const [actionError, setActionError] = useState('');
+  const { failure, report: reportFailure, clear: clearFailure } = useActionError();
   const [toast, setToast] = useState('');
 
   const decide = useCallback(async (status, remarks) => {
     if (!selected) return;
     setBusy(true);
-    setActionError('');
+    clearFailure();
     try {
       await updateComplaintStatus(selected.id, status, remarks);
       setToast(status === SIGNED_OFF ? 'Verified and closed.' : 'Sent back to the field worker.');
       setSelectedId(null);
       await refetch();
     } catch (e) {
-      setActionError(e.message);
+      const described = reportFailure(e);
+      // 409: the worker or another officer has already moved this. The queue on
+      // screen is stale, so reload it -- the item has probably left the list.
+      if (described?.recoverable) await refetch();
     } finally {
       setBusy(false);
     }
-  }, [selected, refetch]);
+  }, [selected, refetch, clearFailure, reportFailure]);
 
   useEffect(() => {
     if (!toast) return undefined;
@@ -211,7 +215,7 @@ export default function OfficerVerification() {
         </div>
         <button
           onClick={refetch}
-          className="focus-ring lift inline-flex items-center gap-2 bg-surface border border-line hover:border-civic-400 text-ink-body font-semibold text-[13px] px-3.5 py-2 rounded-lg shadow-sm transition-all"
+          className="focus-ring lift inline-flex items-center gap-2 bg-surface border border-line hover:border-leaf-400 text-ink-body font-semibold text-[13px] px-3.5 py-2 rounded-lg shadow-sm transition-all"
         >
           <IconRefresh size={15} /> Refresh
         </button>
@@ -251,7 +255,7 @@ export default function OfficerVerification() {
                         aria-current={c.id === selectedId}
                         className={`focus-ring w-full text-left px-3.5 py-3 transition-colors ${
                           c.id === selectedId
-                            ? 'bg-civic-50 border-l-2 border-civic-600'
+                            ? 'bg-leaf-50 border-l-2 border-leaf-600'
                             : 'hover:bg-surface-inset border-l-2 border-transparent'
                         }`}
                       >
@@ -326,7 +330,7 @@ export default function OfficerVerification() {
                 </p>
                 <Link
                   to={complaintPath('municipal_officer', selected.id)}
-                  className="focus-ring inline-flex items-center gap-1.5 text-[13px] font-semibold text-civic-700 hover:underline mt-3"
+                  className="focus-ring inline-flex items-center gap-1.5 text-[13px] font-semibold text-leaf-700 hover:underline mt-3"
                 >
                   Full record and history <IconArrowRight size={14} />
                 </Link>
@@ -378,10 +382,21 @@ export default function OfficerVerification() {
                 />
               )}
 
-              {actionError && (
-                <p className="text-[13px] text-danger-700 bg-danger-50 border border-danger-100 rounded-lg px-3 py-2">
-                  {actionError}
-                </p>
+              {/* A conflict is amber, not red: the officer did nothing wrong,
+                  the complaint moved. The server's detail names the valid next
+                  steps, so it is shown as sent. */}
+              {failure && (
+                <div
+                  role="alert"
+                  className={`text-[13px] rounded-lg px-3 py-2 border ${
+                    failure.tone === 'warning'
+                      ? 'text-caution-700 bg-caution-50 border-caution-100'
+                      : 'text-danger-700 bg-danger-50 border-danger-100'
+                  }`}
+                >
+                  {failure.heading && <strong className="block font-semibold mb-0.5">{failure.heading}</strong>}
+                  {failure.message}
+                </div>
               )}
 
               {awaitingSelected ? (

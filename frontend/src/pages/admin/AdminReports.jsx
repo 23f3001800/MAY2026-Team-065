@@ -12,6 +12,7 @@ import { CATEGORIES, ASSIGNABLE_STATUSES } from '../../api/mappers';
 import { listComplaints } from '../../api/complaints';
 import useAsync from '../../hooks/useAsync';
 import SlaSweepPanel from '../../components/admin/SlaSweepPanel';
+import RoutingSweepPanel from '../../components/admin/RoutingSweepPanel';
 
 const SEVERITIES = ['Low', 'Medium', 'High', 'Critical'];
 const CATEGORY_LABELS = CATEGORIES.map((c) => c.label);
@@ -86,13 +87,14 @@ export default function AdminReports() {
         <button
           onClick={() => downloadCsv(filtered)}
           disabled={filtered.length === 0}
-          className="inline-flex items-center gap-2 bg-primary hover:bg-emerald-600 disabled:opacity-50 text-white font-semibold text-[14px] px-4 py-2.5 rounded-xl shadow-btn transition-colors"
+          className="inline-flex items-center gap-2 bg-primary hover:bg-leaf-700 disabled:opacity-50 text-white font-semibold text-[14px] px-4 py-2.5 rounded-xl shadow-btn transition-colors"
         >
           <IconReport size={16} /> Export CSV ({filtered.length})
         </button>
       </div>
 
       <SlaSweepPanel />
+      <RoutingSweepPanel />
 
       {loading ? (
         <LoadingPanel label="Loading complaints…" variant="table" />

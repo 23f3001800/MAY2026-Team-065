@@ -47,12 +47,19 @@ export const ALL_STATUSES = Object.values(STATUS_FROM_API);
 export const TERMINAL_STATUSES = ['Verified', 'Rejected'];
 
 /**
- * Which statuses a role may set, mirroring services/lifecycle.py. Showing an
- * option the backend will 403 on is worse than hiding it -- the user picks it,
- * waits, and gets a permission error for something they were offered.
+ * FALLBACK ONLY. Which statuses a role may set, mirroring the role half of
+ * services/lifecycle.py.
  *
- * Officials (officer/admin) may set anything; the other two roles are limited
- * to decisions that are genuinely theirs to make.
+ * This answers "may this role ever set that status" and nothing else. It does
+ * not know what state the complaint is in, so on its own it offers moves the
+ * backend refuses with a 409: RESOLVED on a complaint nobody has been
+ * dispatched to, IN_PROGRESS on one the citizen has already verified.
+ *
+ * The real answer is GET /complaints/{id}/allowed-statuses, which applies both
+ * halves of the rule -- the transition graph and the role matrix -- to this
+ * complaint right now. Use useAllowedStatuses; this is what it falls back to
+ * when that call fails, so a network blip degrades to a slightly-too-generous
+ * menu rather than no controls at all.
  */
 const CITIZEN_SETTABLE = ['Verified', 'Reopened'];
 const WORKER_SETTABLE = ['In Progress', 'On Hold', 'Resolved', 'Escalated'];
@@ -64,6 +71,36 @@ export function statusesSettableBy(role) {
     // municipal_officer, admin — triage and dispatch decisions included.
     default: return ALL_STATUSES;
   }
+}
+
+/**
+ * Why a move that is legal from here is not offered to *this* user.
+ *
+ * `transitions` from the allowed-statuses endpoint lists every move the
+ * lifecycle permits from the current status, regardless of who is asking.
+ * Subtract `allowed` and what is left is blocked on permission, not on order --
+ * and that is worth saying out loud. A control that explains "only the citizen
+ * can verify this" tells an officer the work is done and they are waiting on
+ * someone else; the same control silently absent tells them nothing.
+ *
+ * Mirrors the CITIZEN_SETTABLE / WORKER_SETTABLE / OFFICIAL_ONLY split in
+ * services/lifecycle.py. Returns null for a status with no note to add.
+ */
+const STATUS_OWNER_NOTE = {
+  'Verified': 'only the citizen who filed this, or an official, can verify it',
+  'Reopened': 'only the citizen who filed this, or an official, can reopen it',
+  'In Progress': 'only the assigned field worker, or an official, can set this',
+  'On Hold': 'only the assigned field worker, or an official, can set this',
+  'Resolved': 'only the assigned field worker, or an official, can set this',
+  'Escalated': 'only the assigned field worker, or an official, can set this',
+  'New': 'only an officer or administrator can set this',
+  'Under Review': 'only an officer or administrator can set this',
+  'Assigned': 'only an officer or administrator can set this',
+  'Rejected': 'only an officer or administrator can set this',
+};
+
+export function statusOwnerNote(status) {
+  return STATUS_OWNER_NOTE[status] || null;
 }
 
 // Back-compat alias: the officer queue used this name for "everything".
@@ -180,6 +217,29 @@ export function fromApiComplaint(c) {
 
     // Set by the officer merge flow / duplicate detection.
     duplicateOfComplaintId: c.duplicateOfComplaintId || null,
+
+    // Only present on the two responses that can raise it — filing a complaint
+    // and uploading a photo. Null everywhere a complaint is merely listed.
+    //
+    // This mapper is a whitelist, so a field it does not name is silently
+    // dropped: the backend was already returning this and nothing could see it.
+    // `matchedOn` is 'photo' (byte-identical file, certain) or 'text' (scored,
+    // see `similarity`) — the two deserve different wording, so it is kept.
+    duplicateWarning: c.duplicateWarning
+      ? {
+          complaintId: c.duplicateWarning.complaintId,
+          similarity: typeof c.duplicateWarning.similarity === 'number'
+            ? c.duplicateWarning.similarity
+            : null,
+          matchedOn: c.duplicateWarning.matchedOn || 'text',
+          reason: c.duplicateWarning.reason || '',
+          status: c.duplicateWarning.status
+            ? fromApiStatus(c.duplicateWarning.status)
+            : null,
+          description: c.duplicateWarning.description || '',
+          filedAt: c.duplicateWarning.filedAt || null,
+        }
+      : null,
   };
 }
 
@@ -281,6 +341,22 @@ export function fromApiFeedback(f) {
     comments: f.comments || '',
     submittedAt: f.submittedAt,
   };
+}
+
+// ── Account creation: was the password actually delivered? ────────
+/**
+ * "Created" and "they can sign in" are two different facts, and only the first
+ * is guaranteed. When `emailed` is false the administrator still has to make
+ * contact by hand, and they need to know that at the moment of creation rather
+ * than a week later when the new hire says nothing ever arrived.
+ *
+ * Returns null when the backend sent no such field, which is the honest answer
+ * for a deployment that predates it -- the caller words that case as unknown
+ * rather than as success.
+ */
+export function fromApiCredentialDelivery(d) {
+  if (!d || typeof d.emailed !== 'boolean') return null;
+  return { emailed: d.emailed, detail: d.detail || '' };
 }
 
 // ── Admin: users ──────────────────────────────────────────────────

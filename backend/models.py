@@ -224,6 +224,19 @@ class MediaAttachmentModel(Base):
     # and every endpoint reads the same value.
     phase: Mapped[str] = mapped_column(String, nullable=False, server_default="report")
 
+    # SHA-256 of the file bytes, for spotting the same photo on two complaints.
+    #
+    # Exact-file matching, not perceptual: it catches the case where somebody
+    # attaches the same picture to a second report, which is the common way a
+    # duplicate arrives. It will NOT match a re-compressed, cropped or
+    # re-photographed version of the same scene -- that needs a perceptual hash,
+    # which needs an image decoder, which is a dependency this project does not
+    # have. The limit is real and is stated where the warning is produced.
+    #
+    # Nullable because rows predating the column have no digest and are not
+    # worth re-reading from disk to backfill; they simply never match.
+    sha256: Mapped[Optional[str]] = mapped_column(String, nullable=True, index=True)
+
     complaintId: Mapped[str] = mapped_column(ForeignKey("complaints.complaintId"))
     
     complaint: Mapped["ComplaintModel"] = relationship(back_populates="media_attachments")
@@ -333,3 +346,46 @@ class IdempotencyKeyModel(Base):
     # indistinguishable from the original call.
     responseJson: Mapped[str] = mapped_column(String, nullable=False)
     createdAt: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class PasswordResetCodeModel(Base):
+    """A one-time verification code proving somebody can read an account's inbox.
+
+    Password reset is the one flow where an unauthenticated caller changes an
+    authenticated fact, so the record of it is deliberately explicit rather than
+    a token smuggled into a URL:
+
+    * ``codeHash`` -- the code is stored hashed, like a password. A six-digit
+      code is trivially brute-forced offline, so hashing is not the real
+      defence; ``attempts`` and ``expiresAt`` are. Hashing means a database read
+      alone still does not hand over a working code.
+    * ``attempts`` -- counted against the code, not the session, because the
+      guesser controls the session. Five wrong answers kill it.
+    * ``usedAt`` -- set when the password actually changes. Verifying a code
+      does not consume it, so a UI can check the code on one screen and collect
+      the new password on the next without a second email.
+
+    Rows are kept after use: "when was this account's password last reset, and
+    was it the owner who asked" is exactly the question an audit asks after an
+    account is taken over.
+    """
+
+    __tablename__ = "password_reset_codes"
+
+    requestId: Mapped[str] = mapped_column(String, primary_key=True)
+    userId: Mapped[str] = mapped_column(ForeignKey("users.userId"), index=True)
+
+    codeHash: Mapped[str] = mapped_column(String, nullable=False)
+    createdAt: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    expiresAt: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    usedAt: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+    # Whether the code actually left the building. A reset that silently failed
+    # to send looks identical to one the user ignored, and the difference
+    # matters when somebody rings up saying no email arrived.
+    delivered: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
+
+    user: Mapped["UserModel"] = relationship("UserModel", foreign_keys=[userId])
