@@ -294,6 +294,29 @@ class WorkerProfileResponse(BaseModel):
         from_attributes = True
 
 
+class OfficerProfileResponse(BaseModel):
+    """The signed-in municipal officer's own record.
+
+    department and designation live on municipal_officers, not on users, and
+    the login JWT carries only email/userId/role -- so a client that decoded the
+    token still had no way to tell an officer which department they answer for.
+    That matters now the department is what decides which complaints reach them:
+    "which desk am I" and "why am I seeing these" are the same question.
+
+    Both columns are NOT NULL on the model, so neither is optional here.
+    """
+
+    userId: str
+    name: str
+    email: str
+    phone: Optional[str] = None
+    department: str
+    designation: str
+
+    class Config:
+        from_attributes = True
+
+
 class PasswordReset(BaseModel):
     newPassword: str
 
