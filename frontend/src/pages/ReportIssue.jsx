@@ -32,6 +32,45 @@ const CATEGORY_ICONS = {
 const MAX_IMAGE_MB = 5;
 const MAX_IMAGES = 5;
 
+/**
+ * A dialog the citizen has to acknowledge.
+ *
+ * Everything else on this page reports itself in the banner at the top, which
+ * is right for "filed successfully" and wrong for "nobody is going to pick this
+ * up yet" -- that one redirects a second later and the citizen never sees it.
+ * This one stops, says so, and waits.
+ */
+function NoticeDialog({ title, onDismiss, children, actions }) {
+  useEffect(() => {
+    const onKey = (e) => e.key === 'Escape' && onDismiss();
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onDismiss]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-slate-900/40" onClick={onDismiss} aria-hidden="true" />
+      <div
+        role="alertdialog"
+        aria-modal="true"
+        aria-label={title}
+        className="relative w-full max-w-[440px] bg-white rounded-2xl shadow-xl p-6"
+      >
+        <div className="flex items-start gap-3.5">
+          <span className="w-10 h-10 rounded-xl bg-amber-50 text-amber-700 flex items-center justify-center shrink-0">
+            <IconAlertTriangle size={19} />
+          </span>
+          <div className="min-w-0">
+            <h2 className="font-display font-bold text-ink text-[16px]">{title}</h2>
+            <div className="text-[13.5px] text-ink-muted mt-1.5 space-y-2">{children}</div>
+          </div>
+        </div>
+        <div className="flex justify-end gap-2 mt-5">{actions}</div>
+      </div>
+    </div>
+  );
+}
+
 // Classification fires this soon after typing stops. Short enough to feel
 // immediate, long enough not to fire on every keystroke mid-word.
 const TRIAGE_DELAY_MS = 350;
@@ -55,6 +94,10 @@ export default function ReportIssue() {
 
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState({ text: '', type: '' });
+
+  // Set when a complaint was filed into a department that has nobody to own it.
+  // Shape: { id, department, imageError }. Null the rest of the time.
+  const [unowned, setUnowned] = useState(null);
 
   const [triage, setTriage] = useState(null);
   const [triaging, setTriaging] = useState(false);
@@ -298,6 +341,20 @@ export default function ReportIssue() {
         images: photos.map((p) => p.file),
       });
 
+      // The backend routes a new complaint to an officer in the category's
+      // department the moment it is filed (services/routing.py). A null
+      // officerId back means that department currently has no active officer --
+      // and that is not something to slip past in a banner that disappears
+      // while the page redirects, so it stops here and says so.
+      if (!complaint.officerId) {
+        setUnowned({
+          id: complaint.id,
+          department: selected?.department || null,
+          imageError,
+        });
+        return;
+      }
+
       setMessage({
         text: imageError
           ? `Complaint ${complaint.id} was filed, but the photos did not upload (${imageError}).`
@@ -329,6 +386,47 @@ export default function ReportIssue() {
         <div className={`mb-5 px-4 py-3 rounded-xl text-[13px] font-medium border ${messageStyles[message.type] || messageStyles.error}`}>
           {message.text}
         </div>
+      )}
+
+      {unowned && (
+        <NoticeDialog
+          title="Municipal officer not available"
+          onDismiss={() => navigate(`/complaints/${unowned.id}`)}
+          actions={(
+            <>
+              <button
+                type="button"
+                onClick={() => setUnowned(null)}
+                className="focus-ring text-[13.5px] font-semibold text-ink-body px-3.5 py-2 rounded-xl border border-line hover:bg-slate-50 transition-colors"
+              >
+                Stay here
+              </button>
+              <button
+                type="button"
+                onClick={() => navigate(`/complaints/${unowned.id}`)}
+                className="focus-ring text-[13.5px] font-semibold text-white bg-primary hover:bg-leaf-700 px-3.5 py-2 rounded-xl shadow-btn transition-colors"
+              >
+                View complaint
+              </button>
+            </>
+          )}
+        >
+          <p>
+            Municipal officer not available for this work or complaint
+            {unowned.department ? ` — no officer is currently assigned to ${unowned.department}.` : '.'}
+          </p>
+          <p>
+            Your complaint <span className="font-semibold text-ink-body">{unowned.id}</span> has
+            still been recorded, and it will be picked up as soon as an officer is appointed to
+            that department.
+          </p>
+          {unowned.imageError && (
+            <p className="text-amber-800">
+              The photos did not upload ({unowned.imageError}). You can add them from the
+              complaint page.
+            </p>
+          )}
+        </NoticeDialog>
       )}
 
       <form onSubmit={handleSubmit} className="bg-white rounded-2xl border border-line shadow-sm p-6 space-y-7">
