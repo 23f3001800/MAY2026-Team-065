@@ -56,6 +56,11 @@ export default function ReportIssue() {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState({ text: '', type: '' });
 
+  // Set once the complaint is saved. Holds what came back with it, which is the
+  // only chance to tell the citizen about a photo that already exists on
+  // another report -- that check cannot run until the file has been uploaded.
+  const [filed, setFiled] = useState(null);
+
   const [triage, setTriage] = useState(null);
   const [triaging, setTriaging] = useState(false);
   // Which classification steps have actually completed. Each entry is a real
@@ -289,7 +294,7 @@ export default function ReportIssue() {
     setMessage({ text: '', type: '' });
     setLoading(true);
     try {
-      const { complaint, imageError } = await createComplaint({
+      const { complaint, imageError, duplicateWarning } = await createComplaint({
         description: description.trim(),
         categoryId,
         address: address.trim(),
@@ -298,13 +303,26 @@ export default function ReportIssue() {
         images: photos.map((p) => p.file),
       });
 
+      // A photo match is news. The citizen could not have seen it before
+      // submitting -- the server only compares the file once it has been
+      // uploaded -- so redirecting away after a second would hide the one thing
+      // they most need to know. A text match they have already been shown while
+      // typing, so that one does not stop the redirect.
+      const photoMatch = duplicateWarning?.matchedOn === 'photo';
+      setFiled({ id: complaint.id, duplicateWarning, imageError });
+
       setMessage({
         text: imageError
           ? `Complaint ${complaint.id} was filed, but the photos did not upload (${imageError}).`
-          : `Complaint ${complaint.id} submitted successfully! Redirecting…`,
+          : photoMatch
+            ? `Complaint ${complaint.id} was filed.`
+            : `Complaint ${complaint.id} submitted successfully! Redirecting…`,
         type: imageError ? 'warning' : 'success',
       });
-      setTimeout(() => navigate(`/complaints/${complaint.id}`), imageError ? 4000 : 1200);
+
+      if (!photoMatch) {
+        setTimeout(() => navigate(`/complaints/${complaint.id}`), imageError ? 4000 : 1200);
+      }
     } catch (err) {
       if (err.name !== 'SessionExpiredError') setMessage({ text: err.message, type: 'error' });
     } finally {
@@ -328,6 +346,65 @@ export default function ReportIssue() {
       {message.text && (
         <div className={`mb-5 px-4 py-3 rounded-xl text-[13px] font-medium border ${messageStyles[message.type] || messageStyles.error}`}>
           {message.text}
+        </div>
+      )}
+
+      {/* Shown after the report is saved, when the server found an existing one
+          that looks like the same thing.
+
+          It never blocks and never undoes anything: the complaint is already
+          filed and stays filed. Two reports of the same pothole is a far
+          smaller problem than a resident being told their report was refused,
+          so this offers a look at the other one and nothing more. */}
+      {filed?.duplicateWarning && (
+        <div className="mb-5 rounded-xl border border-amber-200 bg-amber-50 p-4">
+          <div className="flex items-center gap-2 text-[13px] font-semibold text-amber-900">
+            <IconAlertTriangle size={15} />
+            {filed.duplicateWarning.matchedOn === 'photo'
+              ? 'That photo is already on another report'
+              : 'This looks like a report we already have'}
+          </div>
+
+          <p className="text-[12.5px] text-amber-900/90 mt-2 leading-relaxed">
+            {filed.duplicateWarning.matchedOn === 'photo'
+              ? 'The picture you attached is the same file as one on '
+              : 'Your description closely matches '}
+            <Link
+              to={`/complaints/${filed.duplicateWarning.complaintId}`}
+              className="font-mono font-semibold underline"
+            >
+              {filed.duplicateWarning.complaintId}
+            </Link>
+            {filed.duplicateWarning.status ? ` (${filed.duplicateWarning.status})` : ''}.
+          </p>
+
+          {filed.duplicateWarning.description && (
+            <p className="text-[12px] text-amber-800/80 mt-1.5 italic">
+              “{filed.duplicateWarning.description}”
+            </p>
+          )}
+
+          <p className="text-[12px] text-amber-800 mt-3">
+            Your report <span className="font-mono font-semibold">{filed.id}</span> has
+            been filed either way. If it is the same issue an officer will link them;
+            if it is not, nothing happens.
+          </p>
+
+          <div className="flex flex-wrap gap-2 mt-3">
+            <button
+              type="button"
+              onClick={() => navigate(`/complaints/${filed.id}`)}
+              className="focus-ring px-3 py-1.5 rounded-lg bg-amber-900 text-white text-[12.5px] font-semibold"
+            >
+              View my report
+            </button>
+            <Link
+              to={`/complaints/${filed.duplicateWarning.complaintId}`}
+              className="focus-ring px-3 py-1.5 rounded-lg border border-amber-300 text-amber-900 text-[12.5px] font-semibold"
+            >
+              Open {filed.duplicateWarning.complaintId}
+            </Link>
+          </div>
         </div>
       )}
 
