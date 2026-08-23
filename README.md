@@ -1,8 +1,8 @@
 # SmartCivicConnect
 
-A civic complaint and resolution portal. Citizens report local issues — potholes,
-garbage, water leakage, broken streetlights — and municipal officers triage them,
-assign field workers, and verify the fix before closing.
+A civic complaint portal. Citizens report local issues — potholes, garbage, water
+leaks, broken streetlights — and municipal officers triage them, assign field
+workers, and verify the fix before closing.
 
 Built by **Team 065 (DevSync)**.
 
@@ -10,99 +10,111 @@ Built by **Team 065 (DevSync)**.
 
 | Role | Can do |
 |---|---|
-| **Citizen** | File complaints with a photo and location, track status, browse nearby issues, rate the resolution |
-| **Municipal Officer** | Review the complaint queue, re-categorise, assign field workers, verify evidence and close |
-| **Field Worker** | See assigned tasks, update status, set availability |
-| **Administrator** | Provision officers and workers, city-wide analytics, user management, password resets |
+| **Citizen** | File complaints with photo and location, track status, verify or reopen the fix, rate it |
+| **Municipal Officer** | Triage the queue, re-categorise, set severity, assign workers, merge duplicates |
+| **Field Worker** | See assigned tasks, report progress, upload completion evidence |
+| **Administrator** | Provision officers and workers, analytics, user management, password resets |
 
-Only citizens can self-register. Every other role is provisioned by an administrator.
+Only citizens self-register. Every other role is created by an administrator, who
+can have the sign-in details emailed to them.
 
 ## Stack
 
-- **Backend** — FastAPI, SQLAlchemy 2 (async), PostgreSQL via `asyncpg`, JWT auth (PyJWT + passlib/bcrypt)
-- **Frontend** — React (Create React App), React Router, Tailwind CSS
-- **Testing** — pytest suite and a Postman collection under `testing/`
+FastAPI · SQLAlchemy 2 (async) · PostgreSQL · JWT — backend
+React (CRA) · React Router · Tailwind · Leaflet — frontend
+A deterministic rules engine for triage, with Gemini and OpenRouter optional on top.
+
+## Run it
+
+Needs Python 3.11+, Node 18+, and a local PostgreSQL.
+
+```bash
+# backend
+cd backend
+python3 -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+cp .env.example .env          # edit it — see Configuration
+createdb complaint_db
+python seed.py                # categories + default admin, whose credentials it prints
+uvicorn main:app --reload --port 8000
+
+# frontend
+cd frontend
+npm ci && npm start
+```
+
+Backend on `:8000` (docs at `/docs`), frontend on `:3000`; point elsewhere with
+`REACT_APP_API_URL`. The seeded admin password is development-only — change it.
+
+## Configuration
+
+All in `backend/.env`, documented in `.env.example`.
+
+**Required** — the app refuses to start without these, deliberately:
+
+| Variable | Value |
+|---|---|
+| `DATABASE_URL` | `postgresql+asyncpg://user:pass@localhost:5432/complaint_db` |
+| `SECRET_KEY` | `python -c "import secrets; print(secrets.token_urlsafe(48))"` |
+
+**Optional** — each has a working default; unset, the app just does less:
+
+| Variable | What it turns on |
+|---|---|
+| `GEMINI_API_KEY`, `OPENROUTER_API_KEY` | LLM refinement. Without them the rules engine still triages everything |
+| `SMTP_HOST` and friends | Outbound email. Without it, messages are logged instead of sent |
+| `SLA_*_HOURS` | Resolution targets per severity — 4h / 24h / 3d / 7d |
+| `AI_DUPLICATE_*` | Duplicate radius, time window, score thresholds |
+
+## Worth knowing
+
+- **Ten statuses**, three phases: intake → dispatch → closure. A move needs a
+  legal transition (else 409) *and* the right role (else 403);
+  `GET /complaints/{id}/allowed-statuses` says what a given user may do now.
+- **Verifying and reopening belong to the citizen** — only they can confirm the
+  problem is actually gone.
+- **Routing** gives a new complaint to the officer in its department carrying the
+  fewest open ones. A department with no officer leaves it unowned rather than
+  handing it to someone who cannot act on it.
+- **AI only ever raises severity**, never lowers it, and is skipped when the rules
+  engine is already confident.
+- **Duplicates** score text, distance and recency, plus an exact photo match.
+  Nothing merges automatically below a high threshold.
+
+## API conventions
+
+Routes are at the **root** — `/auth/login`, not `/api/auth/login`.
+
+`POST /auth/login` is OAuth2 password flow: **form-encoded** `username` (the
+email) and `password`, returning a bearer token for every other call. Roles are
+re-read per request, so a role change applies at once — the frontend's guards are
+cosmetic, authorization is server-side.
+
+`GET /health` is liveness; `GET /health/ready` checks the database and reports AI,
+email and background jobs. Both unauthenticated, neither leaks configuration.
 
 ## Layout
 
 ```
-backend/         FastAPI app — main.py (routes), models.py, schemas.py, security.py, seed.py
-frontend/        React app — src/api (HTTP clients), src/pages, src/components, src/layouts
-testing/         pytest suite, Postman collection, test reports
-qa_docs/         Test plan, strategy, and review checklists
-CONTRIBUTING.md  Branching rules — read before pushing
+backend/     main.py (routes), models, schemas, security
+  ai/        triage engines — rules (default), gemini, openrouter
+  routers/   analytics, notifications, AI endpoints
+  services/  lifecycle, SLA, routing, email, cache, duplicates
+frontend/    src/api (HTTP clients), src/pages, src/components
+testing/     pytest suite, Postman collection, reports
+qa_docs/     test plan, strategy, review checklists
 ```
-
-## Running it
-
-You need Python 3.11+, Node 18+, and a local PostgreSQL.
-
-### Backend
-
-```bash
-cd backend
-python3 -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-
-cp .env.example .env          # then edit it — DATABASE_URL and SECRET_KEY are required
-createdb complaint_db
-
-python seed.py                # creates categories and the default admin
-uvicorn main:app --reload --port 8000
-```
-
-API at `http://localhost:8000`, interactive docs at `/docs`.
-
-The app refuses to start without `DATABASE_URL`, by design — a missing database
-should fail loudly at boot rather than at the first request.
-
-### Frontend
-
-```bash
-cd frontend
-npm ci
-npm start
-```
-
-Runs on `http://localhost:3000` and expects the backend at `http://localhost:8000`.
-Override with `REACT_APP_API_URL` if yours is elsewhere.
-
-### Default admin
-
-`seed.py` creates `admin@city.gov` / `admin123`. Development only — change it
-before this is exposed to anything.
-
-## API notes
-
-Routes are mounted at the **root**, with no `/api` prefix — `/auth/login`, not
-`/api/auth/login`.
-
-`POST /auth/login` follows the OAuth2 password flow: send **form-encoded**
-`username` and `password`, where `username` is the user's email. It returns a
-bearer token; send it as `Authorization: Bearer <token>` on every other endpoint.
-
-Every endpoint verifies the token and re-reads the user's role from the database,
-so a role change takes effect immediately. The frontend's route guards are a
-convenience for the UI only — authorization is enforced server-side.
 
 ## Tests
 
 ```bash
-cd testing/pytest
-pytest -v
+cd testing/pytest && pytest -v
 ```
 
-These are integration tests: they run against a **live server**, so start the
-backend first. `testing/postman/` has the equivalent collection.
+Integration tests — they need a **live server**, so start the backend first.
+`testing/postman/` has the equivalent collection.
 
 ## Contributing
 
-Read [CONTRIBUTING.md](CONTRIBUTING.md) first. Short version: six branches, no new
-ones, work only on your own, and open a PR into `develop` — never push to `develop`
-or `main` directly.
-
-## Status
-
-Under active development. The API and the UI are both largely built out; the two
-are still being reconciled endpoint by endpoint, so expect rough edges where they
-meet. Open issues track what's outstanding.
+Read [CONTRIBUTING.md](CONTRIBUTING.md). Short version: six branches, no new ones,
+work only on your own, PR into `develop`. Never push to `develop` or `main`.
