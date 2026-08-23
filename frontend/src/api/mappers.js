@@ -217,6 +217,29 @@ export function fromApiComplaint(c) {
 
     // Set by the officer merge flow / duplicate detection.
     duplicateOfComplaintId: c.duplicateOfComplaintId || null,
+
+    // Only present on the two responses that can raise it — filing a complaint
+    // and uploading a photo. Null everywhere a complaint is merely listed.
+    //
+    // This mapper is a whitelist, so a field it does not name is silently
+    // dropped: the backend was already returning this and nothing could see it.
+    // `matchedOn` is 'photo' (byte-identical file, certain) or 'text' (scored,
+    // see `similarity`) — the two deserve different wording, so it is kept.
+    duplicateWarning: c.duplicateWarning
+      ? {
+          complaintId: c.duplicateWarning.complaintId,
+          similarity: typeof c.duplicateWarning.similarity === 'number'
+            ? c.duplicateWarning.similarity
+            : null,
+          matchedOn: c.duplicateWarning.matchedOn || 'text',
+          reason: c.duplicateWarning.reason || '',
+          status: c.duplicateWarning.status
+            ? fromApiStatus(c.duplicateWarning.status)
+            : null,
+          description: c.duplicateWarning.description || '',
+          filedAt: c.duplicateWarning.filedAt || null,
+        }
+      : null,
   };
 }
 

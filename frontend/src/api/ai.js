@@ -36,18 +36,11 @@ export async function suggestSeverity({ description, categoryId }) {
   });
 }
 
-// Probable duplicates by text similarity + location proximity.
-export async function checkDuplicates({ description, categoryId, latitude, longitude }) {
-  return apiRequest('/ai/duplicates', {
-    method: 'POST',
-    body: {
-      description,
-      categoryId: categoryId || null,
-      latitude: latitude ?? null,
-      longitude: longitude ?? null,
-    },
-  });
-}
+// POST /ai/duplicates had a helper here and nothing ever called it. The report
+// form gets duplicates from triage() below, which returns them alongside the
+// category and severity it is already asking for — one round trip instead of
+// two, on a form that fires on every pause in typing. Removed rather than left
+// as a second way to do the same thing that no caller had ever exercised.
 
 // One-shot category + severity + duplicates + summary. Preferred over calling
 // the three separately: it is a single round trip and the backend can reuse
