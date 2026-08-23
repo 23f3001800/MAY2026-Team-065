@@ -7,7 +7,9 @@ Layout:
 * ``text``      -- dependency-free text/geo helpers
 * ``rules``     -- deterministic engine (categorisation, severity, duplicates)
 * ``gemini``    -- async Gemini REST client (text + vision, structured JSON)
-* ``service``   -- the facade routes use; owns the rules/LLM hybrid policy
+* ``openrouter``-- fallback LLM client, same interface as ``gemini``
+* ``service``   -- the facade routes use; owns the rules/LLM hybrid policy and
+                   the Gemini -> OpenRouter -> rules fallback chain
 * ``assistant`` -- grounded, role-scoped question answering
 """
 
