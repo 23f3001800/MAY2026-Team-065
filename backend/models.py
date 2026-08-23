@@ -224,6 +224,19 @@ class MediaAttachmentModel(Base):
     # and every endpoint reads the same value.
     phase: Mapped[str] = mapped_column(String, nullable=False, server_default="report")
 
+    # SHA-256 of the file bytes, for spotting the same photo on two complaints.
+    #
+    # Exact-file matching, not perceptual: it catches the case where somebody
+    # attaches the same picture to a second report, which is the common way a
+    # duplicate arrives. It will NOT match a re-compressed, cropped or
+    # re-photographed version of the same scene -- that needs a perceptual hash,
+    # which needs an image decoder, which is a dependency this project does not
+    # have. The limit is real and is stated where the warning is produced.
+    #
+    # Nullable because rows predating the column have no digest and are not
+    # worth re-reading from disk to backfill; they simply never match.
+    sha256: Mapped[Optional[str]] = mapped_column(String, nullable=True, index=True)
+
     complaintId: Mapped[str] = mapped_column(ForeignKey("complaints.complaintId"))
     
     complaint: Mapped["ComplaintModel"] = relationship(back_populates="media_attachments")
