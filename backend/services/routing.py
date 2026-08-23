@@ -85,6 +85,32 @@ async def officers_in_department(
     ]
 
 
+async def category_ids_for_department(
+    db: AsyncSession, department: Optional[str]
+) -> List[str]:
+    """Every category id filed under this department, comparison-folded.
+
+    A complaint has no department column of its own -- it inherits one through
+    its category -- so scoping a query to a department means scoping it to that
+    department's categories. Folding happens in Python for the same reason it
+    does everywhere else in this module: the strings were typed by hand in two
+    places and a trailing space must not silently empty an officer's queue.
+
+    An unknown or blank department yields [], which callers must read as "no
+    complaints", never as "no filter".
+    """
+    wanted = _normalise(department)
+    if not wanted:
+        return []
+
+    result = await db.execute(select(models.CategoryModel))
+    return [
+        category.categoryId
+        for category in result.scalars().all()
+        if _normalise(category.department) == wanted
+    ]
+
+
 async def choose_officer(
     db: AsyncSession,
     department: Optional[str],

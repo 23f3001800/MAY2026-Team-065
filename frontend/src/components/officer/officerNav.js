@@ -6,7 +6,7 @@ import {
 
 export const OFFICER_NAV = [
   { to: '/officer/dashboard', label: 'Dashboard', icon: IconGrid },
-  { to: '/officer/complaints', label: 'Assigned Complaints', icon: IconClipboard },
+  { to: '/officer/complaints', label: 'Assign Complaint', icon: IconClipboard },
   // Work that has run past the target the city set. The SLA sweep always
   // detected these and raised notifications, but nothing could ask for the
   // list, so they were only found by scrolling the queue.

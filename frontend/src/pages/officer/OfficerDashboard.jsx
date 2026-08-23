@@ -133,7 +133,7 @@ export default function OfficerDashboard() {
             Operations overview
           </h1>
           <p className="text-[14px] text-ink-muted mt-1">
-            Every complaint across the city, and what needs you first.
+            Every complaint routed to your department, and what needs you first.
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -323,7 +323,7 @@ export default function OfficerDashboard() {
             }
           />
           {recent.length === 0 ? (
-            <EmptyPanel title="No complaints yet" message="Nothing has been reported to the city." />
+            <EmptyPanel title="No complaints yet" message="Nothing has been reported to your department." />
           ) : (
             <ul className="bg-surface rounded-xl border border-line shadow-sm overflow-hidden divide-y divide-line">
               {recent.map((c, i) => (
