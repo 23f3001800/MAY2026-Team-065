@@ -250,7 +250,12 @@ async def answer_question(
     )
 
     try:
-        answer = await service._gemini().generate_text(
+        # Through the service rather than straight at a client, so the assistant
+        # gets the same fallback chain as triage. Calling _gemini() directly, as
+        # this did, meant the assistant was the one LLM feature with no second
+        # backend -- it went down whenever Gemini did, which is exactly the
+        # outage the fallback exists to cover.
+        answer = await service._generate_text(
             prompt=prompt,
             system_instruction=_ASSISTANT_SYSTEM_PROMPT,
             max_output_tokens=600,
@@ -273,6 +278,8 @@ async def answer_question(
     return AssistantAnswer(
         answer=answer.strip(),
         citations=cited,
-        source="gemini",
+        # Whichever backend actually answered, not whichever was configured
+        # first -- this is shown to the user beside the answer.
+        source=service._llm_source,
         contextUsed=list(sources),
     )
