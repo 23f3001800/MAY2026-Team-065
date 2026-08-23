@@ -7,7 +7,24 @@ from datetime import datetime, timedelta, timezone
 
 load_dotenv()
 
-SECRET_KEY = os.getenv("SECRET_KEY", "fallback-secret-key-for-dev")
+# No default. Every JWT the API issues is signed with this, and every protected
+# route trusts whatever it validates -- so a fallback baked into the source is a
+# published signing key. Anyone who can read the repository could mint an
+# administrator token with it: no password, and nothing in the logs to tell it
+# apart from a real sign-in.
+#
+# Refusing to start is the only safe behaviour. The previous default meant a
+# deployment that simply forgot the variable came up looking healthy, which is
+# exactly the case where nobody finds out. This matches how database.py already
+# treats DATABASE_URL.
+SECRET_KEY = os.getenv("SECRET_KEY")
+if not SECRET_KEY or not SECRET_KEY.strip():
+    raise RuntimeError(
+        "SECRET_KEY is not set. Every access token is signed with it, so there "
+        "is no safe default. Generate one with:\n"
+        "    python -c \"import secrets; print(secrets.token_urlsafe(48))\"\n"
+        "and put it in backend/.env"
+    )
 ALGORITHM = os.getenv("ALGORITHM", "HS256")
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "60"))
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
