@@ -43,6 +43,28 @@ class CategoryResponse(BaseModel):
     class Config: 
         from_attributes = True
 
+class DuplicateWarning(BaseModel):
+    """A complaint that looks like the same real-world issue as this one.
+
+    Advisory. Nothing is merged or rejected on the strength of it -- a false
+    link hides one citizen's report behind another's, which costs more than a
+    missed duplicate. An officer confirms with POST /complaints/{id}/merge.
+
+    ``matchedOn`` says WHY, and the two reasons have very different strength:
+      * "photo" -- byte-identical file already attached elsewhere. Certain that
+        it is the same file; not proof it is the same report.
+      * "text"  -- similar wording nearby, scored 0-1 in ``similarity``.
+    """
+
+    complaintId: str
+    similarity: float
+    matchedOn: str
+    reason: str
+    status: Optional[str] = None
+    description: Optional[str] = None
+    filedAt: Optional[str] = None
+
+
 # --- Complaint Schemas ---
 class ComplaintCreate(BaseModel):
     description: str
@@ -97,6 +119,15 @@ class ComplaintResponse(BaseModel):
     aiSource: Optional[str] = None
     aiAnalyzedAt: Optional[datetime] = None
     duplicateOfComplaintId: Optional[str] = None
+
+    # Populated ONLY by the endpoints that can raise it -- filing a complaint
+    # and uploading a photo. Absent everywhere a complaint is merely listed.
+    #
+    # It exists because duplicateOfComplaintId alone was not enough to build a
+    # warning on: it is set only above the auto-link threshold, so every match
+    # in the 0.55-0.75 band was detected, logged, and then discarded without
+    # anyone being told. This carries those too.
+    duplicateWarning: Optional[DuplicateWarning] = None
 
     class Config:
         from_attributes = True

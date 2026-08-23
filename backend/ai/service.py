@@ -110,6 +110,57 @@ def _coerce_severity(value: Any) -> Optional[str]:
     return upper if upper in _SEVERITY_VALUES else None
 
 
+# --- Backend health, process-wide ----------------------------------------
+# AIService is built per request (see routers/ai.get_ai_service), so anything
+# recorded on an instance dies with the request. /ai/health therefore had no way
+# to report what was actually happening and could only describe configuration --
+# which is how it came to say "provider: gemini, available: true" while every
+# single request was being served by OpenRouter because Gemini was returning 429.
+#
+# This is deliberately a plain module dict rather than anything shared:
+#
+#   * It resets on restart. That is correct -- a backend's health is not
+#     something to remember across a deploy.
+#   * It is per process. With several API workers each reports its own view,
+#     and they can legitimately differ.
+#
+# Nothing reads it to make a routing decision. The chain is still tried in
+# order every time, so a backend that recovers is used again immediately with
+# no cooldown to expire. This record exists to be *reported*, not obeyed.
+_BACKEND_HEALTH: Dict[str, Dict[str, Any]] = {}
+
+
+def _record_success(backend: str) -> None:
+    entry = _BACKEND_HEALTH.setdefault(backend, {})
+    entry["ok"] = True
+    entry["lastOkAt"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    entry["consecutiveFailures"] = 0
+    entry.pop("lastError", None)
+
+
+def _record_failure(backend: str, error: Exception) -> None:
+    entry = _BACKEND_HEALTH.setdefault(backend, {})
+    entry["ok"] = False
+    entry["lastErrorAt"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    # Truncated: upstream error bodies run to paragraphs and this is shown in a
+    # health endpoint, not a log.
+    entry["lastError"] = str(error)[:200]
+    entry["consecutiveFailures"] = entry.get("consecutiveFailures", 0) + 1
+
+
+def backend_health() -> Dict[str, Dict[str, Any]]:
+    """A copy of what each backend has done in this process so far."""
+    return {k: dict(v) for k, v in _BACKEND_HEALTH.items()}
+
+
+def serving_now() -> Optional[str]:
+    """The backend that most recently answered successfully, if any."""
+    answered = [
+        (v.get("lastOkAt"), k) for k, v in _BACKEND_HEALTH.items() if v.get("lastOkAt")
+    ]
+    return max(answered)[1] if answered else None
+
+
 class AIService:
     """Facade combining the rules engine with optional Gemini refinement."""
 
@@ -157,6 +208,13 @@ class AIService:
                 # question worth asking before the quota runs out rather than
                 # after.
                 "chain": list(self.settings.llm_chain),
+                # Who is ACTUALLY answering, which is not always the leader.
+                # Null until this process has served one LLM request.
+                "servedBy": serving_now(),
+                # Per-backend outcomes seen by this process. A configured
+                # backend that is failing shows up here rather than being
+                # hidden behind "available: true".
+                "backends": backend_health(),
                 "available": self.llm_available,
             },
             "features": {
@@ -233,6 +291,7 @@ class AIService:
                 result = await getattr(self._client_for(backend), method)(**kwargs)
             except AIProviderError as exc:
                 last = exc
+                _record_failure(backend, exc)
                 remaining = chain[chain.index(backend) + 1:]
                 logger.warning(
                     "LLM backend %s failed (%s)%s",
@@ -241,6 +300,7 @@ class AIService:
                 )
                 continue
             self._last_backend = backend
+            _record_success(backend)
             return result
 
         raise last or AIProviderError("Every LLM backend failed")
