@@ -64,8 +64,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Municipal Complaint Management API")
-# Create a folder to store images
+app = FastAPI(title="Smart Civic Connect")
 os.makedirs("uploads", exist_ok=True)
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
