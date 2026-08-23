@@ -243,3 +243,70 @@ def apply_triage(
                 # is whatever the human already chose.
                 new_value=complaint.categoryId,
             )
+
+
+async def find_photo_duplicates(
+    db: AsyncSession,
+    digests: Sequence[str],
+    *,
+    exclude_complaint_id: str,
+    window_days: int = 30,
+) -> Optional[dict]:
+    """Has one of these exact photos already been attached to another complaint?
+
+    Text-and-location matching runs when a complaint is FILED, which is before
+    any photo exists -- so an identical picture attached afterwards was never
+    compared against anything. That is the gap this closes, and it is the case
+    people actually hit: the same photo, sent twice.
+
+    Exact bytes only. A re-compressed, cropped or re-photographed version of the
+    same scene will not match; catching those needs a perceptual hash, which
+    needs an image decoder, which this project does not depend on. Saying "no
+    duplicate" here therefore means "not the same file", never "not the same
+    problem" -- which is why the result is advisory and nothing is auto-linked
+    from it.
+
+    REJECTED complaints are excluded: matching a report that was already
+    dismissed tells nobody anything useful.
+    """
+    digests = [d for d in digests if d]
+    if not digests:
+        return None
+
+    cutoff = _utcnow() - timedelta(days=window_days)
+
+    stmt = (
+        select(models.MediaAttachmentModel, models.ComplaintModel)
+        .join(
+            models.ComplaintModel,
+            models.ComplaintModel.complaintId == models.MediaAttachmentModel.complaintId,
+        )
+        .where(
+            models.MediaAttachmentModel.sha256.in_(list(digests)),
+            models.MediaAttachmentModel.complaintId != exclude_complaint_id,
+            models.ComplaintModel.status != "REJECTED",
+            models.ComplaintModel.createdAt >= cutoff,
+        )
+        .order_by(models.ComplaintModel.createdAt.asc())
+        .limit(1)
+    )
+
+    row = (await db.execute(stmt)).first()
+    if row is None:
+        return None
+
+    media, complaint = row
+    return {
+        "complaintId": complaint.complaintId,
+        # Byte-identical, so there is nothing probabilistic to report. Stated as
+        # 1.0 rather than omitted so a client can sort text and photo matches on
+        # the same key.
+        "similarity": 1.0,
+        "matchedOn": "photo",
+        "reason": (
+            "the same photo file is already attached to " + complaint.complaintId
+        ),
+        "status": str(getattr(complaint.status, "name", complaint.status)),
+        "description": (complaint.description or "")[:200],
+        "filedAt": complaint.createdAt.isoformat() if complaint.createdAt else None,
+    }
