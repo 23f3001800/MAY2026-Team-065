@@ -8,11 +8,15 @@ from pydantic import BaseModel, EmailStr, Field
 class UserRegister(BaseModel):
     userId: str
     name: str
-    email: str 
+    email: str
     phone: str
-    password: str
+    # Registration was the one password path with no minimum, so an empty
+    # string was accepted, hashed, and stored -- creating an account whose
+    # password is "". Every other path (reset, admin-created accounts, password
+    # change) already enforced this; this one was simply missed.
+    password: str = Field(..., min_length=8, max_length=128)
     role: str = "citizen"
-    address: Optional[str] = None 
+    address: Optional[str] = None
 
 class Token(BaseModel):
     access_token: str
@@ -576,6 +580,10 @@ class AssistantQueryResponse(BaseModel):
     citations: List[str] = []
     source: str
     contextUsed: List[str] = []
+    # Up to three suggested next questions, grounded in the caller's own
+    # records. Render them as one-tap chips; they are safe to show verbatim
+    # because they are built from retrieved rows, not written by the model.
+    followUps: List[str] = []
 
 
 class DescriptionWriteupRequest(BaseModel):

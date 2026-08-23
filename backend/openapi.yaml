@@ -2216,6 +2216,12 @@ components:
           type: array
           title: Contextused
           default: []
+        followUps:
+          items:
+            type: string
+          type: array
+          title: Followups
+          default: []
       type: object
       required:
       - answer
@@ -3563,6 +3569,8 @@ components:
           title: Phone
         password:
           type: string
+          maxLength: 128
+          minLength: 8
           title: Password
         role:
           type: string

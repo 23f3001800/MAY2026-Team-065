@@ -122,6 +122,9 @@ class AssistantAnswer:
     # Records what the assistant was allowed to read, so a reviewer can confirm
     # it never reached beyond the caller's role.
     contextUsed: List[str] = field(default_factory=list)
+    # Suggested next questions, derived from the retrieved records rather than
+    # generated, so they can never reference a complaint that does not exist.
+    followUps: List[str] = field(default_factory=list)
 
 
 class AIProviderError(RuntimeError):
