@@ -8,11 +8,15 @@ from pydantic import BaseModel, EmailStr, Field
 class UserRegister(BaseModel):
     userId: str
     name: str
-    email: str 
+    email: str
     phone: str
-    password: str
+    # Registration was the one password path with no minimum, so an empty
+    # string was accepted, hashed, and stored -- creating an account whose
+    # password is "". Every other path (reset, admin-created accounts, password
+    # change) already enforced this; this one was simply missed.
+    password: str = Field(..., min_length=8, max_length=128)
     role: str = "citizen"
-    address: Optional[str] = None 
+    address: Optional[str] = None
 
 class Token(BaseModel):
     access_token: str
@@ -38,6 +42,28 @@ class CategoryResponse(BaseModel):
     department: str
     class Config: 
         from_attributes = True
+
+class DuplicateWarning(BaseModel):
+    """A complaint that looks like the same real-world issue as this one.
+
+    Advisory. Nothing is merged or rejected on the strength of it -- a false
+    link hides one citizen's report behind another's, which costs more than a
+    missed duplicate. An officer confirms with POST /complaints/{id}/merge.
+
+    ``matchedOn`` says WHY, and the two reasons have very different strength:
+      * "photo" -- byte-identical file already attached elsewhere. Certain that
+        it is the same file; not proof it is the same report.
+      * "text"  -- similar wording nearby, scored 0-1 in ``similarity``.
+    """
+
+    complaintId: str
+    similarity: float
+    matchedOn: str
+    reason: str
+    status: Optional[str] = None
+    description: Optional[str] = None
+    filedAt: Optional[str] = None
+
 
 # --- Complaint Schemas ---
 class ComplaintCreate(BaseModel):
@@ -93,6 +119,15 @@ class ComplaintResponse(BaseModel):
     aiSource: Optional[str] = None
     aiAnalyzedAt: Optional[datetime] = None
     duplicateOfComplaintId: Optional[str] = None
+
+    # Populated ONLY by the endpoints that can raise it -- filing a complaint
+    # and uploading a photo. Absent everywhere a complaint is merely listed.
+    #
+    # It exists because duplicateOfComplaintId alone was not enough to build a
+    # warning on: it is set only above the auto-link threshold, so every match
+    # in the 0.55-0.75 band was detected, logged, and then discarded without
+    # anyone being told. This carries those too.
+    duplicateWarning: Optional[DuplicateWarning] = None
 
     class Config:
         from_attributes = True
@@ -599,6 +634,10 @@ class AssistantQueryResponse(BaseModel):
     citations: List[str] = []
     source: str
     contextUsed: List[str] = []
+    # Up to three suggested next questions, grounded in the caller's own
+    # records. Render them as one-tap chips; they are safe to show verbatim
+    # because they are built from retrieved rows, not written by the model.
+    followUps: List[str] = []
 
 
 class DescriptionWriteupRequest(BaseModel):

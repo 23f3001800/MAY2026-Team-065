@@ -98,6 +98,10 @@ export default function ReportIssue() {
   // Set when a complaint was filed into a department that has nobody to own it.
   // Shape: { id, department, imageError }. Null the rest of the time.
   const [unowned, setUnowned] = useState(null);
+  // Set once the complaint is saved. Holds what came back with it, which is the
+  // only chance to tell the citizen about a photo that already exists on
+  // another report -- that check cannot run until the file has been uploaded.
+  const [filed, setFiled] = useState(null);
 
   const [triage, setTriage] = useState(null);
   const [triaging, setTriaging] = useState(false);
@@ -332,7 +336,7 @@ export default function ReportIssue() {
     setMessage({ text: '', type: '' });
     setLoading(true);
     try {
-      const { complaint, imageError } = await createComplaint({
+      const { complaint, imageError, duplicateWarning } = await createComplaint({
         description: description.trim(),
         categoryId,
         address: address.trim(),
@@ -341,27 +345,43 @@ export default function ReportIssue() {
         images: photos.map((p) => p.file),
       });
 
+      // A photo match is news. The citizen could not have seen it before
+      // submitting -- the server only compares the file once it has been
+      // uploaded -- so redirecting away after a second would hide the one thing
+      // they most need to know. A text match they have already been shown while
+      // typing, so that one does not stop the redirect.
+      const photoMatch = duplicateWarning?.matchedOn === 'photo';
+      setFiled({ id: complaint.id, duplicateWarning, imageError });
+
       // The backend routes a new complaint to an officer in the category's
       // department the moment it is filed (services/routing.py). A null
-      // officerId back means that department currently has no active officer --
-      // and that is not something to slip past in a banner that disappears
-      // while the page redirects, so it stops here and says so.
-      if (!complaint.officerId) {
+      // officerId back means that department has no active officer -- news for
+      // the same reason a photo match is, and just as badly served by a banner
+      // that disappears into a redirect.
+      const unroutable = !complaint.officerId;
+      if (unroutable) {
         setUnowned({
           id: complaint.id,
           department: selected?.department || null,
           imageError,
         });
-        return;
       }
+
+      // Either finding keeps the citizen here to read it.
+      const staying = photoMatch || unroutable;
 
       setMessage({
         text: imageError
           ? `Complaint ${complaint.id} was filed, but the photos did not upload (${imageError}).`
-          : `Complaint ${complaint.id} submitted successfully! Redirecting…`,
+          : staying
+            ? `Complaint ${complaint.id} was filed.`
+            : `Complaint ${complaint.id} submitted successfully! Redirecting…`,
         type: imageError ? 'warning' : 'success',
       });
-      setTimeout(() => navigate(`/complaints/${complaint.id}`), imageError ? 4000 : 1200);
+
+      if (!staying) {
+        setTimeout(() => navigate(`/complaints/${complaint.id}`), imageError ? 4000 : 1200);
+      }
     } catch (err) {
       if (err.name !== 'SessionExpiredError') setMessage({ text: err.message, type: 'error' });
     } finally {
@@ -388,10 +408,69 @@ export default function ReportIssue() {
         </div>
       )}
 
+      {/* Shown after the report is saved, when the server found an existing one
+          that looks like the same thing.
+
+          It never blocks and never undoes anything: the complaint is already
+          filed and stays filed. Two reports of the same pothole is a far
+          smaller problem than a resident being told their report was refused,
+          so this offers a look at the other one and nothing more. */}
+      {filed?.duplicateWarning && (
+        <div className="mb-5 rounded-xl border border-amber-200 bg-amber-50 p-4">
+          <div className="flex items-center gap-2 text-[13px] font-semibold text-amber-900">
+            <IconAlertTriangle size={15} />
+            {filed.duplicateWarning.matchedOn === 'photo'
+              ? 'That photo is already on another report'
+              : 'This looks like a report we already have'}
+          </div>
+
+          <p className="text-[12.5px] text-amber-900/90 mt-2 leading-relaxed">
+            {filed.duplicateWarning.matchedOn === 'photo'
+              ? 'The picture you attached is the same file as one on '
+              : 'Your description closely matches '}
+            <Link
+              to={`/complaints/${filed.duplicateWarning.complaintId}`}
+              className="font-mono font-semibold underline"
+            >
+              {filed.duplicateWarning.complaintId}
+            </Link>
+            {filed.duplicateWarning.status ? ` (${filed.duplicateWarning.status})` : ''}.
+          </p>
+
+          {filed.duplicateWarning.description && (
+            <p className="text-[12px] text-amber-800/80 mt-1.5 italic">
+              “{filed.duplicateWarning.description}”
+            </p>
+          )}
+
+          <p className="text-[12px] text-amber-800 mt-3">
+            Your report <span className="font-mono font-semibold">{filed.id}</span> has
+            been filed either way. If it is the same issue an officer will link them;
+            if it is not, nothing happens.
+          </p>
+
+          <div className="flex flex-wrap gap-2 mt-3">
+            <button
+              type="button"
+              onClick={() => navigate(`/complaints/${filed.id}`)}
+              className="focus-ring px-3 py-1.5 rounded-lg bg-amber-900 text-white text-[12.5px] font-semibold"
+            >
+              View my report
+            </button>
+            <Link
+              to={`/complaints/${filed.duplicateWarning.complaintId}`}
+              className="focus-ring px-3 py-1.5 rounded-lg border border-amber-300 text-amber-900 text-[12.5px] font-semibold"
+            >
+              Open {filed.duplicateWarning.complaintId}
+            </Link>
+          </div>
+        </div>
+      )}
+
       {unowned && (
         <NoticeDialog
           title="Municipal officer not available"
-          onDismiss={() => navigate(`/complaints/${unowned.id}`)}
+          onDismiss={() => setUnowned(null)}
           actions={(
             <>
               <button

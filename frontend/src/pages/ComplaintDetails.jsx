@@ -23,7 +23,7 @@ import ComplaintMap from '../components/map/ComplaintMap';
 import OwningOfficer from '../components/dashboard/OwningOfficer';
 import {
   IconArrowLeft, IconMapPin, IconInbox, IconStar, IconBuilding, IconSend,
-  IconExternal, IconUsers, IconReport as IconFileText,
+  IconExternal, IconUsers, IconReport as IconFileText, IconAlertTriangle,
 } from '../components/dashboard/icons';
 import {
   getComplaint, getComplaintFeedback, getComplaintHistory, getComplaintMedia,
@@ -237,6 +237,32 @@ export default function ComplaintDetails() {
       </div>
 
       {slipOpen && <ReportSlipModal complaintId={complaint.id} onDismiss={() => setSlipOpen(false)} />}
+
+      {/* A merged complaint used to be visible only in the officer's drawer, so
+          the person who filed it saw their report sitting at Rejected with no
+          explanation. Being told it was folded into another one — and being
+          able to follow that one — is the difference between "handled" and
+          "ignored". */}
+      {complaint.duplicateOfComplaintId && (
+        <div className="mb-5 rounded-2xl border border-amber-200 bg-amber-50 p-4">
+          <div className="flex items-center gap-2 text-[13px] font-semibold text-amber-900">
+            <IconAlertTriangle size={15} />
+            Reported already
+          </div>
+          <p className="text-[12.5px] text-amber-900/90 mt-2 leading-relaxed">
+            {isCitizen
+              ? 'This was the same issue as an earlier report, so the two have been joined. Progress is tracked on '
+              : 'Closed as a duplicate of '}
+            <Link
+              to={`/complaints/${complaint.duplicateOfComplaintId}`}
+              className="font-mono font-semibold underline"
+            >
+              {complaint.duplicateOfComplaintId}
+            </Link>
+            {isCitizen ? ' — follow that one for updates.' : '.'}
+          </p>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 items-start">
         <div className="lg:col-span-2 space-y-5">

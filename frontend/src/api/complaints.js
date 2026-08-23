@@ -31,13 +31,24 @@ export async function createComplaint({ description, categoryId, latitude, longi
 
   const complaint = fromApiComplaint(created);
   const files = Array.from(images || []).filter(Boolean);
-  if (!files.length) return { complaint, imageError: null };
+
+  // Two independent duplicate signals, and they arrive from different calls.
+  //
+  // The text one comes back on the complaint itself, from the wording and
+  // location. The photo one can only come from the upload, because the server
+  // compares the actual file — and it is the stronger of the two: same bytes is
+  // certain, similar wording is a guess. So the upload response is read rather
+  // than discarded, which is what used to happen here.
+  let duplicateWarning = complaint?.duplicateWarning || null;
+
+  if (!files.length) return { complaint, imageError: null, duplicateWarning };
 
   try {
-    await uploadComplaintImages(complaint.id, files);
-    return { complaint, imageError: null };
+    const upload = await uploadComplaintImages(complaint.id, files);
+    if (upload?.duplicateWarning) duplicateWarning = upload.duplicateWarning;
+    return { complaint, imageError: null, duplicateWarning };
   } catch (err) {
-    return { complaint, imageError: err.message };
+    return { complaint, imageError: err.message, duplicateWarning };
   }
 }
 
