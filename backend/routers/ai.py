@@ -298,6 +298,9 @@ async def assistant_query(
         "citations": answer.citations,
         "source": answer.source,
         "contextUsed": answer.contextUsed,
+        # Present on every outcome, including the unavailable-LLM one: a dead
+        # end is where somebody most needs a next step offered to them.
+        "followUps": answer.followUps,
     }
 
 
