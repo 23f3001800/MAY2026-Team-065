@@ -264,6 +264,41 @@ def _distance_km(lat: float, lng: float, location) -> Optional[float]:
     return round(math.sqrt(x * x + y * y) * _EARTH_RADIUS_KM, 2)
 
 
+def _is_officer(user: models.UserModel) -> bool:
+    """True for a municipal officer, whichever spelling of the role is stored."""
+    return (user.role or "").lower() in {"officer", "municipal_officer"}
+
+
+async def _officer_department(
+    db: AsyncSession, user: models.UserModel
+) -> Optional[str]:
+    """The department on the signed-in officer's own record, or None.
+
+    None means the caller is not an officer, or is one whose row has somehow
+    gone missing. Callers scoping a query must treat that as "show nothing"
+    rather than "show everything" -- the whole point of the scope is that an
+    officer sees the work their department owns, and falling back to the
+    city-wide list on a lookup failure would quietly undo it.
+    """
+    if not _is_officer(user):
+        return None
+
+    result = await db.execute(
+        select(models.MunicipalOfficerModel)
+        .where(models.MunicipalOfficerModel.userId == user.userId)
+    )
+    officer = result.scalar_one_or_none()
+    return officer.department if officer else None
+
+
+async def _officer_category_ids(
+    db: AsyncSession, user: models.UserModel
+) -> List[str]:
+    """The category ids an officer is responsible for, via their department."""
+    department = await _officer_department(db, user)
+    return await routing_service.category_ids_for_department(db, department)
+
+
 @app.post("/auth/register", status_code=status.HTTP_201_CREATED)
 async def register_user(user: schemas.UserRegister, db: AsyncSession = Depends(get_db)):
     stmt = select(models.UserModel).where(models.UserModel.email == user.email)
@@ -564,8 +599,25 @@ async def get_complaints(
 
     if current_user.role.lower() == "citizen":
         stmt = stmt.where(models.ComplaintModel.citizenId == current_user.userId)
-    elif current_user.role.lower() in ["administrator", "officer"]:
-        pass 
+    elif _is_officer(current_user):
+        # An officer sees their own department's work and nothing else.
+        #
+        # Complaints are already ROUTED by department on filing (see
+        # services/routing.py), but until now the queue ignored that and handed
+        # every officer the whole city. A Sanitation officer scrolling past
+        # electrical faults they cannot action is not a filtering problem -- it
+        # is the queue telling them work is theirs when it is not.
+        #
+        # Departments have no complaint column of their own, so the scope is
+        # expressed as the department's categories. No categories means no
+        # queue: an officer whose department matches nothing gets an empty list,
+        # never the unscoped one.
+        category_ids = await _officer_category_ids(db, current_user)
+        if not category_ids:
+            return []
+        stmt = stmt.where(models.ComplaintModel.categoryId.in_(category_ids))
+    elif current_user.role.lower() == "administrator":
+        pass
     else:
         raise HTTPException(status_code=403, detail="Unauthorized role.")
 
@@ -1154,7 +1206,7 @@ async def get_escalations(
     """
     require_roles(current_user, ("officer", "administrator"), "view escalations")
 
-    result = await db.execute(
+    stmt = (
         select(models.ComplaintModel)
         .where(models.ComplaintModel.status.in_([st.name for st in OPEN_STATUSES]))
         .options(
@@ -1162,6 +1214,20 @@ async def get_escalations(
             selectinload(models.ComplaintModel.location),
         )
     )
+
+    # Scoped exactly like GET /complaints/. An overdue list that reaches outside
+    # the officer's department would put work in front of somebody with no
+    # authority to clear it, which is worse than not listing it: it reads as
+    # theirs to chase.
+    if _is_officer(current_user):
+        category_ids = await _officer_category_ids(db, current_user)
+        if not category_ids:
+            return schemas.EscalationResponse(
+                breached=[], atRisk=[], breachedCount=0, atRiskCount=0
+            )
+        stmt = stmt.where(models.ComplaintModel.categoryId.in_(category_ids))
+
+    result = await db.execute(stmt)
     complaints = list(result.scalars().all())
 
     hours = sla_service.sla_hours()
@@ -1908,6 +1974,30 @@ async def update_citizen_password(
     await db.commit()
 
     return {"message": "Password updated successfully."}
+
+
+@app.get("/officers/me/profile", response_model=schemas.OfficerProfileResponse)
+async def get_officer_profile(
+    db: AsyncSession = Depends(get_db),
+    current_user: models.UserModel = Depends(get_current_user)
+):
+    """The signed-in municipal officer's own profile.
+
+    Read-only on purpose. Which department an officer sits in decides which
+    complaints they are shown and which ones route to them, so it is an
+    administrator's decision (PATCH /admin/users/{id}), not a self-service
+    field -- an officer editing it would be reassigning their own workload.
+    """
+    require_roles(current_user, ("officer",), "read a municipal officer profile")
+
+    result = await db.execute(
+        select(models.MunicipalOfficerModel)
+        .where(models.MunicipalOfficerModel.userId == current_user.userId)
+    )
+    officer = result.scalar_one_or_none()
+    if not officer:
+        raise HTTPException(status_code=404, detail="Officer profile not found.")
+    return officer
 
 
 #  Allows a logged-in Field Worker to toggle their availability ON or OFF.

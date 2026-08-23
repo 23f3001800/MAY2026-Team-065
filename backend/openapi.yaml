@@ -874,6 +874,29 @@ paths:
                 $ref: '#/components/schemas/HTTPValidationError'
       security:
       - OAuth2PasswordBearer: []
+  /officers/me/profile:
+    get:
+      summary: Get Officer Profile
+      description: 'The signed-in municipal officer''s own profile.
+
+
+        Read-only on purpose. Which department an officer sits in decides which
+
+        complaints they are shown and which ones route to them, so it is an
+
+        administrator''s decision (PATCH /admin/users/{id}), not a self-service
+
+        field -- an officer editing it would be reassigning their own workload.'
+      operationId: get_officer_profile_officers_me_profile_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OfficerProfileResponse'
+      security:
+      - OAuth2PasswordBearer: []
   /workers/me/profile:
     get:
       summary: Get Worker Profile
@@ -3209,6 +3232,51 @@ components:
       - isRead
       - complaintId
       title: NotificationResponse
+    OfficerProfileResponse:
+      properties:
+        userId:
+          type: string
+          title: Userid
+        name:
+          type: string
+          title: Name
+        email:
+          type: string
+          title: Email
+        phone:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Phone
+        department:
+          type: string
+          title: Department
+        designation:
+          type: string
+          title: Designation
+      type: object
+      required:
+      - userId
+      - name
+      - email
+      - department
+      - designation
+      title: OfficerProfileResponse
+      description: 'The signed-in municipal officer''s own record.
+
+
+        department and designation live on municipal_officers, not on users, and
+
+        the login JWT carries only email/userId/role -- so a client that decoded the
+
+        token still had no way to tell an officer which department they answer for.
+
+        That matters now the department is what decides which complaints reach them:
+
+        "which desk am I" and "why am I seeing these" are the same question.
+
+
+        Both columns are NOT NULL on the model, so neither is optional here.'
     PasswordReset:
       properties:
         newPassword:

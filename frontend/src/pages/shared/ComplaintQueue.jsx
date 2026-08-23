@@ -61,6 +61,12 @@ export default function ComplaintQueue({ title, subtitle }) {
   const { data, error, loading, refetch, setData } = useAsync(() => listComplaints(), []);
   const items = useMemo(() => data || [], [data]);
 
+  // GET /complaints/ scopes an officer to their own department, and each
+  // department owns exactly one category, so the category filter on that screen
+  // is a dropdown whose only real option is the one thing already on show. It
+  // stays for administrators, whose queue really is city-wide.
+  const isOfficer = getCurrentUser()?.role === 'municipal_officer';
+
   // Workers load independently: a failure here should not blank the queue, it
   // should just disable assignment.
   const [workers, setWorkers] = useState([]);
@@ -359,7 +365,9 @@ export default function ComplaintQueue({ title, subtitle }) {
           />
         </div>
         <FilterSelect label="Status" value={status} onChange={setStatus} options={ASSIGNABLE_STATUSES} allLabel="All Statuses" />
-        <FilterSelect label="Category" value={category} onChange={setCategory} options={CATEGORY_LABELS} allLabel="All Categories" />
+        {!isOfficer && (
+          <FilterSelect label="Category" value={category} onChange={setCategory} options={CATEGORY_LABELS} allLabel="All Categories" />
+        )}
         <FilterSelect label="Severity" value={severity} onChange={setSeverity} options={SEVERITIES} allLabel="All Severities" />
         <input
           type="date"
@@ -482,7 +490,11 @@ export default function ComplaintQueue({ title, subtitle }) {
       ) : filtered.length === 0 ? (
         <EmptyPanel
           title={items.length === 0 ? 'No complaints yet' : 'No complaints match'}
-          message={items.length === 0 ? 'Nothing has been reported to the city yet.' : 'Try widening the filters.'}
+          message={items.length === 0
+            ? (isOfficer
+              ? 'Nothing has been reported to your department yet.'
+              : 'Nothing has been reported to the city yet.')
+            : 'Try widening the filters.'}
         >
           {items.length > 0 && (
             <button onClick={resetFilters} className="text-[13px] font-semibold text-primary hover:underline">
