@@ -16,6 +16,7 @@ from datetime import date, datetime, timedelta, timezone
 import jwt
 from sqlalchemy.orm import selectinload
 import os
+import hashlib
 import shutil
 import json
 import math
@@ -555,8 +556,34 @@ async def create_complaint(
         .options(selectinload(models.ComplaintModel.location), selectinload(models.ComplaintModel.category))
     )
     result = await db.execute(stmt)
+    stored = result.scalar_one()
 
-    return result.scalar_one()
+    # Surface the duplicate the triage pass found, if any.
+    #
+    # This was detected already and then thrown away. Only matches above the
+    # auto-link threshold (0.75) were recorded, on duplicateOfComplaintId;
+    # everything in the 0.55-0.75 band -- a genuine "this looks like an existing
+    # report", which is most of them -- was written to the log and dropped, so
+    # no interface could show it and the citizen filed a second report with no
+    # indication the first existed.
+    #
+    # Attached to the response rather than stored: it is a fact about THIS
+    # submission, and it must not be refetched later as though it were a
+    # standing property of the complaint.
+    response = schemas.ComplaintResponse.model_validate(stored)
+    best = triage_result.duplicates.best if triage_result else None
+    if best is not None:
+        response.duplicateWarning = schemas.DuplicateWarning(
+            complaintId=best.complaintId,
+            similarity=best.similarity,
+            matchedOn="text",
+            reason=best.reason or "similar wording nearby",
+            status=best.status,
+            description=best.description,
+            filedAt=best.createdAt,
+        )
+
+    return response
 
 # If a Citizen asks to see complaints, the API should only return the complaints they personally submitted.
 # If an Administrator asks to see complaints, the API should return everyone's complaints so they can manage the city.
@@ -1553,6 +1580,8 @@ async def upload_complaint_images(
     uploaded_media = []
     first_image: Optional[tuple] = None  # (bytes, mime) kept for AI analysis
 
+    digests: List[str] = []
+
     for file in files:
         # Read once: the stream cannot be rewound after copyfileobj consumes it,
         # and the AI step below needs the same bytes.
@@ -1560,6 +1589,10 @@ async def upload_complaint_images(
         await file.seek(0)
 
         new_media = _store_upload(complaintId, file, current_user.userId, phase)
+        # Free here -- the bytes are already in memory for the AI step.
+        if contents:
+            new_media.sha256 = hashlib.sha256(contents).hexdigest()
+            digests.append(new_media.sha256)
         db.add(new_media)
         uploaded_media.append({"mediaId": new_media.mediaId, "fileUrl": new_media.fileUrl})
 
@@ -1589,10 +1622,36 @@ async def upload_complaint_images(
             timestamp=datetime.now(timezone.utc).replace(tzinfo=None),
         ))
 
+    # The same photo on another complaint is the clearest duplicate signal there
+    # is, and until now nothing looked for it: text-and-location matching runs
+    # when a complaint is FILED, which is before any photo exists.
+    duplicate_warning = None
+    try:
+        duplicate_warning = await triage_service.find_photo_duplicates(
+            db, digests,
+            exclude_complaint_id=complaintId,
+            window_days=AIService().settings.duplicate_window_days,
+        )
+    except Exception:
+        # Advisory. An upload must not fail because the check did.
+        logger.exception("photo duplicate check failed for %s", complaintId)
+
+    if duplicate_warning:
+        logger.info(
+            "complaint %s carries a photo already attached to %s",
+            complaintId, duplicate_warning["complaintId"],
+        )
+        await notification_service.notify_photo_duplicate(
+            db, complaint,
+            duplicate_of=duplicate_warning["complaintId"],
+            reason=duplicate_warning["reason"],
+        )
+
     payload = {
         "message": f"{len(uploaded_media)} image(s) uploaded successfully",
         "mediaAttachments": uploaded_media,
         "aiAnalysis": ai_analysis,
+        "duplicateWarning": duplicate_warning,
     }
 
     _remember_idempotent(

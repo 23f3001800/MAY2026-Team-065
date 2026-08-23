@@ -32,6 +32,7 @@ from .provider import (
     highest_severity,
 )
 from .text import (
+    _WORD_RE,
     bigrams,
     build_idf,
     haversine_km,
@@ -67,7 +68,7 @@ class Topic:
 TOPICS: Tuple[Topic, ...] = (
     Topic(
         key="water",
-        aliases=("water", "plumbing", "pipe", "sewer", "drain"),
+        aliases=("water", "plumbing", "pipe", "pipes", "sewer", "sewage", "drain", "drains"),
         strong=(
             "leak", "leakage", "pipe", "pipeline", "burst", "waterlog", "flood", "flooding",
             "sewage", "sewer", "drainage", "drain", "tap", "borewell", "hydrant", "overflow",
@@ -78,7 +79,7 @@ TOPICS: Tuple[Topic, ...] = (
     ),
     Topic(
         key="sanitation",
-        aliases=("sanitation", "garbage", "waste", "debris", "cleaning"),
+        aliases=("sanitation", "garbage", "waste", "debris", "cleaning", "refuse"),
         strong=(
             "garbage", "trash", "rubbish", "waste", "dump", "dumping", "litter", "debris",
             "sewage", "manure", "rodent", "rat", "mosquito", "stink", "stench", "rotting",
@@ -89,7 +90,7 @@ TOPICS: Tuple[Topic, ...] = (
     ),
     Topic(
         key="roads",
-        aliases=("road", "transport", "street", "traffic", "pothole"),
+        aliases=("road", "roads", "transport", "street", "streets", "traffic", "pothole", "potholes"),
         strong=(
             "pothole", "crater", "road", "asphalt", "tarmac", "pavement", "footpath", "sidewalk",
             "manhole", "speedbreaker", "divider", "crack", "subsidence", "cavein", "bridge",
@@ -100,7 +101,8 @@ TOPICS: Tuple[Topic, ...] = (
     ),
     Topic(
         key="electrical",
-        aliases=("electric", "electrical", "streetlight", "light", "power"),
+        aliases=("electric", "electrical", "electricity", "streetlight", "streetlights",
+                 "light", "lights", "lighting", "power"),
         strong=(
             "streetlight", "lamppost", "light", "bulb", "electric", "electrical", "wire",
             "cable", "transformer", "pole", "shortcircuit", "spark", "sparking", "voltage",
@@ -111,7 +113,7 @@ TOPICS: Tuple[Topic, ...] = (
     ),
     Topic(
         key="public_works",
-        aliases=("public", "park", "property", "works", "civic"),
+        aliases=("public", "park", "parks", "property", "works", "civic"),
         strong=(
             "park", "playground", "bench", "swing", "statue", "fountain", "toilet", "shelter",
             "vandalism", "graffiti", "encroachment", "boundary", "railing", "gate", "wall",
@@ -146,6 +148,32 @@ _MEDIUM_TERMS = {
 _SCALE_PHRASES = (
     "entire street", "whole street", "entire area", "whole area", "many houses",
     "several houses", "all residents", "main road", "school children", "every day",
+)
+
+# Hazards that people write as two words.
+#
+# The sets above are matched against single stemmed tokens, and the tokenizer
+# splits on word boundaries -- so the squashed spellings in them ("livewire",
+# "gasleak", "shortcircuit") can only ever match if a citizen types the words
+# joined up, which nobody does. "Live wire hanging low from the pole, well
+# within reach of anyone walking past" therefore scored LOW: the single most
+# dangerous thing in the electrical lexicon, rated as harmless.
+#
+# These are checked against the raw normalised text the same way _SCALE_PHRASES
+# already was. The squashed forms are kept above rather than deleted, because
+# they still catch the occasional "livewire" written as one word.
+_CRITICAL_PHRASES = (
+    "live wire", "live cable", "exposed wire", "exposed cable", "naked wire",
+    "high voltage", "gas leak", "gas smell", "smell of gas",
+    "building collapse", "wall collapse", "roof collapse", "about to collapse",
+    "open manhole", "uncovered manhole", "manhole open",
+    "electric shock", "caught fire", "on fire",
+)
+_HIGH_PHRASES = (
+    "short circuit", "power cut", "water main", "cave in", "caved in",
+    "speed breaker", "sewage overflow", "no water", "no supply",
+    "near the school", "outside the school", "near a school",
+    "someone could", "somebody could", "could fall", "could be hurt",
 )
 
 
@@ -184,10 +212,24 @@ class ComplaintRecord:
 
 
 def _topics_for_category(category: CategoryRecord) -> List[Topic]:
-    """Match a database category row to lexicon topics via its name/department."""
-    haystack = f"{category.name} {category.department}".lower()
-    matched = [t for t in TOPICS if any(alias in haystack for alias in t.aliases)]
-    return matched
+    """Match a database category row to lexicon topics via its name/department.
+
+    Matched on WHOLE WORDS. Plain substring matching -- which this used to do --
+    linked "Streetlight Fault" to the *roads* topic, because "street" is a
+    substring of "streetlight". The visible effect was streetlight complaints
+    being scored with road vocabulary and, worse, road complaints scoring points
+    against the electrical category: a report of rubbish "on the road" listed
+    Streetlight Fault as its third-best category, with the word "road" given as
+    the reason.
+
+    The cost of word matching is that an alias no longer catches its own
+    derived forms ("electric" does not match "electrical"), so the alias tuples
+    above list the forms that actually appear in category names.
+    """
+    haystack = set(_WORD_RE.findall(normalize(
+        category.name + " " + category.department
+    )))
+    return [t for t in TOPICS if haystack & set(t.aliases)]
 
 
 def categorize(description: str, categories: Sequence[CategoryRecord]) -> CategoryResult:
@@ -277,6 +319,10 @@ def predict_severity(
     high_hits = tokens & _HIGH_STEMS
     medium_hits = tokens & _MEDIUM_STEMS
     scale_hits = [phrase for phrase in _SCALE_PHRASES if phrase in raw_text]
+
+    # Multi-word hazards, which single-token matching cannot see at all.
+    critical_hits |= {p for p in _CRITICAL_PHRASES if p in raw_text}
+    high_hits |= {p for p in _HIGH_PHRASES if p in raw_text}
 
     signals.extend(sorted(critical_hits))
     signals.extend(sorted(high_hits))
