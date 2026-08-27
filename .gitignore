@@ -71,3 +71,6 @@ ${APPDATA}\npm/
 # .docx makes every save a binary diff nobody can review.
 Milestone_*.docx
 ~$*.docx
+
+# Wrangler CLI cache and local state (Cloudflare Pages deploys).
+.wrangler/
