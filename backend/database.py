@@ -6,7 +6,16 @@ from sqlalchemy.orm import DeclarativeBase
 
 load_dotenv()
 
-DATABASE_URL = os.getenv("DATABASE_URL")
+# .strip() because a connection string pasted into a hosting dashboard very
+# often carries a trailing newline, and the failure it causes names the wrong
+# culprit: the newline lands inside the database name, so the server answers
+#
+#     asyncpg.exceptions.InvalidCatalogNameError: database "postgres
+#     " does not exist
+#
+# which reads as a missing database rather than a stray character, and sends
+# whoever is deploying to go and create a database that is already there.
+DATABASE_URL = (os.getenv("DATABASE_URL") or "").strip()
 if not DATABASE_URL:
     raise RuntimeError(
         "DATABASE_URL is not set. Copy backend/.env.example to backend/.env and fill it in."

@@ -46,6 +46,16 @@ load rather than immediately. If you must use 6543, disable the cache:
 DATABASE_URL=postgresql+asyncpg://…:6543/postgres?prepared_statement_cache_size=0
 ```
 
+### If the API exits with `database "postgres
+" does not exist`
+
+The value carries a trailing newline from the paste. Re-enter `DATABASE_URL`
+without one. `database.py` strips whitespace now, so this only bites a service
+deployed before that change.
+
+It is worth reading the error for what it does prove: the connection reached the
+database server, so the host, port and pooler choice were all correct.
+
 Tables are created on first boot — `create_all` plus `migrations.py` — so there
 is no separate migration step.
 
