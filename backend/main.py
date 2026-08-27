@@ -65,21 +65,38 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Smart Civic Connect")
-os.makedirs("uploads", exist_ok=True)
-app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
+# Where complaint photos are written.
+#
+# Configurable because on a hosted platform the container filesystem is wiped on
+# every deploy: this has to point at a mounted volume, or the evidence for every
+# complaint disappears the next time you ship. See DEPLOY.md.
+UPLOAD_DIR = os.getenv("UPLOAD_DIR", "uploads")
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
+
+# Which browser origins may call this API.
+#
+# Was a hardcoded list ending in "*", which is invalid alongside
+# allow_credentials=True -- the spec forbids the combination and browsers reject
+# it, so it only ever appeared to work because localhost was listed too.
+#
+# Set ALLOWED_ORIGINS to a comma-separated list of the deployed frontend's
+# origins. Localhost stays in by default so a checkout still runs with no
+# configuration.
+_DEFAULT_ORIGINS = "http://localhost:3000,http://localhost:5173"
 
 origins = [
-    "http://localhost:3000",  
-    "http://localhost:5173", 
-    "http://localhost:8080", 
-    "*"                      
+    o.strip()
+    for o in (os.getenv("ALLOWED_ORIGINS") or _DEFAULT_ORIGINS).split(",")
+    if o.strip()
 ]
+logger.info("CORS allows: %s", ", ".join(origins))
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,       
-    allow_credentials=True,      
-    allow_methods=["*"],         
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
     allow_headers=["*"],
 )
 
@@ -1456,7 +1473,7 @@ def _store_upload(
     extension = "".join(ch for ch in extension if ch.isalnum())[:8] or "bin"
 
     safe_filename = f"{complaintId}_{str(uuid.uuid4())[:8]}.{extension}"
-    file_path = os.path.join("uploads", safe_filename)
+    file_path = os.path.join(UPLOAD_DIR, safe_filename)
 
     with open(file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)

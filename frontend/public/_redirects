@@ -1,0 +1,5 @@
+# Single-page app: every path must serve index.html so React Router can handle
+# it. Without this, Cloudflare Pages looks for a real file and returns 404 on any
+# deep link -- refreshing /complaints/CMP-1234, or opening one from an email,
+# would break while navigating there from the home page worked.
+/*    /index.html   200
